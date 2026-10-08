@@ -1,0 +1,118 @@
+#!/bin/sh
+# Start and unlock the secret service that Claude Desktop saves the claude.ai
+# sign-in in.
+#
+# WHY THIS EXISTS (docs/DESIGN.md §5.1, R2)
+#   Claude Desktop stores its sign-in through libsecret, i.e. the freedesktop
+#   secret service. Anthropic's own documentation: "Claude Desktop saves your
+#   sign-in in your desktop's keyring… If it can't reach an unlocked keyring,
+#   your sign-in isn't saved and you sign in again each time you launch the app",
+#   and the remedy it gives for a desktop other than KDE Plasma is gnome-keyring.
+#   This desktop is LXQt, so gnome-keyring is the component — and the .deb only
+#   *recommends* it, which is why the image installs it by name.
+#
+# UNLOCKED WITHOUT A PROMPT
+#   Nobody can answer a keyring prompt in a streamed session that has not
+#   authenticated yet. A random password is generated once into the state mount
+#   (<mount>/.config/claude-code-linux/keyring.password, mode 0600) and fed to
+#   `gnome-keyring-daemon --unlock` on every start. The login keyring itself lives
+#   in <mount>/.local/share/keyrings, so after the container is recreated the same
+#   password unlocks the same keyring and the sign-in is still there — no user
+#   action, no secret outside the user's own appdata.
+#
+# STARTED BY lxqt-session through /etc/xdg/autostart/10-…, so it inherits the
+# session bus dbus-launch created (DBUS_SESSION_BUS_ADDRESS) and the environment
+# the base entrypoint computed. It is idempotent, it proves the service by
+# storing and reading back a probe secret (an unlocked daemon is not the same
+# thing as a locked one that answers on its socket), and it publishes a readiness
+# marker that claude-desktop-session waits for: lxqt-session starts XDG autostart
+# entries in whatever order it read them, so the app must not assume this ran
+# first. The marker is published on every path, so a failure here warns in the log
+# instead of holding the app back.
+
+set -eu
+
+state_dir="${HOME:-/home/ubuntu}/.config/claude-code-linux"
+password_file="${state_dir}/keyring.password"
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp/runtime-ubuntu}"
+ready_marker="${runtime_dir}/claude-code-linux-keyring-ready"
+control_dir="${runtime_dir}/keyring"
+# Attributes of the probe item; it is removed again below.
+probe_attr="claude-code-linux"
+probe_value="keyring-probe"
+
+log() { echo "[keyring] $*"; }
+
+status=0
+
+mkdir -p "${state_dir}"
+chmod 700 "${state_dir}"
+rm -f "${ready_marker}"
+
+if [ ! -s "${password_file}" ]; then
+	umask 077
+	head -c 32 /dev/urandom | base64 | tr -d '\n' > "${password_file}"
+	chmod 600 "${password_file}"
+	log "generated a keyring password in ${password_file} (0600, inside the state mount)"
+fi
+
+if [ -S "${control_dir}/control" ]; then
+	log "the secret service is already running (${control_dir}/control)"
+else
+	# gnome-keyring-daemon prints only its GNOME_KEYRING_CONTROL/SSH_AUTH_SOCK
+	# assignments on stdout; stderr stays visible in the container log. The output
+	# goes to a file rather than a pipe on purpose: the daemon forks and the child
+	# inherits stdout, so a command substitution would wait for an EOF that never
+	# comes. `timeout` bounds it, and the verdict comes from the checks below
+	# rather than from this exit status.
+	unlock_env="${runtime_dir}/claude-code-linux-keyring-env"
+	: > "${unlock_env}"
+	timeout 60 gnome-keyring-daemon --unlock --components=secrets \
+		< "${password_file}" > "${unlock_env}" || true
+	# shellcheck disable=SC1090  # written by gnome-keyring-daemon, two known names
+	if [ -s "${unlock_env}" ]; then
+		. "${unlock_env}"
+	fi
+	control_dir="${GNOME_KEYRING_CONTROL:-${control_dir}}"
+
+	# The daemon's control socket is the signal that needs no D-Bus client tool in
+	# the image; libsecret reaches the same daemon over the session bus.
+	i=0
+	while [ ! -S "${control_dir}/control" ]; do
+		i=$((i + 1))
+		if [ "${i}" -gt 40 ]; then
+			log "WARNING: the secret service did not come up in 20s; Claude Desktop will run, but it may not be able to save the sign-in"
+			status=1
+			break
+		fi
+		sleep 0.5
+	done
+	if [ "${status}" -eq 0 ]; then
+		log "gnome-keyring-daemon is up (${control_dir}/control)"
+	fi
+fi
+
+# A readable socket does not prove the login keyring is unlocked, and a locked
+# keyring is exactly the failure the app's own documentation warns about. Store a
+# probe secret and read it back: the round trip goes through the same libsecret
+# path the app uses, and it also creates the login keyring on the first start
+# rather than leaving that to whichever application writes a secret first.
+if [ "${status}" -eq 0 ]; then
+	probe_ok=0
+	if printf 'probe' | timeout 20 secret-tool store --label="claude-code-linux keyring probe" \
+		"${probe_attr}" "${probe_value}" > /dev/null 2>&1; then
+		if [ "$(timeout 20 secret-tool lookup "${probe_attr}" "${probe_value}" 2> /dev/null)" = "probe" ]; then
+			probe_ok=1
+		fi
+		timeout 20 secret-tool clear "${probe_attr}" "${probe_value}" 2> /dev/null || true
+	fi
+	if [ "${probe_ok}" -eq 1 ]; then
+		log "the secret service stores and returns a secret: the Claude sign-in can be persisted"
+	else
+		log "WARNING: the secret service is running but could not store a secret (locked login keyring, or the password in ${password_file} no longer matches it). Delete that file to start a new keyring, and expect to sign in to Claude again."
+		status=1
+	fi
+fi
+
+touch "${ready_marker}"
+exit "${status}"

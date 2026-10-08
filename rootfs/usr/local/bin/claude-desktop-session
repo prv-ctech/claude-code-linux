@@ -1,0 +1,49 @@
+#!/bin/sh
+# Start Claude Desktop at session start, once the keyring that stores its sign-in
+# is ready.
+#
+# WHY IT WAITS (docs/DESIGN.md §5.1, R2)
+#   Claude Desktop registers the claude.ai sign-in through the freedesktop secret
+#   service, and a sign-in it cannot store is one the user repeats on every start.
+#   The keyring entry (/etc/xdg/autostart/10-claude-code-linux-keyring.desktop) and
+#   this one are independent entries: lxqt-session starts XDG autostart entries in
+#   whatever order it read the directories, so this waits for the keyring's
+#   readiness marker instead of assuming it ran first — and gives up waiting after
+#   a bounded time, because a desktop with no Claude window is worse than a Claude
+#   window that may ask for the sign-in again.
+#
+# STARTED BY lxqt-session, so the app inherits the session's environment: DISPLAY,
+# the session bus, PipeWire's PULSE_SERVER, and the xdg-desktop-portal that the
+# OAuth browser flow uses. `claude-desktop` resolves to /usr/local/bin/claude-desktop
+# (the launcher below), which is ahead of the package's own /usr/bin/claude-desktop
+# in PATH.
+#
+# Opt out of the autostart with -e CLAUDE_DESKTOP_AUTOSTART=false — the menu entry
+# the package installs (com.anthropic.Claude.desktop, with the hicolor icons, so it
+# appears in the LXQt menu as "Claude") keeps working either way.
+
+set -eu
+
+case "${CLAUDE_DESKTOP_AUTOSTART:-true}" in
+	true | 1 | yes | TRUE | True | YES)
+		;;
+	*)
+		echo "[claude-desktop] CLAUDE_DESKTOP_AUTOSTART=${CLAUDE_DESKTOP_AUTOSTART}: not starting the app at session start"
+		exit 0
+		;;
+esac
+
+ready_marker="${XDG_RUNTIME_DIR:-/tmp/runtime-ubuntu}/claude-code-linux-keyring-ready"
+waited=0
+while [ ! -e "${ready_marker}" ] && [ "${waited}" -lt 60 ]; do
+	waited=$((waited + 1))
+	sleep 0.5
+done
+
+if [ -e "${ready_marker}" ]; then
+	echo "[claude-desktop] keyring ready; starting Claude Desktop"
+else
+	echo "[claude-desktop] WARNING: the keyring did not report ready within 30s; starting Claude Desktop anyway"
+fi
+
+exec claude-desktop

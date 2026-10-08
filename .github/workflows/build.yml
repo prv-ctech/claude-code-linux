@@ -26,6 +26,7 @@ on:
     # Recipe paths only. A README or .env.example edit does not rebuild the image.
     paths:
       - Dockerfile
+      - .dockerignore
       - docker-entrypoint.sh
       - 'rootfs/**'
       - compose.yaml
@@ -39,7 +40,7 @@ on:
         required: false
         type: string
       rebuild:
-        description: 'Rebuild even when the published image already carries this recipe'
+        description: 'Build the newest version unconditionally, without reading the registry first'
         required: false
         type: boolean
         default: false
@@ -64,6 +65,13 @@ env:
   # Distribution flavor suffix used for the second tag (:<version>-<flavor>).
   # Checked against BASE_IMAGE below so the tag cannot silently lie.
   FLAVOR: ubuntu26.04
+  # Version of the recipe-hash composition (its input set and ordering). Bump it
+  # to force exactly one rebuild of every published version, e.g. when a new file
+  # joins the hash or the hash stops being computed the same way. Changing it is
+  # the explicit way to say "the old hashes are not comparable any more".
+  # 2: the input set became derived (scripts/recipe-inputs.sh) and gained
+  # .dockerignore, every remaining COPY source (the installer) and unraid/icon.png.
+  RECIPE_SCHEMA: '2'
   DEB_BASE: https://downloads.claude.ai/claude-desktop/apt/stable
 
 jobs:
@@ -74,10 +82,16 @@ jobs:
       publish_latest: ${{ steps.decide.outputs.publish_latest }}
       newest: ${{ steps.decide.outputs.newest }}
       version: ${{ steps.decide.outputs.version }}
-      desktop_sha256: ${{ steps.desktop.outputs.sha256 }}
-      desktop_deb_url: ${{ steps.desktop.outputs.deb_url }}
+      # The CHOSEN stanza's sha256/deb URL, emitted by the decide step. The
+      # newest-stanza values from steps.desktop stay in that step and appear in
+      # the summary table only: if the newest index stanza has no .deb yet, the
+      # candidate actually built is an older one, and the build must get the
+      # version + SHA256 + URL of the same stanza or it would pin a download
+      # against the wrong hash.
+      desktop_sha256: ${{ steps.decide.outputs.desktop_sha256 }}
+      desktop_deb_url: ${{ steps.decide.outputs.desktop_deb_url }}
       cli: ${{ steps.cli.outputs.version }}
-      recipe: ${{ steps.recipe.outputs.recipe }}
+      recipe: ${{ steps.decide.outputs.recipe }}
       flavor: ${{ steps.recipe.outputs.flavor }}
       reason: ${{ steps.decide.outputs.reason }}
     steps:
@@ -129,41 +143,45 @@ jobs:
             echo "::warning::GitHub releases/latest is $gh_tag but npm dist-tags.latest is $cli; npm wins (the image installs from npm)"
           fi
 
-      - name: Compute recipe hash
+      - name: Compute recipe hash base
         id: recipe
         run: |
           set -euo pipefail
-          # Content hash over everything that can change the image: both upstream
-          # pins, the base pin, the Dockerfile, the entrypoint, the rootfs tree,
-          # compose.yaml and the Unraid template. Either pin moving or any recipe
-          # edit changes the hash, which is what makes a CLI-only bump rebuild
-          # the newest desktop version exactly once instead of never.
-          files="Dockerfile docker-entrypoint.sh compose.yaml unraid/claude-code-linux.xml"
-          for f in Dockerfile docker-entrypoint.sh; do
-            [ -f "$f" ] || { echo "::error::$f is missing; cannot compute a recipe hash"; exit 1; }
-          done
-          if [ -d rootfs ]; then
-            files="$files $(find rootfs -type f | LC_ALL=C sort | tr '\n' ' ')"
-          fi
+          # The recipe hash is a content hash over everything that can change the
+          # image: the base pin, the CLI pin, this workflow file itself, and every
+          # file the image build consumes. That last set is DERIVED by
+          # scripts/recipe-inputs.sh from the Dockerfile's own COPY lines plus the
+          # fixed context and packaging inputs -- never hand-maintained. The list
+          # used to be a literal here, and it silently omitted
+          # scripts/install-claude-desktop.sh, which the Dockerfile COPYs and
+          # executes: editing that installer produced an unchanged hash, the plan
+          # concluded "up to date", and the edit reached no image (finding F9).
+          # The Claude Desktop version is deliberately NOT in the set: the decide
+          # step mixes it in per candidate, because the hash a published :<v>
+          # image carries is the hash of THAT version plus the rest of the recipe
+          # and nothing else. Hashing the index tip instead would make an
+          # unfetchable new stanza change the hash while the image stays
+          # identical -- a pointless rebuild on every sweep.
+          files=$(./scripts/recipe-inputs.sh)
           # shellcheck disable=SC2086  # $files is an intentional word-split list
           {
-            printf 'CLAUDE_DESKTOP_VERSION=%s\n' '${{ steps.desktop.outputs.version }}'
-            printf 'CLAUDE_CODE_VERSION=%s\n'    '${{ steps.cli.outputs.version }}'
-            printf 'BASE_IMAGE=%s\n'             "$BASE_IMAGE"
+            printf 'RECIPE_SCHEMA=%s\n' "$RECIPE_SCHEMA"
+            printf 'BASE_IMAGE=%s\n'    "$BASE_IMAGE"
+            printf 'CLAUDE_CODE_VERSION=%s\n' '${{ steps.cli.outputs.version }}'
             for f in $files; do
-              [ -f "$f" ] || continue
+              # A missing input is a broken hash input, not a file to skip: the
+              # hash would silently stop covering it.
+              [ -f "$f" ] || { echo "::error::$f is missing; cannot compute a recipe hash"; exit 1; }
               printf '%s=%s\n' "$f" "$(sha256sum "$f" | cut -d' ' -f1)"
             done
-          } > "$RUNNER_TEMP/recipe-input.txt"
-          recipe=$(sha256sum "$RUNNER_TEMP/recipe-input.txt" | cut -c1-12)
+          } > "$RUNNER_TEMP/recipe-base.txt"
           # The flavor tag suffix must describe the base actually used.
           case "$BASE_IMAGE" in
             *"-$FLAVOR") ;;
             *) echo "::error::FLAVOR=$FLAVOR does not describe BASE_IMAGE=$BASE_IMAGE"; exit 1 ;;
           esac
-          echo "recipe=$recipe"   >> "$GITHUB_OUTPUT"
-          echo "flavor=$FLAVOR"   >> "$GITHUB_OUTPUT"
-          cat "$RUNNER_TEMP/recipe-input.txt"
+          echo "flavor=$FLAVOR" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/recipe-base.txt"
 
       - name: Decide what to build
         id: decide
@@ -175,11 +193,18 @@ jobs:
         run: |
           set -euo pipefail
           repo=$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')
-          recipe='${{ steps.recipe.outputs.recipe }}'
           dispatch="${DISPATCH_VERSION:-}"
           rebuild="${REBUILD:-}"
           maxv=$(tail -n 1 "$RUNNER_TEMP/candidates.txt" | cut -d' ' -f1)
           target=""; newest=""; reason=""; publish_latest=false; matched=0; uptodate=false
+          chosen_sha=""; chosen_url=""; recipe=""
+
+          # recipe-base.txt holds everything except the desktop version, so the
+          # hash is composed here for the candidate actually being considered.
+          recipe_for() {
+            { printf 'CLAUDE_DESKTOP_VERSION=%s\n' "$1"; cat "$RUNNER_TEMP/recipe-base.txt"; } \
+              | sha256sum | cut -c1-12
+          }
 
           # Walk the candidates downwards. The first one that is fetchable and
           # not already published with this recipe is the single build target;
@@ -190,28 +215,58 @@ jobs:
             if [ -n "$dispatch" ] && [ "$v" != "$dispatch" ]; then continue; fi
             matched=1
             url="$DEB_BASE/$filename"
-            code=$(curl -sS -o /dev/null -w '%{http_code}' -I --max-time 60 "$url" || true)
-            if [ "$code" != "200" ]; then
-              echo "::notice::$v: .deb not fetchable (HTTP $code) at $url; skipping this version"
-              continue
-            fi
-            echo "$v: sha256=$sha deb=$url"
+            # Ranged GET of one byte: it proves the object really exists without
+            # downloading it, and unlike HEAD it survives a bucket that answers
+            # 403/405 to HEAD. 200 and 206 both mean "it is there".
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -r 0-0 --max-time 60 "$url" || true)
+            case "$code" in
+              200|206) ;;
+              *)
+                echo "::notice::$v: .deb not fetchable (HTTP ${code:-000}) at $url; skipping this version"
+                continue
+                ;;
+            esac
+            # From here on, v/sha/url/recipe describe ONE stanza. Everything the
+            # build job receives is taken from these four variables.
+            chosen_sha="$sha"; chosen_url="$url"; recipe=$(recipe_for "$v")
+            echo "$v: sha256=$sha deb=$url recipe=$recipe"
+
             published=""
-            if published=$(./scripts/published-recipe.sh "$REGISTRY" "$repo" "$v" "$GITHUB_TOKEN" 2>/dev/null); then
-              if [ "$published" = "$recipe" ]; then
-                if [ "$rebuild" != "true" ]; then
-                  echo "::notice::$v is published with recipe $recipe, and that is the current recipe; up to date"
-                  newest="$v"; uptodate=true; reason="up-to-date"
-                  if [ "$v" = "$maxv" ]; then publish_latest=true; fi
-                  break
-                fi
-                reason="requested"
-              else
-                reason="recipe-changed"
-              fi
+            if [ "$rebuild" = "true" ]; then
+              # The dispatch input means "build this now". Skipping the registry
+              # read is what makes it usable as the recovery path when the
+              # registry API cannot be read (e.g. the first publication, before
+              # the package exists at all).
+              reason="requested"
             else
-              reason="missing"
+              set +e
+              published=$(./scripts/published-recipe.sh "$REGISTRY" "$repo" "$v" "$GITHUB_TOKEN")
+              rc=$?
+              set -e
+              case "$rc" in
+                0)
+                  if [ "$published" = "$recipe" ]; then
+                    echo "::notice::$v is published with recipe $recipe, and that is the current recipe; up to date"
+                    newest="$v"; uptodate=true; reason="up-to-date"
+                    if [ "$v" = "$maxv" ]; then publish_latest=true; fi
+                    break
+                  fi
+                  reason="recipe-changed"
+                  ;;
+                3)
+                  # HTTP 404 on the tag: it is genuinely not published.
+                  reason="missing"
+                  ;;
+                *)
+                  # Anything else is a registry failure, not a missing tag.
+                  # Guessing here would either rebuild on every sweep or, worse,
+                  # silently declare a published image up to date.
+                  echo "::error::cannot read $repo:$v from $REGISTRY (published-recipe.sh exit $rc); refusing to guess. Re-run via workflow_dispatch with rebuild=true to build without reading the registry."
+                  exit 1
+                  ;;
+              esac
             fi
+
             target="$v"; newest="$v"
             if [ "$v" = "$maxv" ]; then
               publish_latest=true
@@ -232,19 +287,26 @@ jobs:
 
           build=false
           if [ -n "$target" ]; then build=true; fi
-          echo "build=$build"                   >> "$GITHUB_OUTPUT"
-          echo "version=${target:-$newest}"     >> "$GITHUB_OUTPUT"
-          echo "newest=$newest"                 >> "$GITHUB_OUTPUT"
-          echo "publish_latest=$publish_latest" >> "$GITHUB_OUTPUT"
-          echo "reason=${reason:-none}"         >> "$GITHUB_OUTPUT"
+          echo "build=$build"                       >> "$GITHUB_OUTPUT"
+          echo "version=${target:-$newest}"         >> "$GITHUB_OUTPUT"
+          echo "newest=$newest"                     >> "$GITHUB_OUTPUT"
+          echo "recipe=$recipe"                     >> "$GITHUB_OUTPUT"
+          echo "desktop_sha256=$chosen_sha"         >> "$GITHUB_OUTPUT"
+          echo "desktop_deb_url=$chosen_url"        >> "$GITHUB_OUTPUT"
+          echo "publish_latest=$publish_latest"     >> "$GITHUB_OUTPUT"
+          echo "reason=${reason:-none}"             >> "$GITHUB_OUTPUT"
           {
             echo "### Plan"
             echo
             echo "| field | value |"
             echo "|---|---|"
-            echo "| desktop version (newest in apt index) | \`$maxv\` |"
+            echo "| newest version in the apt index | \`$maxv\` |"
+            echo "| newest stanza SHA256 (informational) | \`${{ steps.desktop.outputs.sha256 }}\` |"
+            echo "| version built / published | \`${target:-$newest}\` |"
+            echo "| chosen stanza SHA256 -> build arg | \`$chosen_sha\` |"
+            echo "| chosen stanza .deb -> build arg | \`$chosen_url\` |"
             echo "| CLI pin (npm dist-tags.latest) | \`${{ steps.cli.outputs.version }}\` |"
-            echo "| recipe hash | \`$recipe\` |"
+            echo "| recipe hash (over the chosen version) | \`$recipe\` |"
             echo "| flavor tag | \`${{ steps.recipe.outputs.flavor }}\` |"
             echo "| build this run | \`$build\` ($reason) |"
             echo "| move :latest | \`$publish_latest\` -> \`${newest:-none}\` |"
@@ -346,8 +408,13 @@ jobs:
           # 1. installed desktop version equals the planned version
           ver=$(docker exec "$name" dpkg-query -W -f='${Version}' claude-desktop | tr -d '[:space:]')
           [ "$ver" = "$VERSION" ] || { echo "::error::claude-desktop is $ver, expected $VERSION"; exit 1; }
-          # 2. installed CLI equals its pin
-          cli=$(docker exec "$name" claude --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          # 2. installed CLI equals its pin, asserted as the session identity, not
+          #    as root: the users who will run it are uid 1000, and HOME is set to
+          #    the state path they own so the check does not fail on an
+          #    unwritable /root (docker exec does not inherit the entrypoint's
+          #    environment).
+          cli=$(docker exec -u 1000:1000 -e HOME=/home/ubuntu "$name" claude --version \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
           [ "$cli" = "$CLI" ] || { echo "::error::claude CLI is $cli, expected $CLI"; exit 1; }
           # 3. root bootstrap: pid 1 is root, the session identity is 1000:1000,
           #    and the state path it chowned belongs to 1000:1000 afterwards.
@@ -463,9 +530,23 @@ jobs:
           source_digest=$(docker buildx imagetools inspect "$IMAGE:$NEWEST" \
             --format '{{.Manifest.Digest}}')
           [ -n "$source_digest" ] || { echo "::error::$IMAGE:$NEWEST has no manifest digest"; exit 1; }
-          docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$NEWEST"
+          # `imagetools inspect` fails outright when the tag does not exist yet
+          # (the very first publication), which is not an error here.
           latest_digest=$(docker buildx imagetools inspect "$IMAGE:latest" \
-            --format '{{.Manifest.Digest}}')
+            --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+          if [ "$latest_digest" = "$source_digest" ]; then
+            echo "::notice:::latest already resolves to $source_digest; nothing to copy"
+          else
+            # --prefer-index=false makes buildx write the source manifest BYTES
+            # through for a single source instead of re-wrapping them in a fresh
+            # index. That is what makes the digest assertion below meaningful:
+            # without it the copy could legitimately land on a different digest
+            # and the comparison would be between two different objects.
+            docker buildx imagetools create --prefer-index=false \
+              -t "$IMAGE:latest" "$IMAGE:$NEWEST"
+            latest_digest=$(docker buildx imagetools inspect "$IMAGE:latest" \
+              --format '{{.Manifest.Digest}}')
+          fi
           [ "$latest_digest" = "$source_digest" ] \
             || { echo "::error:::latest digest $latest_digest != source $source_digest"; exit 1; }
           {

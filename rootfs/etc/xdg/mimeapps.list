@@ -1,0 +1,21 @@
+# Google Chrome is the desktop's web browser, on purpose.
+#
+# Neither the Selkies base nor its desktop layer names a default browser, and
+# both Firefox and Chrome register themselves as handlers for http/https, so
+# which one opens a link is otherwise decided by whichever desktop file a lookup
+# happens to find first. Claude Desktop's sign-in hands the claude.ai OAuth URL to
+# the session's browser, and the layer's Chrome is the one patched to run here at
+# all (its launcher probes for user namespaces and falls back to --no-sandbox, and
+# it is told to use the basic password store because nothing else answers its
+# prompt) — see docs/DESIGN.md D12.
+#
+# Placed in /etc/xdg rather than in a user's ~/.config: the lxqt service puts
+# /etc/xdg on XDG_CONFIG_DIRS, so GIO and xdg-open both read it, and the user's own
+# ~/.config/mimeapps.list still outranks it if they prefer another browser.
+# x-scheme-handler/claude is deliberately absent: the claude-desktop package is the
+# only handler for its own scheme, so no default is needed for the app's deep
+# links to reach it.
+[Default Applications]
+x-scheme-handler/http=google-chrome.desktop
+x-scheme-handler/https=google-chrome.desktop
+text/html=google-chrome.desktop

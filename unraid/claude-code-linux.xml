@@ -20,7 +20,7 @@
   <Beta>false</Beta>
   <MinVer>6.10</MinVer>
   <License>Proprietary upstream components. See https://github.com/prv-ctech/claude-code-linux#licensing</License>
-  <Changes>Initial release.</Changes>
+  <Changes>Initial release: Claude Desktop 2.26454.2 and Claude Code CLI 2.1.294, streamed with Selkies on ghcr.io/selkies-project/selkies/desktop:2.0.0-ubuntu26.04. PUID/PGID 1000/1000 only, /dev/shm 2g, state bind-mounted at /home/ubuntu. See the README for the release, verification and rollback commands.</Changes>
 
   <Overview>Claude Desktop for Linux (the official Anthropic apt package) and the Claude Code CLI, running as a full Chrome/LXQt desktop streamed to your browser with Selkies. Nothing to install on the client: open the WebUI.
 

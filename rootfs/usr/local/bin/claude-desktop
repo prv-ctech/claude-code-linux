@@ -1,0 +1,47 @@
+#!/bin/sh
+# The launcher for Claude Desktop: the app's sandbox decision, ahead of the
+# package's own /usr/bin/claude-desktop in PATH (/usr/local/bin comes first, so
+# the menu entry, xdg-open, a shell and the autostart all reach this one).
+#
+# WHY IT EXISTS
+#   The packaged launcher is a bare symlink to the Electron binary
+#   (/usr/bin/claude-desktop → ../lib/claude-desktop/claude-desktop), so unlike
+#   Google Chrome — whose launcher the desktop layer patches in place, and which
+#   this image deliberately does not touch again (D12) — there is nowhere to put a
+#   sandbox switch. Electron's zygote needs one of two things a container may not
+#   grant: unprivileged user namespaces for the namespace sandbox, or a correctly
+#   configured setuid /usr/lib/claude-desktop/chrome-sandbox helper. The image
+#   ships the helper with its packaged ownership (root:root, mode 4755 — see the
+#   Dockerfile) *and* probes the namespaces here, exactly as the desktop layer's
+#   Chrome launcher does. So:
+#     · where unprivileged user namespaces exist, the sandbox is left alone — a
+#       container with an unconfined seccomp profile, or a host that permits
+#       CLONE_NEWUSER, keeps the isolation it can have;
+#     · where they do not, the app runs --no-sandbox, because the container is the
+#       isolation boundary there (§3 applies the same reasoning to Chrome).
+#   Docker's default seccomp profile denies CLONE_NEWUSER, so the second case is
+#   the common one; doing this explicitly means the app starts instead of aborting
+#   at the zygote with nothing in the session to click.
+#
+# --password-store=basic is deliberately NOT passed, unlike Chrome: Claude Desktop
+# has to reach the secret service, which is what keeps the sign-in across container
+# recreation (§5.1). Chrome gets the basic store only because nothing else would
+# answer its prompt.
+#
+# The package's own binary is invoked by absolute path, so this wrapper never
+# shadows the app from itself.
+
+set -eu
+
+app="/usr/lib/claude-desktop/claude-desktop"
+if [ ! -x "${app}" ]; then
+	echo "FATAL: ${app} is missing or not executable; the claude-desktop package is not installed in this image" >&2
+	exit 127
+fi
+
+if unshare --user --map-root-user --pid --net --fork true 2> /dev/null; then
+	exec "${app}" "$@"
+fi
+
+echo "[claude-desktop] unprivileged user namespaces are unavailable in this container; starting with --no-sandbox (the container is the isolation boundary)" >&2
+exec "${app}" --no-sandbox "$@"

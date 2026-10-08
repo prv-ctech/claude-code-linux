@@ -1,6 +1,6 @@
 # DESIGN.md — binding build contract for `prv-ctech/claude-code-linux`
 
-**Status:** BINDING · **Date:** 2026-10-08 · **Owner:** architect (team `claude-code-linux`)
+**Status:** BINDING · **Revision:** 6 · **Date:** 2026-10-08 · **Owner:** architect (team `claude-code-linux`)
 **Audience:** container-dev (t2), ci-dev (t3), verifier, reviewer.
 
 This document is the contract every downstream task is judged against. Every entry below is a
@@ -20,6 +20,53 @@ executed on 2026-10-08 from this workspace and their commands are in [Appendix B
 
 ---
 
+## 0. Revision history (dated corrections)
+
+The contract moved after t3 shipped. Both corrections are recorded here with their reason rather than
+edited in silently, so a reader of the diff learns why the contract moved.
+
+### 2026-10-08 — revision 2, post-t3 reconciliation
+
+| # | Changed | From | To | Why |
+|---|---|---|---|---|
+| C1 | `/dev/shm` size (§5, §7.1) | `--shm-size=1g` / `shm_size: "1gb"` | **`--shm-size=2g` / `shm_size: 2gb`** (compose via `${CLAUDE_SHM_SIZE:-2gb}`) | 2 GB is what upstream Selkies documents and 1 GB leaves too little headroom for the two browsers in this desktop; the shipped Unraid `ExtraParams`, `compose.yaml`, `.env.example` and README already said 2g, and the binding contract must not contradict shipped code. |
+| C2 | Host-facing interpolation names (§5, §7.1, new D13) | `${PUID:-1000}`, `${PGID:-1000}`, `${TZ:-Etc/UTC}` | **`${CLAUDE_PUID:-1000}`, `${CLAUDE_PGID:-1000}`, `${CLAUDE_TZ:-Etc/UTC}`** | Compose interpolates the ambient host environment, and an Unraid-shaped host exports `PUID=99` / `PGID=100` for its own docker tooling — so a plain `${PUID}` silently handed the container uid 99 and the entrypoint correctly refused it with exit 78. The **container-facing** names are deliberately unchanged: Unraid still passes `PUID`/`PGID` into the container through the template's `Config` entries (`<Config Name="PUID" Target="PUID" Default="1000">`), and `docker-entrypoint.sh` still reads `PUID`/`PGID`. |
+
+Revision 1 was the original 2026-10-08 contract reviewed by t1; revision 2 recorded the 2g `/dev/shm`
+size and the `CLAUDE_*` host-facing rename; revision 3 resolves the pid-1 contradiction and records the
+three accepted image additions below; revision 4 records the entrypoint's three test-only path overrides
+(§4.2); revision 5 corrects §5.1's key-fetch drift; revision 6 states the index-to-`InRelease` binding
+that revision 5 could not yet claim.
+
+### 2026-10-08 — revision 3, post-review amendments
+
+| # | Changed | From | To | Why |
+|---|---|---|---|---|
+| C3 | pid 1 / supervision (§4.2 step 3, D6) | `exec setpriv … /etc/container-entrypoint.sh`, which would make pid 1 uid 1000 and contradict §6.3 | pid 1 **stays the root wrapper**: it runs the base entrypoint as a **child**, forwards `TERM`/`INT`/`QUIT` to the session, and exits with the session's status | Removes the internal contradiction a reviewer re-flagged: "pid 1 is root" and "the session is uid 1000" are now both true at once. The enforceable outcomes — the `setpriv` drop, no `usermod`/`groupmod`, `PUID=99` → exit 78 — are unchanged. |
+| C4 | §5.1 package allowlist | `gnome-keyring ca-certificates … xdg-desktop-portal-gtk` | same list **+ `gpgv libsecret-tools`** | `gpgv` verifies the Anthropic index's signature and key fingerprint at build time; `libsecret-tools` proves the secret service actually stores a secret, which is exactly the R2 failure mode. |
+| C5 | §3 | *(unrecorded)* | `rootfs/etc/xdg/mimeapps.list` recorded as the http/https handler | The base names no default browser, so the accepted *"Chrome is the OAuth browser"* criterion needs a concrete handler; `xdg-utils` ships no such file, so nothing is overwritten. |
+| C6 | §3 | *(unrecorded)* | `/usr/local/bin/claude-desktop` sandbox-probe wrapper recorded | The packaged launcher is a bare symlink with nowhere to put a switch, so the wrapper reuses upstream's own probe (`unshare` where available, else `--no-sandbox`) instead of letting the zygote abort under Docker's default seccomp; `chrome-sandbox` stays `root:root 4755`. |
+
+### 2026-10-08 — revision 4, test-only entrypoint overrides recorded
+
+| # | Changed | From | To | Why |
+|---|---|---|---|---|
+| C7 | §4.2 | the entrypoint's three env overrides (`STATE_DIR`, `MOUNTINFO`, `DOCKER_ENTRYPOINT_PREFIX`) exist in the code but were absent from the contract | recorded with their defaults, the "set by nothing in the image, `compose.yaml` or the Unraid template" statement, and the gate's reason | container-dev flagged them rather than letting them pass silently. Recording them (a) states why the self-check gate cannot do without them, (b) fixes their defaults as the DESIGN paths, so a future contributor who changes one has to amend this document, and (c) makes explicit that a container never sets them. |
+
+### 2026-10-08 — revision 5, §5.1 install chain corrected
+
+| # | Changed | From | To | Why |
+|---|---|---|---|---|
+| C8 | §5.1 "Install method" | *"the `.deb` carries the signing key, so no separate key fetch is needed"* | the chain the shipped installer actually runs: `key.asc` fetched and hash-pinned, fingerprint checked over `InRelease` with `gpgv`, the pinned stanza read from the index, the `.deb` checked against that stanza's `SHA256`, apt validating the documented `deb` line | t13 finding F3: the doc contradicted the implementation and §5.1's own later text. The implementation is the stricter reading, so the contract moves to it — and says plainly which binding it does *not* claim. |
+
+### 2026-10-08 — revision 6, index-to-`InRelease` binding stated
+
+| # | Changed | From | To | Why |
+|---|---|---|---|---|
+| C9 | §5.1 "Install method" | revision 5's non-promise: the directly fetched `Packages` file was *not* signature-bound to `InRelease`, and the text said so | the implemented binding is stated: the `SHA256` the signed `InRelease` lists for `main/binary-amd64/Packages` is compared against `sha256sum` of the fetched index, and the script refuses to parse a mismatch | t16 closed the gap in `scripts/install-claude-desktop.sh:113-128`, so revision 5's wording understated the code. The C8 cell keeps that non-promise as history. |
+
+---
+
 ## 1. Decisions at a glance
 
 | # | Decision |
@@ -29,13 +76,14 @@ executed on 2026-10-08 from this workspace and their commands are in [Appendix B
 | D3 | CLI version signal = **`dist-tags.latest`** of `@anthropic-ai/claude-code` on npm. Never a max scan of the version list. |
 | D4 | Base image = `ghcr.io/selkies-project/selkies/desktop:2.0.0-ubuntu26.04`, a literal `ARG BASE_IMAGE` default, overridable by `--build-arg`. |
 | D5 | **PUID/PGID is 1000:1000, exclusively.** Any other value is rejected at start with an actionable error and exit 78. No remap path exists. |
-| D6 | The image runs a **root bootstrap**: `USER 0` wrapper entrypoint → validate → `chown` the state path → `setpriv` to 1000:1000 → `exec /etc/container-entrypoint.sh`. No `usermod`/`groupmod`, ever. |
+| D6 | The image runs a **root bootstrap on pid 1**: the `USER 0` wrapper entrypoint validates PUID/PGID, `chown`s the state path, then `setpriv`s to 1000:1000 and runs `/etc/container-entrypoint.sh` **as a child** — pid 1 stays root, forwards `TERM`/`INT`/`QUIT` to the session and exits with the session's status; the base entrypoint is never `exec`'d over it. No `usermod`/`groupmod`, ever. |
 | D7 | State path is **`/home/ubuntu`** and never `/config`. |
 | D8 | Tags: `:latest` (moving; what Unraid tracks) + `:<claude-desktop-version>` (precision tag, re-pointed when the CLI pin or recipe changes). `:latest` is moved by `docker buildx imagetools create` from a smoke-tested digest and never rebuilt. |
 | D9 | Health = the base image's own `HEALTHCHECK` on `https://localhost:8080/api/health`. No second healthcheck, and `/` is never the probe. |
 | D10 | The container does **not** self-update: Anthropic's apt repo is not registered inside the image, and the CLI's updater is disabled. The image rebuild is the update path. |
 | D11 | amd64 only, GHCR only, package **private** until the licensing risk (R3) is closed. |
 | D12 | Google Chrome is **not** reinstalled and **not** re-patched; the base desktop layer already ships and patches it. `chromium-browser` is forbidden. |
+| D13 | **Host-facing interpolation carries a `CLAUDE_` prefix** (`CLAUDE_PUID`, `CLAUDE_PGID`, `CLAUDE_TZ`, `CLAUDE_SHM_SIZE`); the container-facing names stay plain `PUID`, `PGID`, `TZ`. Because compose interpolates the ambient host environment and Unraid exports `PUID=99`/`PGID=100` — see §0/C2 and §5. |
 
 ---
 
@@ -193,6 +241,26 @@ container is the isolation boundary there"). This project does **not** re-downlo
 re-patch Chrome. Ubuntu's `chromium-browser` is forbidden: it is a transitional package to the snap and
 does not work here.
 
+**The default browser is named explicitly.** Neither the base nor its desktop layer names a default
+browser, and both Firefox and Chrome register themselves as `http`/`https` handlers, so the image ships
+`rootfs/etc/xdg/mimeapps.list` mapping `x-scheme-handler/http`, `x-scheme-handler/https` and `text/html`
+to `google-chrome.desktop`. That is what makes the accepted *"Chrome is the OAuth browser"* criterion
+concrete: Claude Desktop hands the claude.ai sign-in URL to the session's browser. It lives in `/etc/xdg`
+(the LXQt service puts that on `XDG_CONFIG_DIRS`, so GIO and `xdg-open` both read it), `xdg-utils` ships
+no such file so nothing is overwritten, and a user's own `~/.config/mimeapps.list` still outranks it.
+`x-scheme-handler/claude` is deliberately absent — the package is already the only handler for its own
+scheme.
+
+**The app's launcher is a wrapper, because the packaged launcher has nowhere to put a switch.**
+`/usr/bin/claude-desktop` is a bare symlink to the Electron binary
+(`/usr/lib/claude-desktop/claude-desktop`), so the image ships `/usr/local/bin/claude-desktop` ahead of it
+in `PATH` — the menu entry, `xdg-open`, a shell and the autostart all reach the wrapper. It reuses
+upstream's own probe (`unshare --user --map-root-user --pid --net --fork true`, else `--no-sandbox`)
+because Docker's default seccomp profile denies `CLONE_NEWUSER` and Electron's zygote otherwise aborts
+with nothing in the session to click. `chrome-sandbox` keeps its packaged ownership `root:root` mode
+`4755`, and the wrapper deliberately does **not** pass `--password-store=basic` (unlike Chrome): Claude
+Desktop has to reach the secret service, which is what keeps the sign-in across recreation (§5.1).
+
 ---
 
 ## 4. PUID/PGID policy (DECIDED)
@@ -213,17 +281,40 @@ The image is built with `USER 0` and a wrapper entrypoint (`docker-entrypoint.sh
 2. if the process is root (`id -u` == 0): `chown -R 1000:1000 /home/ubuntu` and, if it exists,
    `chown 1000:1000 "${XDG_RUNTIME_DIR:-/tmp/runtime-ubuntu}"`; a chown failure is fatal with the
    remediation line from §4.5;
-3. `exec setpriv --reuid=1000 --regid=1000 --init-groups /etc/container-entrypoint.sh`
-   (fall back to `--clear-groups` only if `--init-groups` fails);
+3. `setpriv --reuid=1000 --regid=1000 --init-groups /etc/container-entrypoint.sh "$@" &` — **as a child,
+   not by `exec`**, so pid 1 stays root for the container's whole life; the wrapper traps
+   `TERM`/`INT`/`QUIT` and hands `TERM` to the session, `wait`s for it, and exits with the session's
+   status (the base entrypoint is PID-agnostic, so running it below the wrapper is supported);
+   fall back to `--clear-groups` only if `--init-groups` fails;
 4. if the process is *not* root (e.g. `docker run --user 1000`), skip the chown and run a writability
-   preflight on `/home/ubuntu` — unwritable ⇒ §4.4's remediation line, exit 78; otherwise exec the base
-   entrypoint directly.
+   preflight on `/home/ubuntu` — unwritable ⇒ §4.4's remediation line, exit 78; otherwise `exec` the base
+   entrypoint directly, since pid 1 is already uid 1000 and there is no root process to keep.
 
 `setpriv` is used for the same reason the house pattern uses it
 ([entrypoint](https://raw.githubusercontent.com/prv-ctech/deepseek-harness/HEAD/docker-entrypoint.sh)):
 it needs no writable `/etc` and no PAM, so the drop is transparent. `--init-groups` rather than
 `--clear-groups` because uid 1000 *has* a passwd entry here (`ubuntu`) and its supplementary groups
 (render/video for the GPU path, audio) must survive; `--clear-groups` stays as the fallback.
+
+**Supervision model: pid 1 is the root wrapper and the session is its child.** In the root
+path the wrapper never `exec`s over itself, which is what makes §6.3's check — *"the session process uid is
+1000 while pid 1 is root"* — satisfiable. It forwards the termination signal `docker stop` sends to pid 1
+and exits with the session's status, so the container's lifecycle still ends with the session's.
+
+**Test-only path overrides, for the self-check gate.** `docker-entrypoint.sh` reads three overrides, and
+each default is exactly the path this contract names: `DOCKER_ENTRYPOINT_PREFIX` (default `/etc`, which
+resolves the base entrypoint to `/etc/container-entrypoint.sh` — step 3 above and §3), `STATE_DIR`
+(default `/home/ubuntu` — D7/§5) and `MOUNTINFO` (default `/proc/self/mountinfo`, the file the
+unmounted-state warning is read from). They exist for one reason: `scripts/selfcheck.sh` has to exercise
+this wrapper on a plain checkout host **where `/home/ubuntu` does not exist and with no container
+runtime**, so it must be able to present *both* mount states — a state path with a matching `mountinfo`
+entry, and one without — and to point the wrapper at a stub base entrypoint it controls. **Nothing in the
+image, `compose.yaml` or the Unraid template sets any of them**, so a container always takes the defaults
+and its behaviour is what the rest of this document describes: **unset means unchanged.** They displace
+two paths and one read and nothing else — every enforceable outcome in D5/§4.4 (PUID/PGID 1000/1000, the
+FATAL text, the chown remediation, the `exit 78` paths) is unconditional and independent of them. The
+harness's other test variables (`FAKE_EUID`, `CHOWN_STATUS`, `SETPRIV_INIT_GROUPS`) are read by
+`selfcheck.sh`'s own stubs, not by the entrypoint: the entrypoint has exactly these three seams.
 
 **No `usermod` / `groupmod` anywhere — including remap paths.** This is recorded explicitly because a
 remap would require `usermod -o -u` / `groupmod -o -g`: uid 1000 already exists as `ubuntu`, so a remap
@@ -298,19 +389,38 @@ is explicitly out of scope here. `/tmp` may still be a tmpfs.
 |---|---|
 | Web port | **`8080/tcp`** published; that is the only port the base documents for the UI (`EXPOSE 8080`, [base Dockerfile](https://raw.githubusercontent.com/selkies-project/selkies/main/addons/base/Dockerfile), [faq](https://raw.githubusercontent.com/selkies-project/selkies/main/docs/faq.md)). |
 | Transport | Default `SELKIES_MODE=websocket` — no TURN needed. TURN (`3478/tcp+udp` plus the relay range) is opt-in only for WebRTC mode, documented but not published by the template. |
-| `/dev/shm` | **1 GB** (`--shm-size=1g` / `shm_size: "1gb"`). Docker's default is 64 MB and browser renderers crash on it ([spec §4.3](../unraid-ca-puid-pgid-spec.md#43-shm-size-pitfalls-for-a-browserdesktop-container)). In a CA template this goes in `ExtraParams`; in compose, `shm_size`. |
+| `/dev/shm` | **2 GB** (`--shm-size=2g` / `shm_size: 2gb`; compose takes `${CLAUDE_SHM_SIZE:-2gb}`). Docker's default is 64 MB and the browsers in this desktop are killed on it, and 1 GB leaves too little headroom — 2g is what upstream Selkies documents ([spec §4.3](../unraid-ca-puid-pgid-spec.md#43-shm-size-pitfalls-for-a-browserdesktop-container), [egl-desktop compose](https://raw.githubusercontent.com/selkies-project/docker-selkies-egl-desktop/HEAD/docker-compose.yml)). In a CA template this goes in `ExtraParams`; in compose, `shm_size`. |
 | State | **`/home/ubuntu`** bind-mounted (Desktop config + Electron `userData`, `~/.claude/.credentials.json`, `~/.claude.json`, `~/.local/share/keyrings`). `/config` is never used as a Target: Unraid globally rewrites the `Default`/`Value` of any Path Config whose Target is `/config` ([spec §4.2](../unraid-ca-puid-pgid-spec.md#42-appdata-path-convention)). |
 | Appdata | Template default `/mnt/user/appdata/claude-code-linux` ([spec §4.2](../unraid-ca-puid-pgid-spec.md#42-appdata-path-convention)). |
 | Auth | `PASSWD` **must** be provided by the user; the base's default login is `ubuntu`/`mypasswd` and the template must not ship it silently ([faq](https://raw.githubusercontent.com/selkies-project/selkies/main/docs/faq.md)). Selkies' default is legacy mode with HTTP Basic auth enabled ([secure-mode](https://github.com/selkies-project/selkies/blob/main/docs/secure-mode.md)). |
+| Host-facing env names (D13) | Host/compose interpolation uses the `CLAUDE_` prefix — `${CLAUDE_PUID:-1000}`, `${CLAUDE_PGID:-1000}`, `${CLAUDE_TZ:-Etc/UTC}`, `${CLAUDE_SHM_SIZE:-2gb}` — while the names handed *to the container* stay plain `PUID`, `PGID`, `TZ`. Reason: compose interpolates the ambient host environment, an Unraid-shaped host exports `PUID=99`/`PGID=100` for its own tooling, and a plain `${PUID}` silently resolved the container to uid 99, which the entrypoint then refused with exit 78 (§0/C2). Never reintroduce un-prefixed `${PUID}`/`${PGID}` in host-facing interpolation. |
 | TLS | Served in-container with a self-signed certificate (the base healthcheck itself uses `curl -k`); browsers will warn, and clipboard APIs need a secure context or `localhost` ([usage](https://github.com/selkies-project/selkies/blob/main/docs/usage.md)). |
 | Health (D9) | Inherit the base's `HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3` against `https://localhost:8080/api/health` with an HTTP fallback ([base Dockerfile](https://raw.githubusercontent.com/selkies-project/selkies/main/addons/base/Dockerfile)). `/api/health` and `/api/status` stay open for probes even in secure mode ([secure-mode](https://github.com/selkies-project/selkies/blob/main/docs/secure-mode.md)). Do not add a second healthcheck and do not probe `/`. |
 | Restart | Unraid emits no `--restart` flag of its own (it manages autostart, [spec §3.2](../unraid-ca-puid-pgid-spec.md#32-restart-unless-stopped)); the compose file uses `restart: unless-stopped`. |
 
 ### 5.1 Desktop install and the keyring
 
-* **Install method:** download the pinned `Filename` from `downloads.claude.ai`, verify `sha256sum`
-  against the index `SHA256`, then install the local file (the `.deb` carries the signing key, so no
-  separate key fetch is needed — [docs](https://code.claude.com/docs/en/desktop-linux)).
+* **Install method — the whole chain, as implemented (`scripts/install-claude-desktop.sh`):** fetch
+  `key.asc` over TLS and require its SHA256 to equal the build's pin
+  (`CLAUDE_DESKTOP_KEY_SHA256=bd70a5e4…`, `Dockerfile:79`); strip the armour and require `gpgv` to report a
+  `VALIDSIG` over the repository's `InRelease` whose fingerprint is the documented
+  **`31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`** (`CLAUDE_DESKTOP_KEY_FINGERPRINT`, `Dockerfile:80`); only
+  then install that key as `/usr/share/keyrings/claude-desktop-archive-keyring.asc`. The index is bound to
+  that signature **before it is parsed**: the `SHA256` the signed `InRelease` lists for
+  `main/binary-amd64/Packages` must equal `sha256sum` of the fetched index, and the script refuses to parse
+  a mismatch. Read the pinned version's stanza out of the amd64 `Packages` index (Version, `SHA256`, `Filename` and `Architecture`
+  from that one stanza — D2's semantics, with the version supplied by the caller instead of derived),
+  download the `.deb` from that stanza's `Filename`, and require it to hash to **that stanza's `SHA256`**.
+  As an independent check, `apt` is made to validate the documented `deb` line against that keyring with a
+  throwaway source list and apt state. The install itself is `apt-get install <local .deb>` with the
+  repository unregistered (D10), and the script asserts afterwards that dpkg's version equals the pin and
+  that the keyring the package wrote hashes to the same pin. The `.deb` does carry its own copy of the key
+  — that is the shortcut for installing a downloaded file by hand, and the docs point at it for that case
+  ([docs](https://code.claude.com/docs/en/desktop-linux)) — but the build does not rely on it: the key is
+  fetched, hash-pinned and fingerprint-checked first. The chain is therefore unbroken end to end: key hash
+  and fingerprint, then the index hash against the signed `InRelease`, then the stanza's fields, then the
+  `.deb` hash. The optional `CLAUDE_DESKTOP_SHA256` / `CLAUDE_DESKTOP_DEB_URL` pins CI passes stay a
+  cross-check on top, not a substitute for any of it.
 * **No apt repo inside the image (D10):** create `/etc/default/claude-desktop` containing
   `CLAUDE_DESKTOP_ADD_REPO="false"` *before* installing, which is the documented way to install without
   registering the repository. Otherwise the package registers `downloads.claude.ai` in
@@ -318,11 +428,13 @@ is explicitly out of scope here. `/tmp` may still be a tmpfs.
   diverge from the image's pin. The image's version moves when it is rebuilt, not when a user runs apt.
 * **Recommends policy:** `--no-install-recommends` plus an explicit allowlist:
   `gnome-keyring ca-certificates libayatana-appindicator3-1 bubblewrap socat libasound2t64 pipewire-alsa
-  xdg-desktop-portal-gtk`. Deliberately absent: `qemu-system-x86`, `ovmf`, `virtiofsd` — Cowork is out
+  xdg-desktop-portal-gtk gpgv libsecret-tools`. Deliberately absent: `qemu-system-x86`, `ovmf`, `virtiofsd` — Cowork is out
   of scope (§7.2) and their absence is what keeps the image honest about it. (`libasound2`/`libasound2t64`
   and `pipewire-alsa` are named because PipeWire is the base's audio stack and the app is an ALSA client;
   `xdg-desktop-portal-gtk` because the `.deb`'s Depends names the gtk/gnome/kde portals, not the LXQt one
-  the desktop layer installs.)
+  the desktop layer installs; `gpgv` because the build verifies the repository's signed `InRelease` and the
+  key's fingerprint before trusting a `Version`/`SHA256` pair; `libsecret-tools` because `secret-tool` is how the
+  image proves the secret service actually stores a secret — the R2 failure mode.)
 * **Keyring (secret service):** install `gnome-keyring` and start `gnome-keyring-daemon` for
   `org.freedesktop.secrets` inside the session, **unlocked**, before Desktop starts. Rationale straight
   from the docs: *"Claude Desktop saves your sign-in in your desktop's keyring… If it can't reach an
@@ -419,9 +531,9 @@ across that recreation. If the tag never moved, users would never be prompted.
 | Persisted sign-in via secret service | `gnome-keyring` installed and started unlocked (§5.1). |
 | Pinned Claude Code CLI fallback | npm pin + `DISABLE_AUTOUPDATER`/`DISABLE_UPDATES`; state under `/home/ubuntu` (§2.2). |
 | Root bootstrap + PUID/PGID guard | Wrapper entrypoint, `setpriv` drop, rejection path (§4). |
-| Unraid CA template | `unraid/claude-code-linux.xml`, in-repo, `:latest`, `PUID/PGID Default="1000"`, `/home/ubuntu` path Config, `ExtraParams` `--shm-size=1g`, `<Overview>` stating the chown line and supported PUID/PGID. |
+| Unraid CA template | `unraid/claude-code-linux.xml`, in-repo, `:latest`, `PUID/PGID Default="1000"`, `/home/ubuntu` path Config, `ExtraParams` `--shm-size=2g`, `<Overview>` stating the chown line and supported PUID/PGID. |
 | GitHub Actions | Build + 6-hourly upstream sweep + publish + `:latest` move (§6). |
-| `compose.yaml` | `${VAR:-default}` everywhere, 8080, `shm_size: 1gb`, `restart: unless-stopped`. |
+| `compose.yaml` | `${VAR:-default}` everywhere, 8080, `shm_size: ${CLAUDE_SHM_SIZE:-2gb}`, `restart: unless-stopped`; host-facing interpolation is `CLAUDE_`-prefixed (D13, §0/C2). |
 | Docs | README, `.env.example`, this document. |
 
 ### 7.2 IS NOT built (explicit non-goals)
@@ -475,7 +587,7 @@ across that recreation. If the tag never moved, users would never be prompted.
 | Unraid: appdata pre-created `0777 99:100` | <https://github.com/unraid/webgui/blob/master/emhttp/plugins/dynamix.docker.manager/include/Helpers.php> |
 | Unraid: digest-based update detection, `/config` rewrite | <https://github.com/unraid/webgui/blob/master/emhttp/plugins/dynamix.docker.manager/include/DockerClient.php> · <https://github.com/unraid/webgui/blob/master/emhttp/plugins/dynamix.docker.manager/include/CreateDocker.php> |
 | Unraid: `<Date>` is legacy | <https://ca.unraid.net/submit/help/xml-field-reference> |
-| Docker 64 MB default `/dev/shm`; PUID/PGID rationale | <https://docs.docker.com/reference/cli/docker/container/run/> · <https://docs.linuxserver.io/general/understanding-puid-and-pgid/> |
+| Docker 64 MB default `/dev/shm`; upstream Selkies ships `shm_size: '2gb'`; PUID/PGID rationale | <https://docs.docker.com/reference/cli/docker/container/run/> · <https://raw.githubusercontent.com/selkies-project/docker-selkies-egl-desktop/HEAD/docker-compose.yml> · <https://docs.linuxserver.io/general/understanding-puid-and-pgid/> |
 | House pattern: ARG pin + version assertion, cron sweep, recipe hash label, `imagetools create` `:latest`, `setpriv` entrypoint | <https://raw.githubusercontent.com/prv-ctech/deepseek-harness/HEAD/Dockerfile> · <https://raw.githubusercontent.com/prv-ctech/deepseek-harness/HEAD/docker-entrypoint.sh> · <https://raw.githubusercontent.com/prv-ctech/deepseek-harness/HEAD/.github/workflows/build.yml> |
 | Selkies + Unraid analogue (template/CI shape) | <https://github.com/shoyrock/Brave-Origin> · <https://github.com/selkies-project/docker-selkies-egl-desktop> |
 | Workspace research artifacts | [`docs/research/reference-architecture.md`](research/reference-architecture.md) · [`unraid-ca-puid-pgid-spec.md`](../unraid-ca-puid-pgid-spec.md) · [`claude-code-distribution-report.md`](../claude-code-distribution-report.md) |

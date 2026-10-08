@@ -1,0 +1,21 @@
+# Starts Claude Desktop when the streamed LXQt session comes up, so a browser
+# session lands on a desktop with the app already open. It waits for the keyring
+# (10-claude-code-linux-keyring.desktop) to report ready, which is what makes the
+# claude.ai sign-in survive recreation.
+#
+# The app itself is optional here: start the container with
+# -e CLAUDE_DESKTOP_AUTOSTART=false for a session without the window. The menu
+# entry the package installs (com.anthropic.Claude.desktop, Name=Claude) starts it
+# on demand either way.
+#
+# Disable it for one user by copying this file to ~/.config/autostart/ and setting
+# Hidden=true there, or with X-LXQt-Autostart-disabled=true, which is the key
+# lxqt-session's own module manager honours.
+[Desktop Entry]
+Type=Application
+Name=Claude
+Comment=Desktop application for Claude.ai
+Exec=/usr/local/bin/claude-desktop-session
+Icon=claude-desktop
+Terminal=false
+OnlyShowIn=LXQt;

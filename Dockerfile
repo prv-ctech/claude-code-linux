@@ -51,8 +51,7 @@
 #   either arrives by rebuilding this image, which is what the CI sweep does
 #   (§6.3). The repository's own deb line is still what the build verifies
 #   against, in scripts/install-claude-desktop.sh:
-#     deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc]\
-#         https://downloads.claude.ai/claude-desktop/apt/stable stable main
+#     deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main
 #
 # Labels: the two version labels below are stamped here; the resolved base digest,
 # the recipe hash and the license label are the CI build's to stamp (§6.1, R3).
@@ -79,6 +78,13 @@ ARG CLAUDE_CODE_VERSION=2.1.294
 # anything unless the repository's signed InRelease verifies against both.
 ARG CLAUDE_DESKTOP_KEY_SHA256=bd70a5e4a268002704024ceba7f8446024114e94f3f0bdd11c23a9e592be81c6
 ARG CLAUDE_DESKTOP_KEY_FINGERPRINT=31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
+# Optional cross-checks, passed by the CI sweep and empty for a manual build: the
+# SHA256 and the deb URL the caller resolved from the same index. When they are
+# given, the build fails if the index no longer agrees with them — the index is
+# append-only, so a disagreement means the pin or the caller's snapshot is wrong,
+# and it is better to fail than to install a package nobody verified.
+ARG CLAUDE_DESKTOP_SHA256=
+ARG CLAUDE_DESKTOP_DEB_URL=
 # Cowork is a KVM feature and is NOT installed by default (§7.2, R1). It needs
 # /dev/kvm AND /dev/vhost-vsock (openable only by the kvm group), ~25 GB of disk
 # and 8 GB of RAM, and Anthropic's own documentation says that combination is
@@ -86,8 +92,7 @@ ARG CLAUDE_DESKTOP_KEY_FINGERPRINT=31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
 # grants no devices. The pinned CLI in this same image is the path that stays
 # useful without it. To opt in:
 #   docker build --build-arg CLAUDE_DESKTOP_COWORK=true -t claude-code-linux .
-#   docker run --device /dev/kvm --device /dev/vhost-vsock --group-add kvm \
-#              --shm-size=1g -p 8080:8080 claude-code-linux
+#   docker run --device /dev/kvm --device /dev/vhost-vsock --group-add kvm --shm-size=1g -p 8080:8080 claude-code-linux
 # (plus the memory and disk the VM itself needs). Without this ARG, the build
 # asserts that qemu-system-x86, ovmf and virtiofsd are absent, so the Cowork tab
 # reports its requirement instead of half-failing.
@@ -152,13 +157,24 @@ COPY --chown=1000:1000 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --chown=1000:1000 scripts/install-claude-desktop.sh /usr/local/bin/install-claude-desktop.sh
 COPY --chown=1000:1000 rootfs/ /
 RUN set -eu; \
+    for f in /usr/local/bin/docker-entrypoint.sh \
+             /usr/local/bin/install-claude-desktop.sh \
+             /usr/local/bin/claude-desktop \
+             /usr/local/bin/claude-desktop-session \
+             /usr/local/bin/claude-keyring-init \
+             /etc/xdg/autostart/10-claude-code-linux-keyring.desktop \
+             /etc/xdg/autostart/20-claude-code-linux-claude-desktop.desktop \
+             /etc/xdg/mimeapps.list; do \
+        test -e "${f}" || { echo "FATAL: the build did not copy ${f}" >&2; exit 1; }; \
+    done; \
     chmod 755 /usr/local/bin/docker-entrypoint.sh \
               /usr/local/bin/install-claude-desktop.sh \
               /usr/local/bin/claude-desktop \
               /usr/local/bin/claude-desktop-session \
               /usr/local/bin/claude-keyring-init; \
     chmod 644 /etc/xdg/autostart/10-claude-code-linux-keyring.desktop \
-              /etc/xdg/autostart/20-claude-code-linux-claude-desktop.desktop; \
+              /etc/xdg/autostart/20-claude-code-linux-claude-desktop.desktop \
+              /etc/xdg/mimeapps.list; \
     test -x /etc/container-entrypoint.sh; \
     test -d /etc/service; \
     test -x /usr/local/bin/selkies-privileged-files; \
@@ -183,6 +199,12 @@ RUN set -eu; \
 #   libsecret-1-0              what the app talks to that service with (the .deb
 #                              Depends on it; naming it keeps it alongside the
 #                              daemon rather than implicit)
+#   libsecret-tools            `secret-tool`, which claude-keyring-init uses to
+#                              store and read a probe secret back at session
+#                              start: a daemon that answers on its socket is not
+#                              the same thing as an unlocked keyring, and that is
+#                              exactly the difference the app's documentation
+#                              warns about
 #   libayatana-appindicator3-1 the app's tray icon
 #   bubblewrap socat           the app's sandbox and socket helpers
 #   libasound2t64 pipewire-alsa  PipeWire is the base's audio stack and the app
@@ -216,6 +238,16 @@ RUN selkies-privileged-files release
 # `sudo apt-get install` behaves the same way.
 USER 1000
 SHELL ["/usr/bin/fakeroot", "--", "/bin/sh", "-c"]
+# DL3008: no package version pins — the base image does not pin either, and a
+#   pinned Ubuntu version stops resolving the day the archive moves it, failing
+#   this build for no security gain (the image is rebuilt on every upstream move).
+# DL4006: the only pipe is `dpkg-query | grep -q` inside an `if`, where grep's
+#   status is the answer and dpkg-query's failure is the normal "not installed".
+#   `pipefail` is not wanted, and dash — the /bin/sh here — has none.
+# SC1008: these layers run under the fakeroot SHELL, which hadolint cannot read as
+#   a shebang and therefore skips. Every RUN body in this file was checked
+#   separately as POSIX sh with `shellcheck -s sh`.
+# hadolint ignore=DL3008,DL4006,SC1008
 RUN set -eu; \
     apt-get clean; \
     apt-get update; \
@@ -223,6 +255,7 @@ RUN set -eu; \
         ca-certificates \
         gnome-keyring \
         libsecret-1-0 \
+        libsecret-tools \
         libayatana-appindicator3-1 \
         bubblewrap \
         socat \
@@ -253,14 +286,22 @@ RUN set -eu; \
 # left unregistered (D10). The script also proves the signing key by
 # fingerprint before it downloads anything.
 #
+# CLAUDE_DESKTOP_SHA256 and CLAUDE_DESKTOP_DEB_URL are the CI's own resolution of
+# the same two fields. The build re-resolves them from the signed index and fails
+# if the two disagree; empty means "resolve, do not cross-check".
+#
 # It runs its own `apt-get update` because it resolves the package's Depends from
 # the archive, and the layer above cleaned the lists.
 # ---------------------------------------------------------------------------
+# SC1008 (fakeroot SHELL, as above; the body was checked with `shellcheck -s sh`)
+# hadolint ignore=SC1008
 RUN set -eu; \
     /usr/local/bin/install-claude-desktop.sh \
         "${CLAUDE_DESKTOP_VERSION}" \
         "${CLAUDE_DESKTOP_KEY_SHA256}" \
-        "${CLAUDE_DESKTOP_KEY_FINGERPRINT}"; \
+        "${CLAUDE_DESKTOP_KEY_FINGERPRINT}" \
+        "${CLAUDE_DESKTOP_SHA256}" \
+        "${CLAUDE_DESKTOP_DEB_URL}"; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /var/cache/debconf/* /var/log/* /tmp/* /var/tmp/*
 
@@ -283,6 +324,8 @@ RUN set -eu; \
 # pins only its own install script (§2.2). The npm cache is kept out of
 # /home/ubuntu so the image does not seed the state mount with a package cache.
 # ---------------------------------------------------------------------------
+# SC1008 (fakeroot SHELL, as above; the body was checked with `shellcheck -s sh`)
+# hadolint ignore=SC1008
 RUN set -eu; \
     npm install -g --no-fund --no-audit --cache /tmp/npm-cache \
         "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
@@ -332,14 +375,28 @@ RUN set -eu; \
     command -v claude-desktop > /dev/null; \
     command -v google-chrome > /dev/null; \
     command -v gnome-keyring-daemon > /dev/null; \
+    command -v secret-tool > /dev/null; \
+    test -e /usr/share/applications/google-chrome.desktop; \
+    test -e /usr/share/applications/com.anthropic.Claude.desktop; \
+    test "${HOME}" = "/home/ubuntu"; \
+    case "${CLAUDE_CONFIG_DIR:-/home/ubuntu/.claude}" in \
+        /home/ubuntu/*) echo "CLI state: HOME=${HOME}, CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR:-unset} — both under the mounted path";; \
+        *) echo "FATAL: CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR} is outside /home/ubuntu, so the CLI sign-in would not be on the volume the user mounts" >&2; exit 1;; \
+    esac; \
     cli_out="$(setpriv --reuid=1000 --regid=1000 --init-groups claude --version 2>&1 || true)"; \
     case "${cli_out}" in \
         "${CLAUDE_CODE_VERSION}"*) echo "claude --version as uid 1000: ${cli_out}";; \
         *) echo "FATAL: claude --version as uid 1000 printed '${cli_out}'" >&2; exit 1;; \
     esac
 
-# PID 1 is root only long enough for docker-entrypoint.sh to hand /home/ubuntu to
-# uid 1000 and drop privileges (§4.2). The base image's entrypoint is still what
-# runs the container: the wrapper execs it, unchanged, as uid 1000.
+# PID 1 is root, and the session below it is uid 1000: docker-entrypoint.sh needs
+# one root step to take ownership of a state path Unraid pre-created as 0777 99:100
+# and then drops privileges with setpriv (§4.2, §6.3). Everything in the session —
+# Selkies, LXQt, Chrome, Claude Desktop, the CLI — runs as 1000, and the entrypoint
+# rejects any PUID/PGID other than 1000/1000 with exit 78. The base image's
+# entrypoint is still what runs the container: the wrapper starts it, unchanged.
+#
+# DL3002 (USER 0 is the design, not an oversight: see D6 and the paragraph above)
+# hadolint ignore=DL3002
 USER 0
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

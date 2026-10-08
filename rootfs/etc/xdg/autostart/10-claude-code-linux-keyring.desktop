@@ -1,0 +1,20 @@
+# Starts the secret service Claude Desktop saves the claude.ai sign-in in, before
+# the app (20-claude-code-linux-claude-desktop.desktop) is started.
+#
+# lxqt-session reads XDG autostart entries from /etc/xdg/autostart — the lxqt
+# service puts /etc/xdg on XDG_CONFIG_DIRS — and starts the ones whose desktop is
+# LXQt, which is what that service exports as XDG_CURRENT_DESKTOP. The two
+# entries are independent: the app waits for the keyring's readiness marker
+# instead of relying on the order this directory came back in.
+#
+# Disable it for one user by copying this file to ~/.config/autostart/ and setting
+# Hidden=true there; the LXQt session settings (lxqt-config-session → Autostart)
+# does the same thing.
+[Desktop Entry]
+Type=Application
+Name=Claude Code Linux Keyring
+Comment=Start and unlock the secret service that Claude Desktop saves the claude.ai sign-in in
+Exec=/usr/local/bin/claude-keyring-init
+Icon=claude-desktop
+Terminal=false
+OnlyShowIn=LXQt;

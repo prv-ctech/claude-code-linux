@@ -1,0 +1,35 @@
+# The build context is only what the Dockerfile copies: docker-entrypoint.sh,
+# scripts/install-claude-desktop.sh and rootfs/. Everything else is excluded so a
+# rebuild does not resend the research artifacts, the CI and template sources, or
+# a local .env into the daemon.
+#
+# Deliberately NOT ignored, and why the exclusions are named rather than written
+# as a whitelist: a new rootfs/ file or a new script must reach the image without
+# anyone remembering to update this file.
+
+# Version control and agent/team scratch state
+.git
+.gitignore
+.gitattributes
+.agent-teams
+.codebase-memory
+
+# Documentation and research (the design contract is read on the host, not built in)
+docs
+*.md
+
+# CI, the Unraid template, and the compose file: built and validated by the jobs
+# that consume them, not by the image build
+.github
+unraid
+compose.yaml
+
+# Local configuration and secrets
+.env
+.env.*
+
+# Editor and OS noise
+.vscode
+.idea
+*.swp
+.DS_Store
