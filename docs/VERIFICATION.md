@@ -449,19 +449,28 @@ credit what the workflow performs; they are not reports of results.
   (`:446-526`); `google-chrome --version` executes as uid `1000` in that session, matches the
   single installed `google-chrome*` package, and a bounded `--headless --dump-dom` run
   produces DOM (`:528-589`); and a container started with `PUID=99` exits `78` with
-  `PUID/PGID must be 1000/1000` in its output (`:591-599`). Every failure path is `exit 1`,
-  so a failed assertion stops the job before the next step.
+  `PUID/PGID must be 1000/1000` in its output (`:591-599`). Every explicit failure path is
+  `exit 1` (and `set -euo pipefail` at `:390` aborts the step on an unguarded command that
+  fails), so a failed assertion stops the job before the next step.
 * Evidence is durable, not just logged: the assertion table is appended to the run summary
   (`:600-615`) and the container log is uploaded as an artifact (`:657-664`).
 
 ### 6.2 `:latest` only ever moves from a smoke-tested digest
 
-* The smoke step `exit 1`s on any failed assertion (`:420, :424, :432, :436, :439, :441,
-  :444` for the pre-existing ones, `:484, :525` for the desktop check added by `e6a991f`,
-  `:547, :550, :555, :560, :568, :584, :588` for the Chrome check, and `:596, :598` for the
-  guard) and step order is unconditional, so the push step (`:623-632`) cannot
-  execute in a run whose smoke test failed. A failed push is retried once (`:634-647`), and
-  what it pushes is the same local image the smoke test read.
+* The smoke step fails on any failed assertion, and step order is unconditional, so the push
+  step (`:623-632`) cannot execute in a run whose smoke test failed. A failed push is retried
+  once (`:634-647`), and what it pushes is the same local image the smoke test read. Every
+  explicit failure path in that step is `exit 1` — 26 lines over `:384-615` in total
+  (`grep -n 'exit 1'`; no other `exit` form appears there) — of which **19 are exits of the
+  step**: `:411` (the container died before becoming healthy), `:420` (health never reached
+  `healthy`), `:424, :432, :436, :439, :441, :444` (desktop version, CLI version, pid 1,
+  session identity, mount owner, `/api/health`), `:484, :525` (the display and streamed-
+  session assertions `e6a991f` added), `:547, :550, :555, :560, :568, :584, :588` (the Chrome
+  check, same commit) and `:596, :598` (the guard). The remaining seven are failure paths
+  **inside** the two `docker exec` scripts, aggregated by those step exits rather than being
+  one of them: `:477, :479` (the base's environment file, readable and naming a `DISPLAY`)
+  surface through `:484`, and `:497, :498, :500, :505, :508` (X socket, `xdpyinfo`,
+  dimensions, process running, process uid) surface through `:525`.
 * The `latest` job (`:670`) requires `needs.plan.outputs.publish_latest == 'true'` **and**
   that either nothing was built or the build job succeeded (`:672-674`) — a failed build
   blocks the move.
