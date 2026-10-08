@@ -1,6 +1,6 @@
 # DESIGN.md — binding build contract for `prv-ctech/claude-code-linux`
 
-**Status:** BINDING · **Revision:** 6 · **Date:** 2026-10-08 · **Owner:** architect (team `claude-code-linux`)
+**Status:** BINDING · **Revision:** 7 · **Date:** 2026-10-08 · **Owner:** architect (team `claude-code-linux`)
 **Audience:** container-dev (t2), ci-dev (t3), verifier, reviewer.
 
 This document is the contract every downstream task is judged against. Every entry below is a
@@ -36,7 +36,8 @@ Revision 1 was the original 2026-10-08 contract reviewed by t1; revision 2 recor
 size and the `CLAUDE_*` host-facing rename; revision 3 resolves the pid-1 contradiction and records the
 three accepted image additions below; revision 4 records the entrypoint's three test-only path overrides
 (§4.2); revision 5 corrects §5.1's key-fetch drift; revision 6 states the index-to-`InRelease` binding
-that revision 5 could not yet claim.
+that revision 5 could not yet claim; revision 7 brings §6.3's smoke-test enumeration up to the assertions
+the step now makes.
 
 ### 2026-10-08 — revision 3, post-review amendments
 
@@ -64,6 +65,12 @@ that revision 5 could not yet claim.
 | # | Changed | From | To | Why |
 |---|---|---|---|---|
 | C9 | §5.1 "Install method" | revision 5's non-promise: the directly fetched `Packages` file was *not* signature-bound to `InRelease`, and the text said so | the implemented binding is stated: the `SHA256` the signed `InRelease` lists for `main/binary-amd64/Packages` is compared against `sha256sum` of the fetched index, and the script refuses to parse a mismatch | t16 closed the gap in `scripts/install-claude-desktop.sh:113-128`, so revision 5's wording understated the code. The C8 cell keeps that non-promise as history. |
+
+### 2026-10-08 — revision 7, smoke-test enumeration refreshed
+
+| # | Changed | From | To | Why |
+|---|---|---|---|---|
+| C10 | §6.3 smoke-test bullet | health, `/api/health`, the two version checks, pid 1 root vs session uid 1000, and the `PUID=99` exit 78 | the same, plus `/home/ubuntu` ownership, the desktop-is-up assertions (`DISPLAY` from the base's `container-env`, X socket, `xdpyinfo`, `Xvfb`/`lxqt-session`/`openbox` as uid 1000) and the Chrome assertions (executes as uid 1000, `--version` matches the installed package, bounded headless `--dump-dom`) | t22 added runtime desktop assertions to the smoke step (`.github/workflows/build.yml:384-615`), so the enumeration understated what the step checks. Descriptive only: no assertion here is new policy. |
 
 ---
 
@@ -498,9 +505,19 @@ No date tags, no `-plus` variant, no Docker Hub mirror, no `arm64` tag (D11).
   `rebuild=true` was dispatched. Otherwise "up to date".
 * Publish order (gate before publish): build with `load: true` → smoke test → push `:<version>` → move
   `:latest`.
-* Smoke test (blocks the push): `.State.Health.Status == healthy`; `/api/health` answers; `dpkg-query -W
-  -f='${Version}' claude-desktop` equals the ARG; `claude --version` equals the CLI pin; the session
-  process uid is 1000 while pid 1 is root; and `docker run -e PUID=99 …` exits 78 with §4.4's text.
+* Smoke test (blocks the push; the "Smoke test (gates the push)" step): the container reaches
+  `.State.Health.Status == healthy` without exiting early (health polled up to 60×10s);
+  `dpkg-query -W -f='${Version}' claude-desktop` equals the ARG; `claude --version` equals the CLI pin,
+  run as the session identity (`-u 1000:1000`, `HOME=/home/ubuntu`) because that is who runs it; pid 1 is
+  root while the session identity is `1000:1000` and `/home/ubuntu` ends up owned by `1000:1000`;
+  `https://localhost:8080/api/health` answers `200` over the self-signed TLS; the streamed desktop is
+  **actually up**, not merely health-answering — `DISPLAY` read from the base's own
+  `${XDG_RUNTIME_DIR}/container-env`, its `/tmp/.X11-unix/X<n>` socket present, `xdpyinfo` reporting
+  dimensions, and `Xvfb`, `lxqt-session` and `openbox` all running as uid 1000 (bounded settle, 30×2s);
+  Google Chrome **executes** as uid 1000, exactly one `google-chrome*` package is installed, its dotted
+  `--version` equals that package's version with the Debian revision stripped, and a bounded headless
+  `--dump-dom about:blank` produces a DOM; and `docker run -e PUID=99 -e PGID=100 …` exits `78` with the
+  message naming the supported values (§4.4).
 * Fail loudly on anomalies (no stanza, a version lower than `MIN_VERSION`, a SHA256 mismatch) rather than
   publishing.
 

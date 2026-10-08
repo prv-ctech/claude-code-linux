@@ -55,7 +55,11 @@ gh workflow run build.yml
 What must be true when it finishes:
 
 - the `build` job's smoke test passed (health `healthy`, `dpkg-query` equals the planned version,
-  `claude --version` equals the CLI pin as uid 1000, pid 1 root, `/api/health` 200, `PUID=99` exits 78);
+  `claude --version` equals the CLI pin as uid 1000, pid 1 root, `/api/health` 200, the streamed session
+  up — Xvfb, `lxqt-session` and `openbox` running as uid 1000 on the display the base's own environment
+  file names — `google-chrome --version` executing as uid 1000 and matching the version dpkg recorded
+  for the single installed `google-chrome*` package with a headless `--dump-dom` run producing DOM, and
+  `PUID=99` exiting 78);
 - `:<version>` and `:<version>-ubuntu26.04` exist;
 - `:latest` resolves to the **same digest** as `:<version>`.
 
@@ -105,6 +109,14 @@ docker exec claude-verify dpkg-query -W -f='${Version}' claude-desktop          
 docker exec -u 1000 claude-verify id -u                                           # 1000
 docker exec -u 1000:1000 -e HOME=/home/ubuntu claude-verify claude --version      # 2.1.294
 curl -k -s -o /dev/null -w '%{http_code}\n' https://localhost:8080/api/health     # 200
+
+# The two runtime checks the smoke test adds on top of those: the session really
+# up, and Chrome really executing in it, both as uid 1000.
+docker exec -u 1000:1000 -e HOME=/home/ubuntu claude-verify sh -c \
+  '. "${XDG_RUNTIME_DIR:-/tmp/runtime-ubuntu}/container-env"; xdpyinfo -display "$DISPLAY" >/dev/null && pgrep -f "Xvfb $DISPLAY" >/dev/null && pgrep -x lxqt-session >/dev/null && pgrep -x openbox >/dev/null' \
+  && echo "session up"
+docker exec -u 1000:1000 -e HOME=/home/ubuntu claude-verify \
+  google-chrome --headless --disable-gpu --no-first-run --dump-dom about:blank | grep -c '<html'
 
 # The PUID/PGID guard must refuse anything else, loudly. It exits 78; the last
 # line names the only supported values.
@@ -171,10 +183,12 @@ sweep silently while the last image keeps working. How to notice it, and how to 
 `workflow_dispatch` both builds and resets the clock), is in
 [README § GitHub pauses scheduled workflows after 60 days of inactivity](../README.md#github-pauses-scheduled-workflows-after-60-days-of-inactivity).
 
-## 5. What has not been proven yet
+## 5. What has not been proven on this host
 
 This repository was authored on a host with **no container runtime**, so `docker build`, `docker run`
-and the Selkies boot have never executed here: the first CI run is their first execution. What *was*
-verified on this host, and how, is recorded in [`VERIFICATION.md`](VERIFICATION.md) — including the
+and the Selkies boot have never executed *here*. CI has since executed them: all three recorded runs of
+`build.yml` succeeded, including the `build` job's smoke step. Those runs' values live in the run
+artifact, not in this record ([`VERIFICATION.md`](VERIFICATION.md) §8). What *was* verified on this
+host, and how, is recorded in [`VERIFICATION.md`](VERIFICATION.md) — including the
 workspace gate `sh scripts/selfcheck.sh`, which needs no Docker daemon and covers the image's shell
 surface with command stubs.

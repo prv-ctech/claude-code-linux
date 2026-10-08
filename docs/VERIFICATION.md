@@ -6,7 +6,7 @@ write the Dockerfile, the entrypoint, the scripts or the workflow).
 Scope of this record: everything below was **re-derived from the artifacts in this
 repository**, not copied from the authors' reports. Where a claim can only be made by
 building and starting a container, the row is marked **CI-owned** and names the workflow
-file, job, step and line that makes it — see §7 for the audit of those credits.
+file, job, step and line that makes it — see §6 for the audit of those credits.
 
 > **Note on absolute paths (provenance, not requirements).** The absolute paths quoted in
 > the transcripts below — e.g. `/workspace/claude-code-linux`, `/tmp/lint/hadolint`,
@@ -39,7 +39,7 @@ file, job, step and line that makes it — see §7 for the audit of those credit
   `/tmp/lint/shellcheck-v0.10.0/shellcheck` → `version: 0.10.0`;
   `jq` is **not** installed on this host, so the plan job's literal jq filter was executed
   with a real `jq 1.7.1` fetched to `/tmp/t4-bin/jq` (§5.2) — the jq *filter text* is
-  copied byte-for-byte from `build.yml:125`.
+  copied byte-for-byte from `build.yml:139`.
 
 ## 1. Gate re-run and fault injection (acceptance 1)
 
@@ -258,9 +258,9 @@ WARNING: nothing is mounted at /tmp/t4-h/state: Claude Desktop's sign-in, the ke
 
 ### 3.2 What CI covers, and what it does not
 
-`build.yml:384-389` starts the smoke container with a bind mount of a directory the runner
-created (`mkdir -p "$RUNNER_TEMP/state"`, `build.yml:379`) — that is owned by **root**, not
-by `99:100`. `build.yml:426-427` then asserts the mount is `1000:1000` afterwards.
+`build.yml:398-403` starts the smoke container with a bind mount of a directory the runner
+created (`mkdir -p "$RUNNER_TEMP/state"`, `build.yml:393`) — that is owned by **root**, not
+by `99:100`. `build.yml:440-441` then asserts the mount is `1000:1000` afterwards.
 
 * Covered by CI: "a state directory the session does not own is taken over, and the result
   is really `1000:1000`". `chown -R` does not consult the previous owner, so this covers
@@ -329,13 +329,13 @@ identical to the `sha256` field above, over a 180,943,856-byte download.
 
 ### 4.2 CLI: `dist-tags.latest`, never `next`, never a max scan
 
-The selector is inline in the workflow (`build.yml:125`, gate at `:126`), so it was
+The selector is inline in the workflow (`build.yml:139`, gate at `:140`), so it was
 executed with a real `jq` against the live packument and against a purpose-built trap:
 
 ```
 $ jq -c '."dist-tags"' /tmp/t4-packument.json
 {"stable":"2.1.286","next":"2.1.295","latest":"2.1.294"}
-$ jq -r '."dist-tags".latest' /tmp/t4-packument.json          # build.yml:125 verbatim
+$ jq -r '."dist-tags".latest' /tmp/t4-packument.json          # build.yml:139 verbatim
 2.1.294
 $ jq -r '[.versions|keys[]]|map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$")))|sort_by(split(".")|map(tonumber))|last' /tmp/t4-packument.json
 2.1.295
@@ -347,7 +347,7 @@ fixture `{"latest":"2.1.294","next":"9.0.0","stable":"2.1.286"}` and `versions` 
 
 ```
 exact selector -> 2.1.294
-version regex (build.yml:126) ACCEPTS '2.1.294'
+version regex (build.yml:140) ACCEPTS '2.1.294'
 max-scan on same fixture -> 9.0.0
 REJECT '2.1.294-beta.1'   REJECT 'v2.1.294'   REJECT ''
 ```
@@ -359,10 +359,10 @@ gate rejects a pre-release and a `v`-prefixed tag instead of pinning them.
 That a *new* upstream version actually results in a rebuilt and republished image — the
 sweep, the skip-if-unchanged decision, and the push — is end-to-end and CI-owned:
 `build.yml:19-23` (6-hourly cron), job `plan` (`:78`), step *Resolve desktop signal*
-(`:100`, invoking the script at `:104`), step *Resolve CLI signal* (`:113`), step *Compute
-recipe hash base* (`:146`), step *Decide what to build* (`:186`) with the fetchability walk
-(`:213-228`, ranged GET at `:221`), the "already published with this recipe" short-circuit
-(`:243-252`) and the walked-down candidate chosen as the single build target (`:270-277`).
+(`:114`, invoking the script at `:118`), step *Resolve CLI signal* (`:127`), step *Compute
+recipe hash base* (`:160`), step *Decide what to build* (`:200`) with the fetchability walk
+(`:227-242`, ranged GET at `:235`), the "already published with this recipe" short-circuit
+(`:257-266`) and the walked-down candidate chosen as the single build target (`:284-291`).
 No run's output is quoted anywhere in this record.
 
 ## 5. Guarantee → evidence map (acceptance 3)
@@ -377,7 +377,7 @@ result, and the CI-owned remainder with its job/step/line.
 | Evidence here | §4.1, §4.2 |
 | Commands | `sh scripts/latest-upstream-version.sh --json`; `INDEX_URL=file://… sh scripts/latest-upstream-version.sh --json`; `jq -r '."dist-tags".latest'` (live + trap fixture); `curl -fsSI <deb>`; `sha256sum` |
 | Observed | desktop `2.26454.2` / sha256 `b251a0…` and a 200 on the .deb whose hash matches the index; CLI `2.1.294` while `next` is `2.1.295` and a max scan yields `2.1.295`; both fail-closed paths exit 1 |
-| CI-owned remainder | that a bump produces a build + push: `build.yml` job `plan` (`:78`), steps `:100` (desktop), `:113` (CLI), `:186` (decision, incl. `:213-228` fetchability and `:243-252` up-to-date short-circuit); job `build` `:315`; job `latest` `:506` |
+| CI-owned remainder | that a bump produces a build + push: `build.yml` job `plan` (`:78`), steps `:114` (desktop), `:127` (CLI), `:200` (decision, incl. `:227-242` fetchability and `:257-266` up-to-date short-circuit); job `build` `:329`; job `latest` `:670` |
 
 ### G2 — "Unraid PUID/PGID 1000/1000 compatibility"
 
@@ -387,7 +387,7 @@ result, and the CI-owned remainder with its job/step/line.
 | Commands | `PUID=99 PGID=1000 sh docker-entrypoint.sh`; the id/PUID/PGID matrix; the `/tmp/t4-h` stub reconstruction of the root branch (S1–S4) |
 | Observed | every non-`1000` value → `exit 78` with `FATAL: PUID/PGID must be 1000/1000 …`; a `99:100` state directory is unconditionally `chown`ed to `1000:1000` and the session is dropped with `setpriv --init-groups`; a refused `chown` exits 78 naming `chown -R 1000:1000 /mnt/user/appdata/claude-code-linux`; nothing mounted → the "sign-in will be lost" warning |
 | Packaging alignment | `unraid/claude-code-linux.xml:66,70` default `PUID`/`PGID` to `1000`; `:62` binds appdata to container target `/home/ubuntu`; `:35-38` carries the same remediation line |
-| CI-owned remainder | the real root bootstrap in a container: `build.yml:370` step *Smoke test (gates the push)* — pid 1 root `:421-422`, session identity `1000:1000` `:423-425`, mount owner `1000:1000` `:426-427`, PUID=99 exits 78 `:434-439` |
+| CI-owned remainder | the real root bootstrap in a container: `build.yml:384` step *Smoke test (gates the push)* — pid 1 root `:435-436`, session identity `1000:1000` `:437-439`, mount owner `1000:1000` `:440-441`, PUID=99 exits 78 `:593-598` |
 
 ### G3 — "streamed to a browser via Selkies"
 
@@ -396,7 +396,7 @@ result, and the CI-owned remainder with its job/step/line.
 | Command | `grep -n '^ARG BASE_IMAGE\|^FROM\|^ENTRYPOINT' Dockerfile`; `grep -n '^HEALTHCHECK\|^EXPOSE\|^VOLUME' Dockerfile`; `docker-entrypoint.sh:201` |
 | Observed output | `59:ARG BASE_IMAGE=ghcr.io/selkies-project/selkies/desktop:2.0.0-ubuntu26.04`, `60:FROM ${BASE_IMAGE}`, `402:ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]`; the second grep prints nothing and exits 1 (no anchored directive), and `Dockerfile:135-137` says why: health and port are the base's — `HEALTHCHECK` on `https://localhost:8080/api/health`, `EXPOSE 8080` — and "neither is repeated here" |
 | Evidence | the streaming stack is the base image's, un-replaced: the entrypoint `exec`s the base's own entrypoint (`docker-entrypoint.sh:201`) instead of rewriting its s6 service set; 8080 is the only port served; TLS is self-signed, hence `-k`; WebRTC/TURN are opt-in and asserted nowhere (`compose.yaml:48-51`, `unraid/claude-code-linux.xml:58-60`) |
-| CI-owned remainder | that the base actually serves over TLS **from this image**: `build.yml:370` smoke step — health reaches `healthy` in the poll `:391-406`, then `curl -k … https://localhost:8080/api/health` must return `200` `:429-430`. Note the only HTTP assertion in the whole workflow is `/api/health`; the site root is never used as evidence |
+| CI-owned remainder | that the base actually serves over TLS **from this image**: `build.yml:384` smoke step — health reaches `healthy` in the poll `:405-420`, then `curl -k … https://localhost:8080/api/health` must return `200` `:443-444`; and, since `e6a991f`, that the streamed session itself is up — the display is read from the base's own environment file and Xvfb, `lxqt-session` and `openbox` must all be running as uid `1000` on it `:446-526`. Note the only HTTP assertion in the whole workflow is `/api/health`; the site root is never used as evidence |
 
 ### G4 — "runs the official Claude Desktop for Linux (Anthropic apt repo) plus Google Chrome"
 
@@ -404,9 +404,9 @@ result, and the CI-owned remainder with its job/step/line.
 |---|---|
 | Command | §4.1 (`sh scripts/latest-upstream-version.sh --json`, `curl -fsSI <deb>`, `sha256sum`); `grep -n '^ARG CLAUDE_DESKTOP_VERSION\|^ARG CLAUDE_CODE_VERSION' Dockerfile`; `grep -n 'command -v claude-desktop\|command -v google-chrome\|google-chrome.desktop' Dockerfile` |
 | Observed output | `69:ARG CLAUDE_DESKTOP_VERSION=2.26454.2`, `72:ARG CLAUDE_CODE_VERSION=2.1.294` — the first equals the live index maximum and its .deb is fetchable with a matching hash (§4.1); `375:    command -v claude-desktop > /dev/null; \`, `376:    command -v google-chrome > /dev/null; \`, `379:    test -e /usr/share/applications/google-chrome.desktop; \` |
-| Evidence | the installer's chain, read but not modified: signing key pinned by SHA256 (`scripts/install-claude-desktop.sh:78-80`), `gpgv` + `VALIDSIG` fingerprint (`:91-105`), stanza taken from the fetched index and SHA256 cross-checked against the caller's pin (`:108-148`), downloaded .deb hashed against the stanza (`:152-154`), installed version re-asserted from dpkg (`:197`) — with the §7 discrepancy against its own comment; `Dockerfile:375-384` asserts the desktop binary, Chrome, `gnome-keyring-daemon`, `secret-tool` and `HOME=/home/ubuntu` during the build |
+| Evidence | the installer's chain, read but not modified: signing key pinned by SHA256 (`scripts/install-claude-desktop.sh:80-83`), `gpgv` + `VALIDSIG` fingerprint (`:94-103`), the fetched index bound to the signed `InRelease` before it is parsed (`:111-128`), stanza taken from that index (`:130-148`) and SHA256 cross-checked against the caller's pin (`:163-165`), downloaded .deb hashed against the stanza (`:172-175`), installed version re-asserted from dpkg (`:218-220`) — the discrepancy §7 recorded against the header comment is **closed** (§7, retired); `Dockerfile:375-384` asserts the desktop binary, Chrome, `gnome-keyring-daemon`, `secret-tool` and `HOME=/home/ubuntu` during the build |
 | Note | Chrome is **not** installed by this Dockerfile — it comes from the Selkies base and is only asserted (`Dockerfile:376`, `:379`); the CLI is pinned to `2.1.294` (`Dockerfile:72`) and shipped as the KVM-free fallback |
-| CI-owned remainder | that the install succeeds in a real build and that dpkg then reports exactly the plan's version: `build.yml:315` job `build`, build step `:331` (`:347-366`), smoke assertion `dpkg-query … claude-desktop` `:409-410`; the CLI assertion `:416-418`; the build-time `command -v` assertions are executed as part of the build step itself |
+| CI-owned remainder | that the install succeeds in a real build and that dpkg then reports exactly the plan's version: `build.yml:329` job `build`, build step `:345` (`:361-380`), smoke assertion `dpkg-query … claude-desktop` `:423-424`; the CLI assertion `:430-432`; since `e6a991f` the Chrome assertion `:528-589`, which executes `google-chrome --version` as uid `1000` in the session, compares the reported version with the one dpkg recorded for the single installed `google-chrome*` package, and then requires a bounded `--headless --dump-dom` run to produce DOM; the build-time `command -v` assertions are executed as part of the build step itself |
 
 ### G5 — prerequisites for a claude.ai sign-in (interactive sign-in itself out of scope)
 
@@ -415,7 +415,7 @@ result, and the CI-owned remainder with its job/step/line.
 | Command | `grep -n 'gnome-keyring\|libsecret-1-0\|libsecret-tools' Dockerfile`; `HADOLINT=… SHELLCHECK=… sh scripts/selfcheck.sh` (§1.1) |
 | Observed output | `256:        gnome-keyring \`, `257:        libsecret-1-0 \`, `258:        libsecret-tools \`, plus `377:    command -v gnome-keyring-daemon > /dev/null; \` and `378:    command -v secret-tool > /dev/null; \`; and the gate's four `ok` lines about the secret service, quoted verbatim in §1.1 |
 | Evidence | the gate's stub-level round trip is green including the two failure paths (*locked keyring*, *service never appears*) which warn, exit 1, and still publish the readiness marker the session wrapper waits for; `CLAUDE_CONFIG_DIR` is forced under `/home/ubuntu` or the build fails (`Dockerfile:382-384`) |
-| CI-owned remainder | **none exists.** No CI step asserts the secret service, the app's window, or the CLI's credentials. The live round trip is asserted only *inside the container at start* by `claude-keyring-init` (which is what makes the failure loud) and at stub level by the gate |
+| CI-owned remainder | **none exists.** No CI step asserts the secret service, the app's window, or the CLI's credentials (the session the app would run in is asserted for G3, `:446-526`; the app itself never is). The live round trip is asserted only *inside the container at start* by `claude-keyring-init` (which is what makes the failure loud) and at stub level by the gate |
 | Note | launching the desktop under the session's X display is likewise exercised only at stub level: the launcher probes `unshare`, is asserted against the host's real `unshare`, and adds `--no-sandbox` only when user namespaces are gone (§1.1, 17/17) |
 | Out of scope | the claude.ai sign-in itself: it requires a human, and is not claimed anywhere in this record |
 
@@ -426,96 +426,140 @@ credit what the workflow performs; they are not reports of results.
 
 ### 6.1 The build job does build the image and then smoke-test the running container
 
-* Job `build` (`:315`) runs only when the plan says there is something to build
-  (`:316-317`), after `docker/setup-buildx-action` (`:322`) and a GHCR login (`:324-329`).
-* Build step *Build linux/amd64 with load true, not yet pushed* (`:331-368`): single
-  `linux/amd64` build, `--load`ed into the local engine (`:347-349`) and tagged
-  `:$VERSION`, `:$VERSION-$FLAVOR` and a local smoke ref (`:363-365`). `:latest` is
-  deliberately **not** among the built tags — the comment at `:344-346` says so.
-* Smoke step *Smoke test (gates the push)* (`:370-451`): the container is started with a
-  real bind mount of the state path and 8080 published (`:384-389`), then the step asserts
-  — health reaches `healthy`, or the job fails with the container log (`:391-406`);
-  `dpkg-query` version equals the plan (`:409-410`); the CLI reports the pin, as uid
-  `1000:1000` with `HOME=/home/ubuntu` (`:416-418`); pid 1 is root (`:421-422`); the session
-  identity is `1000:1000` (`:423-425`); the state mount ends up owned `1000:1000`
-  (`:426-427`); `https://localhost:8080/api/health` returns `200` over the self-signed
-  certificate (`:429-430`); and a container started with `PUID=99` exits `78` with
-  `PUID/PGID must be 1000/1000` in its output (`:433-439`). Every failure path is `exit 1`,
+* Job `build` (`:329`) runs only when the plan says there is something to build
+  (`:330-331`), after `docker/setup-buildx-action` (`:336`) and a GHCR login (`:338-343`).
+* Build step *Build linux/amd64 with load true, not yet pushed* (`:345-382`): single
+  `linux/amd64` build, `--load`ed into the local engine (`:361-363`) and tagged
+  `:$VERSION`, `:$VERSION-$FLAVOR` and a local smoke ref (`:377-379`). `:latest` is
+  deliberately **not** among the built tags — the comment at `:358-360` says so.
+* Smoke step *Smoke test (gates the push)* (`:384-615`): the container is started with a
+  real bind mount of the state path and 8080 published (`:398-403`), and the step then makes
+  **seven numbered assertions** — the `# 1.`…`# 7.` comments at `:422`, `:425`, `:433`,
+  `:442`, `:446`, `:528`, `:591` — after the health gate (eight checks in total). Before
+  `e6a991f` the step numbered only five, with the PUID/PGID guard as number 5; the two runtime
+  desktop/Chrome assertions became 5 and 6 and the guard moved to 7, so any count taken from
+  the step before that commit understates what it now checks. In file order the step asserts —
+  health reaches `healthy`, or the job fails with the container log (`:405-420`);
+  `dpkg-query` version equals the plan (`:423-424`); the CLI reports the pin, as uid
+  `1000:1000` with `HOME=/home/ubuntu` (`:430-432`); pid 1 is root (`:435-436`); the session
+  identity is `1000:1000` (`:437-439`); the state mount ends up owned `1000:1000`
+  (`:440-441`); `https://localhost:8080/api/health` returns `200` over the self-signed
+  certificate (`:443-444`); the streamed session is up, with the display read from the base's
+  own environment file and Xvfb, `lxqt-session` and `openbox` all running as uid `1000`
+  (`:446-526`); `google-chrome --version` executes as uid `1000` in that session, matches the
+  single installed `google-chrome*` package, and a bounded `--headless --dump-dom` run
+  produces DOM (`:528-589`); and a container started with `PUID=99` exits `78` with
+  `PUID/PGID must be 1000/1000` in its output (`:591-599`). Every failure path is `exit 1`,
   so a failed assertion stops the job before the next step.
 * Evidence is durable, not just logged: the assertion table is appended to the run summary
-  (`:441-451`) and the container log is uploaded as an artifact (`:493-500`).
+  (`:600-615`) and the container log is uploaded as an artifact (`:657-664`).
 
 ### 6.2 `:latest` only ever moves from a smoke-tested digest
 
-* The smoke step `exit 1`s on any failed assertion (`:406, :410, :418, :422, :425, :427,
-  :430, :437, :439`) and step order is unconditional, so the push step (`:459-468`) cannot
-  execute in a run whose smoke test failed. A failed push is retried once (`:470-483`), and
+* The smoke step `exit 1`s on any failed assertion (`:420, :424, :432, :436, :439, :441,
+  :444` for the pre-existing ones, `:484, :525` for the desktop check added by `e6a991f`,
+  `:547, :550, :555, :560, :568, :584, :588` for the Chrome check, and `:596, :598` for the
+  guard) and step order is unconditional, so the push step (`:623-632`) cannot
+  execute in a run whose smoke test failed. A failed push is retried once (`:634-647`), and
   what it pushes is the same local image the smoke test read.
-* The `latest` job (`:506`) requires `needs.plan.outputs.publish_latest == 'true'` **and**
-  that either nothing was built or the build job succeeded (`:508-510`) — a failed build
+* The `latest` job (`:670`) requires `needs.plan.outputs.publish_latest == 'true'` **and**
+  that either nothing was built or the build job succeeded (`:672-674`) — a failed build
   blocks the move.
-* The move is a manifest copy by digest, never a rebuild (`:521-549`): it reads the source
-  tag's digest (`:530-531`), copies it with `--prefer-index=false` so the source manifest
-  bytes are written through rather than re-wrapped (`:545-546`), re-reads `:latest`
-  (`:547-548`) and asserts equality with the source digest (`:550-551`) — the assertion is
-  only meaningful because of `--prefer-index=false`, which the comment at `:540-544`
+* The move is a manifest copy by digest, never a rebuild (`:685-713`): it reads the source
+  tag's digest (`:694-695`), copies it with `--prefer-index=false` so the source manifest
+  bytes are written through rather than re-wrapped (`:709-710`), re-reads `:latest`
+  (`:711-712`) and asserts equality with the source digest (`:714-715`) — the assertion is
+  only meaningful because of `--prefer-index=false`, which the comment at `:704-708`
   explains.
 * In the "nothing to build" path there is no smoke test in that run, so the link is the
   recipe label: the plan job compares the published image's
-  `org.opencontainers.image.claude-code-linux-recipe` label (`:359`, `:362`) read back from
-  GHCR (`:243`) against the hash it just computed (`:248`). That label is written only by a
+  `org.opencontainers.image.claude-code-linux-recipe` label (`:373`, `:376`) read back from
+  GHCR (`:257`) against the hash it just computed (`:262`). That label is written only by a
   run that had already passed the smoke step, so the copy still lands on a smoke-gated
   digest. Residual, stated for completeness: that label is the only link in that path —
   nothing re-verifies the source image at copy time.
-* `build.yml:490` reads back the pushed digest and records it in the summary, but the
+* `build.yml:649-655` reads back the pushed digest (the `imagetools inspect` at `:654`) and
+  records it in the summary, but the
   workflow does not assert that digest against the local image id. That comparison is
   redundant — `docker push` sends the local image — yet it is the one assertion that would
   catch a registry-side substitution; it is not present.
 
 ### 6.3 Where the smoke test is weaker than the Unraid flow
 
-The smoke container's state directory is created by the runner (`:379`), so it is owned by
+The smoke container's state directory is created by the runner (`:393`), so it is owned by
 root and not by `99:100`; and no step makes the `chown` fail. The general
-"not owned by the session → taken over → really `1000:1000`" case is asserted (`:426-427`);
+"not owned by the session → taken over → really `1000:1000`" case is asserted (`:440-441`);
 the literal `99:100` value and the root-squash refusal message are covered only by §3.1
 here.
 
-## 7. Discrepancy found while auditing G4
+## 7. Retired finding — the `Packages`/`InRelease` binding, closed by t16
 
-`scripts/install-claude-desktop.sh:22` claims, as part of the six-step install chain:
+Status: **closed (retired)**. The finding below was real when it was recorded and is kept
+here as closed evidence, not as an open discrepancy. What closed it is named.
+
+**As recorded, before t16.** This section read that
+`scripts/install-claude-desktop.sh`'s header comment claimed, as part of the six-step
+install chain:
 
 > `#      the SHA256 of every Packages file, which is what makes step 2 trustworthy.`
 
-No such comparison exists in the file. `grep -n Packages scripts/install-claude-desktop.sh`
-returns four hits — the comment at `:22`, the index URL at `:53`, the `fetch` at `:108` and
-the `awk` at `:125` — and none of them hashes the fetched `Packages` against the
-`InRelease` that `gpgv` just validated at `:91-105`.
+and that no such comparison existed: `grep -n Packages scripts/install-claude-desktop.sh`
+returned four hits — the comment, the index URL, the `fetch` of the index and the `awk`
+reading the stanza — none of which hashed the fetched `Packages` against the `InRelease`
+`gpgv` had just validated. The consequence recorded then: the signing key and the
+`InRelease` authenticated the repository, but the index the stanza was read from was
+anchored by TLS alone, so the stanza's `Version`/`SHA256` were not bound to the signature;
+severity medium, code-only, outside this record's in-scope path, so recorded rather than
+fixed. The quoted comment line is preserved from this record: git holds a single revision
+of the script, the one that already carries the fix, so the pre-t16 text cannot be
+re-derived from history and would otherwise be lost.
 
-* Consequence: the signing key (SHA256-pinned) and `InRelease` (signature + fingerprint)
-  authenticate the repository, but the `Packages` index the stanza is read from is anchored
-  by TLS alone, so the stanza's `Version`/`SHA256` are not bound to the signature.
-* Impact is narrower than it sounds because the pair is self-consistent — the `.deb` is
-  hashed against that same stanza (`:152-154`) and against the caller's pin (`:142-143`) —
-  and both the pin and the stanza originate from the same index fetch, so this is not a
-  silent-corruption path; it is a *missing* anchor, not a wrong one.
-* Severity: medium, and code-only. It is outside this task's in-scope path
-  (`docs/VERIFICATION.md`), so it is recorded here rather than fixed. The claim in the
-  comment should be either implemented (compare the fetched `Packages` SHA256 with the
-  `InRelease` entry) or deleted so the recorded chain matches the code.
+**Closed by t16, which implemented the binding.** The file now reads the signed value and
+refuses to parse without a match: the SHA256 the signed `InRelease` lists for
+`main/binary-amd64/Packages` is taken from the `SHA256:` section only, matched by exact
+file name so `main/binary-amd64/Packages.gz` is not mistaken for it (`:120-123`); an absent
+entry is fatal (`:124-125`); the fetched index is hashed (`:126`) and compared (`:127-128`)
+*before* the stanza is parsed, the failure naming both hashes and refusing to parse. The
+header comment now claims exactly that (`:22-25`, "step 2 checks the amd64 `Packages` file
+it fetched against that signed value before it parses a single byte of it"). The recorded
+consequence and impact no longer hold: the stanza's `Version`/`SHA256` are bound to the
+signature, by the same index fetch the caller's pin is compared against (`:163-165`).
 
-## 8. The single remaining unproven item
+The original hit list no longer applies: `grep -n Packages scripts/install-claude-desktop.sh`
+now returns eight hits — `:23`, `:56`, `:111`, `:119`, `:120`, `:125`, `:126`, `:146` — two
+of which *are* the comparison (`:120` reads the signed value, `:126` hashes the fetch). G4's
+Evidence row carries the current chain (`:80-83`, `:94-103`, `:111-128`, `:130-148`,
+`:163-165`, `:172-175`, `:218-220`).
 
-**No image built from this tree has ever been built, started or observed serving
-anywhere.** In this workspace there is no container runtime at all; and the workflow that
-would do it has never executed for this repository — `GET
-https://api.github.com/repos/prv-ctech/claude-code-linux/actions/runs` returns
-`"total_count": 0`, `git ls-remote origin` returns no refs, and an anonymous GHCR pull
-token for `prv-ctech/claude-code-linux` answers `HTTP 403 {"errors":[{"code":"DENIED",
-"message":"requested access to the resource is denied"}]}` (no published package). Every
-row marked **CI-owned** in §5 and §6 — boot, Selkies on `https://localhost:8080/api/health`,
-the desktop and CLI binaries in a running session, the keyring round trip, and the real
-`99:100` state-mount recovery — depends on that first successful run, and none of it is
-verified by this record.
+## 8. What CI has now done, and what this record still does not witness
+
+When §5 and §6 were written this section read "no image built from this tree has ever been
+built, started or observed serving anywhere", because the workflow had not executed for this
+repository (`GET .../actions/runs` answered `"total_count": 0`). That is no longer the state,
+and it is corrected here rather than by quietly relaxing a row above.
+
+* **`build.yml` has executed three times and all three runs succeeded.** Run 3 — id
+  `37836848159`, sha `e6a991f1`, the commit that added the runtime desktop and Chrome
+  assertions — answers `"conclusion": "success"` for `event: push`, and its jobs listing
+  shows job `build` `success` with step 6 *Smoke test (gates the push)* `success`, step 8
+  *Push version tags* `success`, and job `latest` (which moves `:latest`) `success`. An image
+  from this tree has therefore been built, started, smoke-tested and pushed; the step §5 and
+  §6 credit with the runtime proof has itself executed and passed.
+* **The package is readable.** An anonymous pull token for `prv-ctech/claude-code-linux` and
+  `GET /v2/prv-ctech/claude-code-linux/manifests/latest` both answer `HTTP 200`. The earlier
+  observation in this record — an anonymous token answering `HTTP 403 {"errors":[{"code":
+  "DENIED","message":"requested access to the resource is denied"}]}`, with `git ls-remote
+  origin` returning no refs — dates from before the first run and is superseded.
+* **What is still not witnessed here is any value the smoke step observed.** The job-log
+  endpoint answers `HTTP 403` to an unauthenticated request, so no run transcript is quoted
+  anywhere in this record: the version strings, the session display, the DOM byte count and
+  the exit codes listed in §6.1 are what the step *asserts*, not what this record saw. That
+  evidence is in the run artifact (`smoke-<version>-<recipe>`) and the run summary, neither of
+  which this workspace can read.
+* **Unchanged: there is still no container runtime in this workspace** (§0), so nothing in
+  §1–§4 used one. The literal `99:100` state-mount recovery and the keyring round trip remain
+  proven only at stub level here; CI asserts the mount owner (`:440-441`) and asserts the
+  keyring nowhere.
 
 ## 9. Reproduction index
 
@@ -533,9 +577,11 @@ verified by this record.
 | 10 | `INDEX_URL=… MIN_VERSION=3.0.0 sh scripts/latest-upstream-version.sh` | 1 | §4.1 |
 | 11 | `curl -fsSI <deb>` / `curl -fsSL -o … && sha256sum …` | 0 | §4.1 |
 | 12 | `jq -r '."dist-tags".latest' /tmp/t4-packument.json` (and the trap fixture, and the max-scan comparison) | 0 | §4.2 |
-| 13 | `git ls-remote origin`; `curl …/actions/runs`; GHCR anonymous token request | 0 / HTTP 200 / HTTP 403 | §8 |
+| 13 | `git ls-remote origin`; `curl …/actions/runs`; GHCR anonymous token request (recorded pre-run, when the answer was HTTP 403) | 0 / HTTP 200 / HTTP 403 | §8 |
+| 14 | `curl …/actions/runs` and `…/actions/runs/37836848159` and `…/actions/runs/37836848159/jobs`; `curl https://ghcr.io/token?scope=repository:prv-ctech/claude-code-linux:pull`; `curl -H "Authorization: Bearer <that token>" https://ghcr.io/v2/prv-ctech/claude-code-linux/manifests/latest` | 0 (three runs, run 3 `success`; jobs `build`/`latest` `success`) / HTTP 200 / HTTP 200 | §8 |
 
 Files read for this record and deliberately **not** modified: `Dockerfile`,
 `docker-entrypoint.sh`, `scripts/*.sh`, `.github/workflows/build.yml`,
 `unraid/claude-code-linux.xml`, `compose.yaml`; `rootfs/**` was exercised only through the
-gate and shellcheck. The only file written is `docs/VERIFICATION.md`.
+gate and shellcheck. The file written for this record is `docs/VERIFICATION.md`; the
+`build.yml` citations re-pointed under t24 also touched `README.md` and `docs/RELEASE.md`.

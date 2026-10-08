@@ -154,9 +154,12 @@ The numbers the first release is built from, re-resolved from upstream on 2026-1
 | Base image | `ghcr.io/selkies-project/selkies/desktop:2.0.0-ubuntu26.04` | the workflow's `BASE_IMAGE`, and the source of the `-ubuntu26.04` tag suffix |
 
 The Unraid template and `compose.yaml` both pull `ghcr.io/prv-ctech/claude-code-linux:latest`, which
-resolves to the newest build of that pair; the precision tags are derived from it. **No image is
-published yet** — these are the upstream pins as resolved and verified (index stanza plus a ranged GET
-of the `.deb`), not a built artifact, and the first CI run is what turns them into a smoke-tested image.
+resolves to the newest build of that pair; the precision tags are derived from it. The pins above are the
+upstream ones as resolved and verified (index stanza plus a ranged GET of the `.deb`), and CI has since
+built them: all three recorded runs of `build.yml` succeeded, so the image has been built, booted and
+smoke-tested, and the `:latest` manifest is readable from GHCR anonymously. What that does and does not
+prove is recorded, with the exact API responses, in
+[`docs/VERIFICATION.md`](docs/VERIFICATION.md) §8.
 
 The container **never self-updates**. Anthropic's apt repository is not registered inside the image
 (`CLAUDE_DESKTOP_ADD_REPO=false`) and the CLI updater is disabled (`DISABLE_AUTOUPDATER=1`,
@@ -197,7 +200,11 @@ is what carries your sign-in, keyring and CLI credentials across that recreation
    status must be `healthy`, `dpkg-query -W claude-desktop` must equal the planned version,
    `claude --version` must equal the CLI pin **when run as the session identity** (`docker exec -u
    1000:1000 -e HOME=/home/ubuntu`, not as root), pid 1 must be root while the session identity is
-   `1000:1000`, `https://localhost:8080/api/health` must answer `200`, and `PUID=99` must exit `78`
+   `1000:1000`, `https://localhost:8080/api/health` must answer `200`, the streamed session must really
+   be up (display read from the base's own environment file, with Xvfb, `lxqt-session` and `openbox` all
+   running as uid 1000), `google-chrome --version` must execute as uid 1000, match the version dpkg
+   recorded for the single installed `google-chrome*` package, and a bounded `--headless --dump-dom` run
+   must produce DOM — and `PUID=99` must exit `78`
    with the documented message. Only then are `:<version>` and `:<version>-<flavor>` pushed, with one
    retry for GHCR's first-publication race (`denied: permission_denied: write_package`).
 3. **`latest`** moves `:latest` with `docker buildx imagetools create --prefer-index=false` from the
