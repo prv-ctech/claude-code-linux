@@ -1,0 +1,483 @@
+name: build
+
+# Two tracked upstreams, one image (docs/DESIGN.md D1). The sweep resolves BOTH
+# upstream signals and folds them into a single image build: the desktop pin and
+# the Claude Code CLI pin.
+#
+# Why there is no `repository_dispatch` and no webhook on Anthropic's side: the
+# Claude Desktop apt index is a static bucket listing, npm publishes no
+# per-package webhook we can subscribe to, and the desktop app itself does not
+# self-update on Linux ("Updates arrive with your system's regular package
+# updates"). A cron sweep plus an idempotent plan job is therefore the mechanism,
+# not a workaround.
+#
+# Why a timer alone never rebuilds: the plan job compares the recipe hash it
+# computes locally with the hash stamped on the already-published image and read
+# back out of the registry over the raw OCI API (scripts/published-recipe.sh).
+# Identical hash + identical pins => "up to date" => no build, no push.
+
+on:
+  schedule:
+    # Scan, not build: a 6-hourly sweep puts a new upstream version within a
+    # working day and costs nothing when there is nothing to do.
+    - cron: '23 */6 * * *'
+  push:
+    branches: [main]
+    # Recipe paths only. A README or .env.example edit does not rebuild the image.
+    paths:
+      - Dockerfile
+      - docker-entrypoint.sh
+      - 'rootfs/**'
+      - compose.yaml
+      - 'unraid/**'
+      - 'scripts/**'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact claude-desktop version to build (default: newest in the apt index)'
+        required: false
+        type: string
+      rebuild:
+        description: 'Rebuild even when the published image already carries this recipe'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/prv-ctech/claude-code-linux
+  # Floor for the index scan. The index is append-only and moved from the 1.x
+  # line to 2.x; anything below this is not a version we would ship.
+  MIN_VERSION: '2.0.0'
+  # Literal pin, same default as the Dockerfile's ARG BASE_IMAGE (DESIGN.md D4).
+  # Overriding it here is how the base image is bumped.
+  BASE_IMAGE: ghcr.io/selkies-project/selkies/desktop:2.0.0-ubuntu26.04
+  # Distribution flavor suffix used for the second tag (:<version>-<flavor>).
+  # Checked against BASE_IMAGE below so the tag cannot silently lie.
+  FLAVOR: ubuntu26.04
+  DEB_BASE: https://downloads.claude.ai/claude-desktop/apt/stable
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      publish_latest: ${{ steps.decide.outputs.publish_latest }}
+      newest: ${{ steps.decide.outputs.newest }}
+      version: ${{ steps.decide.outputs.version }}
+      desktop_sha256: ${{ steps.desktop.outputs.sha256 }}
+      desktop_deb_url: ${{ steps.desktop.outputs.deb_url }}
+      cli: ${{ steps.cli.outputs.version }}
+      recipe: ${{ steps.recipe.outputs.recipe }}
+      flavor: ${{ steps.recipe.outputs.flavor }}
+      reason: ${{ steps.decide.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve desktop signal (Anthropic apt index)
+        id: desktop
+        run: |
+          set -euo pipefail
+          ./scripts/latest-upstream-version.sh --json > "$RUNNER_TEMP/desktop.json"
+          cat "$RUNNER_TEMP/desktop.json"
+          echo "version=$(jq -r .version "$RUNNER_TEMP/desktop.json")"   >> "$GITHUB_OUTPUT"
+          echo "sha256=$(jq -r .sha256 "$RUNNER_TEMP/desktop.json")"     >> "$GITHUB_OUTPUT"
+          echo "deb_url=$(jq -r .deb_url "$RUNNER_TEMP/desktop.json")"   >> "$GITHUB_OUTPUT"
+          ./scripts/latest-upstream-version.sh --candidates > "$RUNNER_TEMP/candidates.txt"
+          echo "--- candidates (ascending; the plan job walks these downwards)"
+          cat "$RUNNER_TEMP/candidates.txt"
+
+      - name: Resolve CLI signal (npm packument dist-tags.latest)
+        id: cli
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # dist-tags.latest, never a max scan over versions[] and never
+          # dist-tags.next: at authoring time next was 2.1.295 while latest was
+          # 2.1.294, so a max scan publishes an unreleased-next build as stable.
+          # A fixed table of versions is equally wrong: the pin must move on its
+          # own, which is the whole point of the sweep.
+          packument='https://registry.npmjs.org/@anthropic-ai/claude-code'
+          cli=$(curl -fsSL --max-time 60 "$packument" | jq -r '."dist-tags".latest')
+          if ! printf '%s' "$cli" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::npm dist-tags.latest is not a version: '$cli'"
+            exit 1
+          fi
+          echo "version=$cli" >> "$GITHUB_OUTPUT"
+          echo "claude-code dist-tags: $(curl -fsSL --max-time 60 "$packument" | jq -c '."dist-tags"')"
+          echo "pinned CLI version: $cli"
+          # api.github.com/repos/anthropics/claude-code/releases/latest is
+          # corroboration only, never the source of truth: that repository is
+          # the CLI, not the desktop app, and its release objects lag npm.
+          gh_tag=$(curl -fsSL --max-time 60 \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              https://api.github.com/repos/anthropics/claude-code/releases/latest \
+            | jq -r '.tag_name' || true)
+          if [ -z "$gh_tag" ]; then
+            echo "::notice::GitHub releases/latest could not be read; npm dist-tags.latest ($cli) remains the only signal"
+          elif [ "v$cli" != "$gh_tag" ]; then
+            echo "::warning::GitHub releases/latest is $gh_tag but npm dist-tags.latest is $cli; npm wins (the image installs from npm)"
+          fi
+
+      - name: Compute recipe hash
+        id: recipe
+        run: |
+          set -euo pipefail
+          # Content hash over everything that can change the image: both upstream
+          # pins, the base pin, the Dockerfile, the entrypoint, the rootfs tree,
+          # compose.yaml and the Unraid template. Either pin moving or any recipe
+          # edit changes the hash, which is what makes a CLI-only bump rebuild
+          # the newest desktop version exactly once instead of never.
+          files="Dockerfile docker-entrypoint.sh compose.yaml unraid/claude-code-linux.xml"
+          for f in Dockerfile docker-entrypoint.sh; do
+            [ -f "$f" ] || { echo "::error::$f is missing; cannot compute a recipe hash"; exit 1; }
+          done
+          if [ -d rootfs ]; then
+            files="$files $(find rootfs -type f | LC_ALL=C sort | tr '\n' ' ')"
+          fi
+          # shellcheck disable=SC2086  # $files is an intentional word-split list
+          {
+            printf 'CLAUDE_DESKTOP_VERSION=%s\n' '${{ steps.desktop.outputs.version }}'
+            printf 'CLAUDE_CODE_VERSION=%s\n'    '${{ steps.cli.outputs.version }}'
+            printf 'BASE_IMAGE=%s\n'             "$BASE_IMAGE"
+            for f in $files; do
+              [ -f "$f" ] || continue
+              printf '%s=%s\n' "$f" "$(sha256sum "$f" | cut -d' ' -f1)"
+            done
+          } > "$RUNNER_TEMP/recipe-input.txt"
+          recipe=$(sha256sum "$RUNNER_TEMP/recipe-input.txt" | cut -c1-12)
+          # The flavor tag suffix must describe the base actually used.
+          case "$BASE_IMAGE" in
+            *"-$FLAVOR") ;;
+            *) echo "::error::FLAVOR=$FLAVOR does not describe BASE_IMAGE=$BASE_IMAGE"; exit 1 ;;
+          esac
+          echo "recipe=$recipe"   >> "$GITHUB_OUTPUT"
+          echo "flavor=$FLAVOR"   >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/recipe-input.txt"
+
+      - name: Decide what to build
+        id: decide
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+          REBUILD: ${{ inputs.rebuild }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          repo=$(printf '%s' "$REPO" | tr '[:upper:]' '[:lower:]')
+          recipe='${{ steps.recipe.outputs.recipe }}'
+          dispatch="${DISPATCH_VERSION:-}"
+          rebuild="${REBUILD:-}"
+          maxv=$(tail -n 1 "$RUNNER_TEMP/candidates.txt" | cut -d' ' -f1)
+          target=""; newest=""; reason=""; publish_latest=false; matched=0; uptodate=false
+
+          # Walk the candidates downwards. The first one that is fetchable and
+          # not already published with this recipe is the single build target;
+          # an unfetchable candidate (upstream published the index stanza before
+          # the .deb landed) is skipped loudly and the next one is tried.
+          while read -r v sha filename; do
+            [ -n "${v:-}" ] || continue
+            if [ -n "$dispatch" ] && [ "$v" != "$dispatch" ]; then continue; fi
+            matched=1
+            url="$DEB_BASE/$filename"
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -I --max-time 60 "$url" || true)
+            if [ "$code" != "200" ]; then
+              echo "::notice::$v: .deb not fetchable (HTTP $code) at $url; skipping this version"
+              continue
+            fi
+            echo "$v: sha256=$sha deb=$url"
+            published=""
+            if published=$(./scripts/published-recipe.sh "$REGISTRY" "$repo" "$v" "$GITHUB_TOKEN" 2>/dev/null); then
+              if [ "$published" = "$recipe" ]; then
+                if [ "$rebuild" != "true" ]; then
+                  echo "::notice::$v is published with recipe $recipe, and that is the current recipe; up to date"
+                  newest="$v"; uptodate=true; reason="up-to-date"
+                  if [ "$v" = "$maxv" ]; then publish_latest=true; fi
+                  break
+                fi
+                reason="requested"
+              else
+                reason="recipe-changed"
+              fi
+            else
+              reason="missing"
+            fi
+            target="$v"; newest="$v"
+            if [ "$v" = "$maxv" ]; then
+              publish_latest=true
+            else
+              echo "::warning::$v is not the newest index version ($maxv); building it but leaving :latest untouched"
+            fi
+            break
+          done < <(sort -Vr "$RUNNER_TEMP/candidates.txt")
+
+          if [ -n "$dispatch" ] && [ "$matched" = 0 ]; then
+            echo "::error::dispatched version $dispatch has no stanza >= MIN_VERSION=$MIN_VERSION in the apt index"
+            exit 1
+          fi
+          if [ -z "$target" ] && [ "$uptodate" = false ]; then
+            echo "::error::no fetchable claude-desktop .deb at or above MIN_VERSION=$MIN_VERSION (newest index version is $maxv)"
+            exit 1
+          fi
+
+          build=false
+          if [ -n "$target" ]; then build=true; fi
+          echo "build=$build"                   >> "$GITHUB_OUTPUT"
+          echo "version=${target:-$newest}"     >> "$GITHUB_OUTPUT"
+          echo "newest=$newest"                 >> "$GITHUB_OUTPUT"
+          echo "publish_latest=$publish_latest" >> "$GITHUB_OUTPUT"
+          echo "reason=${reason:-none}"         >> "$GITHUB_OUTPUT"
+          {
+            echo "### Plan"
+            echo
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| desktop version (newest in apt index) | \`$maxv\` |"
+            echo "| CLI pin (npm dist-tags.latest) | \`${{ steps.cli.outputs.version }}\` |"
+            echo "| recipe hash | \`$recipe\` |"
+            echo "| flavor tag | \`${{ steps.recipe.outputs.flavor }}\` |"
+            echo "| build this run | \`$build\` ($reason) |"
+            echo "| move :latest | \`$publish_latest\` -> \`${newest:-none}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build linux/amd64 with load true, not yet pushed
+        id: build
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          CLI: ${{ needs.plan.outputs.cli }}
+          RECIPE: ${{ needs.plan.outputs.recipe }}
+          FLAVOR: ${{ needs.plan.outputs.flavor }}
+          SHA256: ${{ needs.plan.outputs.desktop_sha256 }}
+          DEB_URL: ${{ needs.plan.outputs.desktop_deb_url }}
+        run: |
+          set -euo pipefail
+          local_ref="claude-code-linux:smoke"
+          # amd64 only by decision (DESIGN.md D11): arm64 would mean emulated
+          # builds for a target nobody asked for. tags carry :<version> and
+          # :<version>-<flavor> only; :latest is never a build tag, it is moved
+          # later by `docker buildx imagetools create` from a smoke-tested digest.
+          docker buildx build \
+            --platform linux/amd64 \
+            --load \
+            --build-arg "BASE_IMAGE=$BASE_IMAGE" \
+            --build-arg "CLAUDE_DESKTOP_VERSION=$VERSION" \
+            --build-arg "CLAUDE_DESKTOP_SHA256=$SHA256" \
+            --build-arg "CLAUDE_DESKTOP_DEB_URL=$DEB_URL" \
+            --build-arg "CLAUDE_CODE_VERSION=$CLI" \
+            --label "org.opencontainers.image.title=claude-code-linux" \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.claude-code-linux-recipe=$RECIPE" \
+            --label "com.prvctech.claude-desktop-version=$VERSION" \
+            --label "com.prvctech.claude-code-version=$CLI" \
+            --label "com.prvctech.claude-recipe=$RECIPE" \
+            -t "$IMAGE:$VERSION" \
+            -t "$IMAGE:$VERSION-$FLAVOR" \
+            -t "$local_ref" \
+            .
+          docker image inspect "$local_ref" \
+            --format 'size={{.Size}} bytes id={{.Id}}' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke test (gates the push)
+        id: smoke
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          CLI: ${{ needs.plan.outputs.cli }}
+        run: |
+          set -euo pipefail
+          local_ref="claude-code-linux:smoke"
+          name=claude-smoke
+          mkdir -p "$RUNNER_TEMP/state"
+          docker rm -f "$name" >/dev/null 2>&1 || true
+          # PASSWD is mandatory (the base's default login is ubuntu/mypasswd);
+          # --shm-size=2g because browser renderers crash on Docker's 64 MB
+          # default; the state path is /home/ubuntu (never /config).
+          docker run -d --name "$name" \
+            --shm-size=2g \
+            -e PUID=1000 -e PGID=1000 -e PASSWD=smoke-ci-passwd \
+            -p 8080:8080 \
+            -v "$RUNNER_TEMP/state:/home/ubuntu" \
+            "$local_ref"
+          status=unknown
+          for _ in $(seq 1 60); do
+            status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$name")
+            [ "$status" = healthy ] && break
+            if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]; then
+              echo "::error::container exited before becoming healthy"
+              docker logs "$name" 2>&1 | tail -50
+              exit 1
+            fi
+            sleep 10
+          done
+          {
+            echo "### Smoke test"
+            echo
+            echo "health status: $status"
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$status" = healthy ] || { docker logs "$name" 2>&1 | tail -100; echo "::error::health status is '$status', not healthy"; exit 1; }
+
+          # 1. installed desktop version equals the planned version
+          ver=$(docker exec "$name" dpkg-query -W -f='${Version}' claude-desktop | tr -d '[:space:]')
+          [ "$ver" = "$VERSION" ] || { echo "::error::claude-desktop is $ver, expected $VERSION"; exit 1; }
+          # 2. installed CLI equals its pin
+          cli=$(docker exec "$name" claude --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          [ "$cli" = "$CLI" ] || { echo "::error::claude CLI is $cli, expected $CLI"; exit 1; }
+          # 3. root bootstrap: pid 1 is root, the session identity is 1000:1000,
+          #    and the state path it chowned belongs to 1000:1000 afterwards.
+          pid1=$(docker exec "$name" cat /proc/1/status | awk '/^Uid:/{print $2}')
+          [ "$pid1" = 0 ] || { echo "::error::pid 1 uid is $pid1, expected 0 (root bootstrap)"; exit 1; }
+          uid=$(docker exec -u 1000 "$name" id -u)
+          gid=$(docker exec -u 1000 "$name" id -g)
+          [ "$uid" = 1000 ] && [ "$gid" = 1000 ] || { echo "::error::session identity is $uid:$gid, expected 1000:1000"; exit 1; }
+          owner=$(docker exec "$name" stat -c '%u:%g' /home/ubuntu)
+          [ "$owner" = 1000:1000 ] || { echo "::error::/home/ubuntu is owned by $owner, expected 1000:1000"; exit 1; }
+          # 4. the upstream health endpoint, over the self-signed TLS the base uses
+          code=$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 30 https://localhost:8080/api/health)
+          [ "$code" = 200 ] || { echo "::error::https://localhost:8080/api/health returned $code"; exit 1; }
+
+          # 5. the PUID/PGID guard: any other value must be rejected loudly
+          set +e
+          reject=$(docker run --rm --shm-size=2g -e PUID=99 -e PGID=100 -e PASSWD=x "$local_ref" 2>&1)
+          rc=$?
+          set -e
+          [ "$rc" = 78 ] || { echo "::error::PUID=99 exited $rc, expected 78"; echo "$reject"; exit 1; }
+          printf '%s' "$reject" | grep -q 'PUID/PGID must be 1000/1000' \
+            || { echo "::error::rejection message does not name the supported values"; echo "$reject"; exit 1; }
+
+          {
+            echo "| assertion | observed |"
+            echo "|---|---|"
+            echo "| .State.Health.Status | $status |"
+            echo "| dpkg-query claude-desktop | $ver |"
+            echo "| claude --version | $cli |"
+            echo "| pid 1 uid / session uid:gid | $pid1 / $uid:$gid |"
+            echo "| /home/ubuntu owner | $owner |"
+            echo "| /api/health | HTTP $code |"
+            echo "| PUID=99 exit code | $rc |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Capture the container log (always)
+        if: always()
+        run: |
+          docker logs claude-smoke > "$RUNNER_TEMP/smoke.log" 2>&1 \
+            || echo "no container log available" > "$RUNNER_TEMP/smoke.log"
+
+      - name: Push version tags
+        id: push
+        continue-on-error: true
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          FLAVOR: ${{ needs.plan.outputs.flavor }}
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:$VERSION-$FLAVOR"
+
+      - name: Retry push once (first-publication race)
+        if: steps.push.outcome == 'failure'
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          FLAVOR: ${{ needs.plan.outputs.flavor }}
+        run: |
+          set -euo pipefail
+          # A brand-new GHCR package can answer `denied: permission_denied:
+          # write_package` for the first push while the package is being
+          # created. Wait, re-authenticate and try the same digest once more.
+          sleep 30
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:$VERSION-$FLAVOR"
+
+      - name: Record pushed digest
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')
+          echo "$IMAGE:$VERSION -> $digest" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload smoke-test evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-${{ needs.plan.outputs.version }}-${{ needs.plan.outputs.recipe }}
+          path: |
+            ${{ runner.temp }}/smoke.log
+          if-no-files-found: warn
+
+      - name: Remove the smoke container
+        if: always()
+        run: docker rm -f claude-smoke >/dev/null 2>&1 || true
+
+  latest:
+    needs: [plan, build]
+    if: |
+      needs.plan.outputs.publish_latest == 'true' &&
+      (needs.plan.outputs.build == 'false' || needs.build.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Move :latest by manifest copy (never a rebuild)
+        env:
+          NEWEST: ${{ needs.plan.outputs.newest }}
+        run: |
+          set -euo pipefail
+          # :latest is only ever a copy of a manifest whose digest already passed
+          # the smoke test in the build job, so Unraid's next digest comparison
+          # sees a new digest and offers the update. The target exists by now
+          # either because this run pushed it or because it was already up to date.
+          source_digest=$(docker buildx imagetools inspect "$IMAGE:$NEWEST" \
+            --format '{{.Manifest.Digest}}')
+          [ -n "$source_digest" ] || { echo "::error::$IMAGE:$NEWEST has no manifest digest"; exit 1; }
+          docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$NEWEST"
+          latest_digest=$(docker buildx imagetools inspect "$IMAGE:latest" \
+            --format '{{.Manifest.Digest}}')
+          [ "$latest_digest" = "$source_digest" ] \
+            || { echo "::error:::latest digest $latest_digest != source $source_digest"; exit 1; }
+          {
+            echo "### Published"
+            echo
+            echo "| tag | digest |"
+            echo "|---|---|"
+            echo "| \`$IMAGE:$NEWEST\` | \`$source_digest\` |"
+            echo "| \`$IMAGE:latest\` | \`$latest_digest\` |"
+            echo
+            echo "Update detection: Unraid HEADs the manifest of the tag the user"
+            echo "installed and compares it with the local RepoDigests; the template"
+            echo "<Date> element is not an update trigger."
+          } >> "$GITHUB_STEP_SUMMARY"
+

@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<Container version="2">
+
+  <Name>claude-code-linux</Name>
+  <Repository>ghcr.io/prv-ctech/claude-code-linux:latest</Repository>
+  <Registry>https://ghcr.io/prv-ctech/claude-code-linux</Registry>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <!-- The Selkies base image is rootless by design and its own docs state that
+       privileged mode must not be used, so this stays false. -->
+  <Privileged>false</Privileged>
+  <Support>https://github.com/prv-ctech/claude-code-linux/issues</Support>
+  <Project>https://github.com/prv-ctech/claude-code-linux</Project>
+  <Category>Tools:Utilities</Category>
+  <Icon>https://raw.githubusercontent.com/prv-ctech/claude-code-linux/main/unraid/icon.png</Icon>
+  <WebUI>https://[IP]:[PORT:8080]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/prv-ctech/claude-code-linux/main/unraid/claude-code-linux.xml</TemplateURL>
+  <ReadMe>https://raw.githubusercontent.com/prv-ctech/claude-code-linux/main/README.md</ReadMe>
+  <Date>2026-10-08</Date>
+  <Beta>false</Beta>
+  <MinVer>6.10</MinVer>
+  <License>Proprietary upstream components. See https://github.com/prv-ctech/claude-code-linux#licensing</License>
+  <Changes>Initial release.</Changes>
+
+  <Overview>Claude Desktop for Linux (the official Anthropic apt package) and the Claude Code CLI, running as a full Chrome/LXQt desktop streamed to your browser with Selkies. Nothing to install on the client: open the WebUI.
+
+Required first step: the GHCR package is PRIVATE until the redistribution and licensing review is closed. Open the Unraid terminal and run
+docker login ghcr.io -u YOUR-GITHUB-USERNAME
+pasting a GitHub personal access token with read:packages when prompted. Without this the pull fails with "denied".
+
+PUID and PGID must BOTH be 1000. The Selkies desktop layer is rootless at uid 1000 and the image refuses any other value with exit code 78; no remap exists. Unraid's own default is 99/100, so leave these fields at 1000.
+
+PASSWD is required and has no default: it is the login for the streamed desktop.
+
+Unraid pre-creates the appdata directory as nobody:users (99:100) while the session runs as uid 1000. The container re-chowns /home/ubuntu at every start, so the stock flow works. If a start still reports a write or permission error, run on the Unraid terminal:
+chown -R 1000:1000 /mnt/user/appdata/claude-code-linux
+
+/dev/shm is raised to 2g in ExtraParams because the browsers in this desktop crash on Docker's 64 MB default.
+
+Cowork (the QEMU/KVM virtual machine feature) needs /dev/kvm and /dev/vhost-vsock, which this template does not grant, so Cowork is unsupported. The Claude Code CLI ships in the same image and is the documented fallback. The optional device passthrough is shown in the comments of this template.
+
+Do not expose port 8080 to the Internet: the session holds your claude.ai and Claude Code credentials and the in-container TLS certificate is self-signed.
+
+Updates: GitHub Actions rebuilds the image whenever Anthropic publishes a newer claude-desktop .deb or a newer Claude Code CLI. Unraid compares the registry digest of :latest with your local image and offers "update ready"; the new container reuses the same appdata path, so your sign-in and CLI credentials survive.</Overview>
+
+  <!-- /dev/shm is not expressible as a Config, so it lives here. 2g is not
+       cosmetic: Chrome and Firefox renderers are killed on Docker's 64 MB
+       default. ExtraParams is one line appended before the image reference, so
+       any additional flag goes on this same line.
+       Unraid emits no restart flag of its own (it manages autostart); if you
+       want one, append the restart=unless-stopped flag here.
+       Optional KVM passthrough for Cowork (unsupported) would be appended here
+       as device args for /dev/kvm and /dev/vhost-vsock, or added below as the
+       commented Device Configs. KVM also needs virtualization exposed to the
+       VM and a host kernel with vhost_vsock. -->
+  <ExtraParams>--shm-size=2g</ExtraParams>
+
+  <Config Name="WebUI Port" Target="8080" Default="8080" Mode="tcp"
+          Description="Port for the streamed desktop. 8080 is the only port the image serves; WebRTC/TURN ports are opt-in and never published. Do not forward this to the Internet."
+          Type="Port" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="AppData" Target="/home/ubuntu" Default="/mnt/user/appdata/claude-code-linux" Mode="rw"
+          Description="Persistent desktop state: Chrome profile, keyring, Claude Desktop config and the Claude Code CLI credentials. The target must stay /home/ubuntu; do not change it to /config, which Unraid rewrites."
+          Type="Path" Display="always" Required="true" Mask="false"/>
+
+  <Config Name="PUID" Target="PUID" Default="1000" Mode=""
+          Description="User id the session runs as. Must be 1000: the image is rootless at uid 1000 and exits 78 for any other value."
+          Type="Variable" Display="advanced" Required="true" Mask="false"/>
+
+  <Config Name="PGID" Target="PGID" Default="1000" Mode=""
+          Description="Group id the session runs as. Must be 1000 for the same reason as PUID."
+          Type="Variable" Display="advanced" Required="true" Mask="false"/>
+
+  <Config Name="PASSWD" Target="PASSWD" Default="" Mode=""
+          Description="Required. Login password for the streamed desktop (the user name is ubuntu). The image has no passwordless default; set one before first start."
+          Type="Variable" Display="always" Required="true" Mask="true"/>
+
+  <Config Name="SELKIES_MODE" Target="SELKIES_MODE" Default="websocket" Mode=""
+          Description="Transport for the stream. websocket needs no extra ports. Setting webRTC also requires TURN ports 3478 and 65532-65535 to be published, which this template deliberately does not do."
+          Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <!-- Optional KVM passthrough for Cowork. Unsupported: uncomment only if you
+       accept that. /dev/vhost-vsock is only openable by members of the kvm
+       group, and Anthropic's own docs call the missing case common inside
+       containers.
+  <Config Name="KVM" Target="/dev/kvm" Default="/dev/kvm" Mode=""
+          Description="Optional, unsupported: hardware virtualization for Cowork."
+          Type="Device" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="vhost-vsock" Target="/dev/vhost-vsock" Default="/dev/vhost-vsock" Mode=""
+          Description="Optional, unsupported: Cowork's virtio socket device."
+          Type="Device" Display="advanced" Required="false" Mask="false"/>
+  -->
+
+</Container>

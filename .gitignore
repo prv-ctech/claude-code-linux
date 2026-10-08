@@ -1,0 +1,5 @@
+# Harness / team runtime state — never publish
+.agent-teams/
+.codebase-memory/
+.env
+*.log

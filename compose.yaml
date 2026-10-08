@@ -1,0 +1,75 @@
+# Non-Unraid hosts. Unraid users install the template instead
+# (unraid/claude-code-linux.xml); this file encodes the same port, state path,
+# /dev/shm size and PUID/PGID defaults so the two cannot drift.
+#
+#   cp .env.example .env   # CLAUDE_PASSWORD is required, so this file is not
+#   docker compose up -d   # optional on its own; compose fails closed without it
+
+services:
+  claude-code-linux:
+    # :latest is a moving tag that GitHub Actions re-points whenever Anthropic
+    # publishes a newer claude-desktop .deb or a newer Claude Code CLI. Watch it
+    # with `docker compose pull`; the state directory carries the sign-in across
+    # a recreate.
+    image: ${CLAUDE_IMAGE:-ghcr.io/prv-ctech/claude-code-linux:latest}
+    container_name: ${CLAUDE_NAME:-claude-code-linux}
+    # Unraid pre-creates its appdata directory as 99:100; the image re-chowns the
+    # state path to 1000:1000 at every start, so no host-side chown is needed
+    # unless the directory cannot be chowned at all (see README troubleshooting).
+    restart: unless-stopped
+    # /dev/shm: Docker's default is 64 MB and the browsers in this desktop are
+    # killed on it. Mandatory, not a tuning knob.
+    shm_size: ${CLAUDE_SHM_SIZE:-2gb}
+    # The Selkies desktop is rootless by design; it needs no --privileged and no
+    # added capabilities. Chrome's sandbox flag is handled upstream.
+    environment:
+      # The image is rootless at uid 1000 and rejects any other value with exit
+      # 78; keep both at 1000.
+      #
+      # The host-side variable names are namespaced on purpose: compose
+      # interpolates from the ambient environment too, and a host that exports
+      # PUID=99/PGID=100 (the values Unraid uses for its own containers) would
+      # otherwise silently set the session uid to 99 and the container would exit
+      # 78 with no obvious cause. The container-side names must stay PUID/PGID.
+      PUID: ${CLAUDE_PUID:-1000}
+      PGID: ${CLAUDE_PGID:-1000}
+      # Required: login for the streamed desktop. Never leave this at a default.
+      PASSWD: ${CLAUDE_PASSWORD:?set CLAUDE_PASSWORD in .env}
+      TZ: ${CLAUDE_TZ:-Etc/UTC}
+      # websocket needs no extra ports. webRTC would also need TURN 3478 and
+      # 65532-65535 published, which this file deliberately does not do.
+      SELKIES_MODE: ${SELKIES_MODE:-websocket}
+      # The container never self-updates: the apt repo is not registered inside
+      # the image and the CLI updater is disabled. The image rebuild is the
+      # update path (Dockerfile ARG pins both upstreams).
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_UPDATES: "1"
+    ports:
+      # 8080/tcp is the only port the image serves. Do not publish it to the
+      # Internet: the session holds your claude.ai and Claude Code credentials
+      # and the in-container TLS certificate is self-signed (browsers warn).
+      - "${CLAUDE_PORT:-8080}:8080"
+    volumes:
+      # Target must stay /home/ubuntu: Chrome's profile, the keyring, the Claude
+      # Desktop config and ~/.claude/.credentials.json all live under it. Never
+      # use /config as the target, which Unraid rewrites to its own app config
+      # path and would make the mount host-dependent.
+      - "${CLAUDE_STATE:-./claude-code-state}:/home/ubuntu"
+    healthcheck:
+      # Inherited from the base image and repeated here only so `docker compose`
+      # shows the same probe. /api/health stays open in secure mode; / is never
+      # used as a probe.
+      test: ["CMD-SHELL", "curl -k -fsS -o /dev/null https://localhost:8080/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+    # Optional, unsupported: Cowork needs hardware virtualization. Uncomment both
+    # devices plus the KVM group (keep the supplementary group id of your host's
+    # "kvm" group) only if you accept that Cowork is not supported here.
+    # devices:
+    #   - /dev/kvm:/dev/kvm
+    #   - /dev/vhost-vsock:/dev/vhost-vsock
+    # group_add:
+    #   - "104"
