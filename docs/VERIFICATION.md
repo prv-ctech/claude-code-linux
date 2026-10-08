@@ -8,6 +8,18 @@ repository**, not copied from the authors' reports. Where a claim can only be ma
 building and starting a container, the row is marked **CI-owned** and names the workflow
 file, job, step and line that makes it — see §7 for the audit of those credits.
 
+> **Note on absolute paths (provenance, not requirements).** The absolute paths quoted in
+> the transcripts below — e.g. `/workspace/claude-code-linux`, `/tmp/lint/hadolint`,
+> `/tmp/lint/shellcheck-v0.10.0/shellcheck`, `/tmp/t4-bin/jq`, and the `tar` line that
+> excludes `.agent-teams` — are the paths of the host on which the evidence was recorded.
+> They are quoted verbatim because the transcripts are the evidence and are deliberately
+> **not** rewritten. They are not requirements on any other host, and none of them is a
+> dependency of the shipped image. To reproduce the gate anywhere, supply the linters via
+> `$HADOLINT` and `$SHELLCHECK`, let them resolve from `PATH`, or omit them and let
+> `scripts/selfcheck.sh` fetch its own pinned, SHA256-verified downloads
+> (`scripts/selfcheck.sh:49-53`, `:74-83`, `:133-191`) — a missing linter is a failure,
+> never a silent skip.
+
 ## 0. Method, and the limits of this workspace
 
 * **No container runtime exists here.** `command -v docker` returns nothing and exits 1.
