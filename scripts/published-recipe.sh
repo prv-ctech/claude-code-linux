@@ -4,10 +4,18 @@
 # building and whether an already-published version needs a rebuild because the
 # recipe here changed.
 #
-# The hash is a content hash over the Dockerfile, docker-entrypoint.sh, the
-# rootfs tree, compose.yaml, the Unraid template, the workflow itself and BOTH
-# upstream pins (Claude Desktop and the Claude Code CLI), so a bump in either
-# upstream or any recipe edit produces a different value and exactly one
+# The hash is a content hash over the recipe's own inputs: the base image pin,
+# the Claude Code CLI pin, the workflow file itself, and everything the image
+# build consumes -- .dockerignore, the installer (scripts/install-claude-desktop.sh),
+# docker-entrypoint.sh, the rootfs tree, compose.yaml and the unraid tree
+# (template and icon). That last set is DERIVED by scripts/recipe-inputs.sh from
+# the Dockerfile's COPY lines plus the fixed context and packaging inputs, never
+# hand-maintained, so it cannot silently stop covering a file.
+#
+# The Claude Desktop version is deliberately NOT part of this base hash: the plan
+# job mixes it in per candidate, because the hash a published :<version> image
+# carries has to be the hash of THAT version plus the rest of the recipe and
+# nothing else. So any recipe edit produces a different value and exactly one
 # rebuild. It is stamped on the image as
 # org.opencontainers.image.claude-code-linux-recipe (and mirrored on
 # com.prvctech.claude-recipe for the DESIGN.md label table).

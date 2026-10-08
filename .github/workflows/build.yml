@@ -97,6 +97,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The repository's own gate, first, before anything is resolved, hashed,
+      # built or published: a tree that fails its own checks must not produce a
+      # candidate image at all. Hard failure by construction -- no
+      # continue-on-error, no `|| true`, no `if:` guard -- so it also runs on the
+      # schedule and on every push, not just on a manual dispatch.
+      #
+      # It needs no Docker and no network beyond the linters: the script resolves
+      # $HADOLINT/$SHELLCHECK, then PATH, then its own SHA256-pinned download into
+      # $SELFCHECK_CACHE. A linter that cannot be obtained (or whose hash does not
+      # match the pin) is a hard failure there, never a silent skip, so the step
+      # inherits exactly that behaviour instead of re-implementing it.
+      - name: Self-check gate (before anything is built)
+        run: sh scripts/selfcheck.sh
+
       - name: Resolve desktop signal (Anthropic apt index)
         id: desktop
         run: |
