@@ -443,7 +443,152 @@ jobs:
           code=$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 30 https://localhost:8080/api/health)
           [ "$code" = 200 ] || { echo "::error::https://localhost:8080/api/health returned $code"; exit 1; }
 
-          # 5. the PUID/PGID guard: any other value must be rejected loudly
+          # 5. the streamed desktop is genuinely up, not merely answering health.
+          #    /api/health is answered by the Selkies backend, so a container whose
+          #    X server and LXQt session never came up still returns 200: an image
+          #    that is healthy and useless. That is the state this assertion fails.
+          #
+          #    Nothing here is assumed; every value is read from the running session
+          #    or from the pinned base image's own wiring:
+          #      * DISPLAY comes from the environment file the base writes and its
+          #        own services source: ${XDG_RUNTIME_DIR}/container-env, written by
+          #        its /etc/container-entrypoint.sh and read by /etc/service/xvfb/run,
+          #        /etc/service/lxqt/run and /etc/selkies-entrypoint.sh -- whose X11
+          #        path is `export DISPLAY="${DISPLAY:-:20}"`. docker exec does not
+          #        inherit it, so reading it is the only way to assert the display
+          #        the session actually uses rather than the one this file assumes.
+          #      * the socket is the one those same files create and wait on,
+          #        /tmp/.X11-unix/X<num>.
+          #      * xdpyinfo is the base's own readiness tool: /etc/service/xvfb/run
+          #        and /etc/service/xsettingsd/run both loop on
+          #        `timeout 2 xdpyinfo -display "${DISPLAY}"` before treating the
+          #        display as usable (x11-utils, named in the base image's package
+          #        list), so a listening socket that never accepts is not mistaken
+          #        for a working screen.
+          #      * pgrep is the tool that same xvfb script uses to look for a stale
+          #        server, and ps ships in that same package (procps), so neither is
+          #        assumed.
+          #    Every check runs as uid 1000:1000 -- the identity the session and
+          #    every application in it runs as, asserted just above -- because a
+          #    check run as root would not exercise what the user gets.
+          display=$(docker exec "$name" bash -c '
+            set -eu
+            env_file="${XDG_RUNTIME_DIR:-/tmp/runtime-ubuntu}/container-env"
+            [ -r "${env_file}" ] || { echo "${env_file} is not readable" >&2; exit 1; }
+            . "${env_file}"
+            [ -n "${DISPLAY:-}" ] || { echo "${env_file} names no DISPLAY" >&2; exit 1; }
+            printf "%s" "${DISPLAY}"
+          ') || {
+            echo "::error::cannot read the session display from the environment file the base image writes"
+            docker logs "$name" 2>&1 | tail -30
+            exit 1
+          }
+          #    Bounded settle, 30 x 2s, and the loop's condition is the whole check:
+          #    the health loop above has already spent up to ten minutes and s6
+          #    starts the desktop services beside the one that answers health, so
+          #    this covers "not yet" without a second ten-minute window -- and a
+          #    desktop that never arrives fails the step instead of being waited on.
+          session_report=""
+          desktop_up=false
+          for _ in $(seq 1 30); do
+            if session_report=$(docker exec -u 1000:1000 -e HOME=/home/ubuntu -e DISPLAY="$display" "$name" sh -c '
+                 set -eu
+                 socket="/tmp/.X11-unix/X${DISPLAY#:}"
+                 [ -S "${socket}" ] || { echo "no X socket at ${socket}" >&2; exit 1; }
+                 info=$(xdpyinfo -display "${DISPLAY}") || { echo "xdpyinfo cannot talk to ${DISPLAY}" >&2; exit 1; }
+                 dims=$(printf "%s\n" "${info}" | sed -n "s/^ *dimensions: */dimensions=/p" | head -1)
+                 [ -n "${dims}" ] || { echo "xdpyinfo on ${DISPLAY} reported no dimensions" >&2; exit 1; }
+                 check() {
+                   label="$1"
+                   shift
+                   pids=$(pgrep "$@" | tr "\n" " ")
+                   [ -n "${pids}" ] || { echo "${label} is not running" >&2; exit 1; }
+                   for pid in ${pids}; do
+                     uid=$(ps -o uid= -p "${pid}" | tr -d " ")
+                     [ "${uid}" = 1000 ] || { echo "${label} pid ${pid} is uid ${uid}, not the session user" >&2; exit 1; }
+                   done
+                   printf "%s=uid1000,pid %s; " "${label}" "${pids}"
+                 }
+                 check Xvfb -f "Xvfb ${DISPLAY}"
+                 check lxqt-session -x lxqt-session
+                 check openbox -x openbox
+                 printf "display=%s %s\n" "${DISPLAY}" "${dims}"
+               '); then
+              desktop_up=true
+              break
+            fi
+            sleep 2
+          done
+          [ "$desktop_up" = true ] || {
+            echo "::error::the streamed desktop is not up after 30x2s on display ${display}: the X server, lxqt-session and openbox must all be running as uid 1000"
+            docker logs "$name" 2>&1 | tail -60
+            exit 1
+          }
+
+          # 6. Google Chrome EXECUTES in that session, as the session user: the
+          #    binary itself is invoked, and the dotted version it reports is
+          #    parsed and compared with the version dpkg recorded for the package it
+          #    was installed from. `command -v` would prove only that a file exists,
+          #    which is exactly the broken state this catches -- a Chrome that is
+          #    present but cannot start (a missing shared library, an unusable
+          #    sandbox) fails here, and so does a packaged version that disagrees
+          #    with the binary on PATH.
+          #
+          #    The package is found by dpkg pattern rather than named, so a rename
+          #    downstream cannot turn this into a passing no-op: a pattern matching
+          #    nothing exits non-zero, and two matches are a failure rather than a
+          #    coin flip.
+          chrome_out=""
+          if ! chrome_out=$(docker exec -u 1000:1000 -e HOME=/home/ubuntu -e DISPLAY="$display" \
+                 "$name" google-chrome --version 2>&1); then
+            echo "::error::google-chrome --version failed as uid 1000 in the session"
+            printf '%s\n' "$chrome_out"
+            docker logs "$name" 2>&1 | tail -30
+            exit 1
+          fi
+          chrome_ver=$(printf '%s\n' "$chrome_out" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          [ -n "$chrome_ver" ] || { echo "::error::google-chrome --version printed no dotted version: ${chrome_out}"; exit 1; }
+          chrome_pkgs=""
+          if ! chrome_pkgs=$(docker exec "$name" dpkg-query -W '-f=${Package} ${Version}\n' 'google-chrome*' 2>&1); then
+            echo "::error::dpkg records no installed google-chrome package"
+            printf '%s\n' "$chrome_pkgs"
+            exit 1
+          fi
+          chrome_pkg_count=$(printf '%s\n' "$chrome_pkgs" | grep -c .)
+          [ "$chrome_pkg_count" = 1 ] || {
+            echo "::error::expected exactly one installed google-chrome package, got $chrome_pkg_count: ${chrome_pkgs}"
+            exit 1
+          }
+          chrome_pkg_name=${chrome_pkgs%% *}
+          chrome_pkg_ver=${chrome_pkgs##* }
+          # The .deb carries a Debian revision (141.0.7390.54-1); the binary reports
+          # the upstream dotted version without it.
+          [ "$chrome_ver" = "${chrome_pkg_ver%-*}" ] || {
+            echo "::error::google-chrome reports ${chrome_ver} but ${chrome_pkg_name} is ${chrome_pkg_ver}"
+            exit 1
+          }
+          #    A version string is not yet a browser. One bounded headless run has
+          #    to produce DOM, which exercises the zygote and a renderer process --
+          #    the processes a browser that cannot actually launch fails to create.
+          #    Headless needs no display, so this is a test of Chrome itself and not
+          #    a second test of the X server. No sandbox flag is added here: the
+          #    base image's own launcher probes for user namespaces and adds
+          #    --no-sandbox when the container denies them.
+          chrome_dom=""
+          if ! chrome_dom=$(timeout 120 docker exec -u 1000:1000 -e HOME=/home/ubuntu -e DISPLAY="$display" \
+                 "$name" google-chrome --headless --disable-gpu --no-first-run \
+                 --dump-dom about:blank 2>&1); then
+            echo "::error::google-chrome printed a version but could not render a page headlessly (bounded at 120s)"
+            printf '%s\n' "$chrome_dom" | tail -20
+            docker logs "$name" 2>&1 | tail -30
+            exit 1
+          fi
+          printf '%s' "$chrome_dom" | grep -q '<html' || {
+            echo "::error::google-chrome --dump-dom produced no DOM: ${chrome_dom}"
+            exit 1
+          }
+
+          # 7. the PUID/PGID guard: any other value must be rejected loudly
           set +e
           reject=$(docker run --rm --shm-size=2g -e PUID=99 -e PGID=100 -e PASSWD=x "$local_ref" 2>&1)
           rc=$?
@@ -461,6 +606,11 @@ jobs:
             echo "| pid 1 uid / session uid:gid | $pid1 / $uid:$gid |"
             echo "| /home/ubuntu owner | $owner |"
             echo "| /api/health | HTTP $code |"
+            echo "| session display (read from the base's container-env) | $display |"
+            echo "| desktop settle (30x2s, as uid 1000) | $session_report |"
+            echo "| google-chrome --version | $chrome_ver |"
+            echo "| ${chrome_pkg_name} (dpkg) | $chrome_pkg_ver |"
+            echo "| google-chrome --dump-dom | $(printf '%s' "$chrome_dom" | wc -c) bytes |"
             echo "| PUID=99 exit code | $rc |"
           } >> "$GITHUB_STEP_SUMMARY"
 
