@@ -164,6 +164,23 @@ SHELL ["/bin/sh", "-c"]
 COPY --chown=1000:1000 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --chown=1000:1000 scripts/install-claude-desktop.sh /usr/local/bin/install-claude-desktop.sh
 COPY --chown=1000:1000 rootfs/ /
+# Browser-tab icon: the Selkies page has only a PNG icon, so the Claude Code crab
+# SVG (from lobehub's icon set) is added next to it and linked first. grep fails
+# the build if the base image's index.html no longer has the line being replaced.
+RUN set -eu; \
+    web="$(dirname "$(find /usr/local/lib -path '*/selkies/selkies_web/index.html' | head -n 1)")"; \
+    cp /usr/local/share/claude-code-linux/claude-code.svg "${web}/claude-code.svg"; \
+    sed -i -e 's#<link rel="icon" type="image/png" href="icon.png">#<link rel="icon" type="image/svg+xml" href="claude-code.svg">\n<link rel="icon" type="image/png" href="icon.png">#' -e 's#<title>Selkies</title>#<title>Claude Code</title>#' "${web}/index.html"; \
+    grep -q 'href="claude-code.svg"' "${web}/index.html"; \
+    grep -q '<title>Claude Code</title>' "${web}/index.html"
+# git push over HTTPS for github.com goes through the GitHub CLI, so `gh auth login`
+# (run once in the desktop's terminal) is the only sign-in. Its token lives in
+# ~/.config/gh, inside the /home/ubuntu mount, so it survives a container recreate.
+# No token is baked into the image or the repo.
+RUN set -eu; \
+    git config --system credential.https://github.com.helper '!/usr/bin/gh auth git-credential'; \
+    git config --system credential.https://gist.github.com.helper '!/usr/bin/gh auth git-credential'; \
+    git config --system --get credential.https://github.com.helper | grep -q 'gh auth git-credential'
 # Window and desktop polish: Claude opens maximized (Openbox rule on its WM class,
 # `claude-desktop`), and the desktop is a solid colour — the stock per-screen SVG
 # wallpaper does not render here, which leaves a black desktop.
@@ -272,6 +289,7 @@ RUN set -eu; \
         gnome-keyring \
         libsecret-1-0 \
         libsecret-tools \
+        gh \
         libayatana-appindicator3-1 \
         bubblewrap \
         socat \
@@ -395,6 +413,7 @@ RUN set -eu; \
     command -v google-chrome > /dev/null; \
     command -v gnome-keyring-daemon > /dev/null; \
     command -v secret-tool > /dev/null; \
+    command -v gh > /dev/null; \
     test -e /usr/share/applications/google-chrome.desktop; \
     test -e /usr/share/applications/com.anthropic.Claude.desktop; \
     test "${HOME}" = "/home/ubuntu"; \
