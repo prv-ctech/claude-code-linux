@@ -91,6 +91,7 @@ jobs:
       desktop_sha256: ${{ steps.decide.outputs.desktop_sha256 }}
       desktop_deb_url: ${{ steps.decide.outputs.desktop_deb_url }}
       cli: ${{ steps.cli.outputs.version }}
+      rea: ${{ steps.rea.outputs.version }}
       recipe: ${{ steps.decide.outputs.recipe }}
       flavor: ${{ steps.recipe.outputs.flavor }}
       reason: ${{ steps.decide.outputs.reason }}
@@ -157,6 +158,21 @@ jobs:
             echo "::warning::GitHub releases/latest is $gh_tag but npm dist-tags.latest is $cli; npm wins (the image installs from npm)"
           fi
 
+      - name: Resolve REA signal (npm packument dist-tags.latest)
+        id: rea
+        run: |
+          set -euo pipefail
+          # Same rule as the CLI: dist-tags.latest only. The REA image layer is a
+          # global npm install of rea-agents, so the version is the npm release.
+          packument='https://registry.npmjs.org/rea-agents'
+          rea=$(curl -fsSL --max-time 60 "$packument" | jq -r '."dist-tags".latest')
+          if ! printf '%s' "$rea" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::npm rea-agents dist-tags.latest is not a version: '$rea'"
+            exit 1
+          fi
+          echo "version=$rea" >> "$GITHUB_OUTPUT"
+          echo "pinned REA version: $rea"
+
       - name: Compute recipe hash base
         id: recipe
         run: |
@@ -182,6 +198,7 @@ jobs:
             printf 'RECIPE_SCHEMA=%s\n' "$RECIPE_SCHEMA"
             printf 'BASE_IMAGE=%s\n'    "$BASE_IMAGE"
             printf 'CLAUDE_CODE_VERSION=%s\n' '${{ steps.cli.outputs.version }}'
+            printf 'REA_AGENTS_VERSION=%s\n' '${{ steps.rea.outputs.version }}'
             for f in $files; do
               # A missing input is a broken hash input, not a file to skip: the
               # hash would silently stop covering it.
@@ -320,6 +337,7 @@ jobs:
             echo "| chosen stanza SHA256 -> build arg | \`$chosen_sha\` |"
             echo "| chosen stanza .deb -> build arg | \`$chosen_url\` |"
             echo "| CLI pin (npm dist-tags.latest) | \`${{ steps.cli.outputs.version }}\` |"
+            echo "| REA pin (npm rea-agents dist-tags.latest) | \`${{ steps.rea.outputs.version }}\` |"
             echo "| recipe hash (over the chosen version) | \`$recipe\` |"
             echo "| flavor tag | \`${{ steps.recipe.outputs.flavor }}\` |"
             echo "| build this run | \`$build\` ($reason) |"
@@ -347,6 +365,7 @@ jobs:
         env:
           VERSION: ${{ needs.plan.outputs.version }}
           CLI: ${{ needs.plan.outputs.cli }}
+          REA: ${{ needs.plan.outputs.rea }}
           RECIPE: ${{ needs.plan.outputs.recipe }}
           FLAVOR: ${{ needs.plan.outputs.flavor }}
           SHA256: ${{ needs.plan.outputs.desktop_sha256 }}
@@ -366,6 +385,7 @@ jobs:
             --build-arg "CLAUDE_DESKTOP_SHA256=$SHA256" \
             --build-arg "CLAUDE_DESKTOP_DEB_URL=$DEB_URL" \
             --build-arg "CLAUDE_CODE_VERSION=$CLI" \
+            --build-arg "REA_AGENTS_VERSION=$REA" \
             --label "org.opencontainers.image.title=claude-code-linux" \
             --label "org.opencontainers.image.version=$VERSION" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
@@ -373,6 +393,7 @@ jobs:
             --label "org.opencontainers.image.claude-code-linux-recipe=$RECIPE" \
             --label "com.prvctech.claude-desktop-version=$VERSION" \
             --label "com.prvctech.claude-code-version=$CLI" \
+            --label "com.prvctech.rea-agents-version=$REA" \
             --label "com.prvctech.claude-recipe=$RECIPE" \
             -t "$IMAGE:$VERSION" \
             -t "$IMAGE:$VERSION-$FLAVOR" \
