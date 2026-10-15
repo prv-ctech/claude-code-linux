@@ -70,6 +70,10 @@ ARG CLAUDE_DESKTOP_VERSION=2.26454.2
 # Claude Code CLI: npm `dist-tags.latest`. Never a max scan of versions[], where
 # dist-tags.next sits ahead of latest and would publish an unreleased build.
 ARG CLAUDE_CODE_VERSION=2.1.294
+# REA (reverse-engineering MCP server): pinned npm version of rea-agents. Its
+# registration in ~/.claude.json points at /usr/local/bin/rea, so this install
+# must be rebuilt with the image. Ghidra and the JDK stay on the home mount.
+ARG REA_AGENTS_VERSION=6.5.0
 # The Anthropic Claude Code signing key, fingerprint
 # 31DD DE24 DDFA B679 F42D 7BD2 BAA9 29FF 1A7E CACE. The SHA256 is the pin over
 # the key's own bytes (the same file is served as
@@ -168,7 +172,7 @@ COPY --chown=1000:1000 rootfs/ /
 # SVG (from lobehub's icon set) is added next to it and linked first. grep fails
 # the build if the base image's index.html no longer has the line being replaced.
 RUN set -eu; \
-    web="$(dirname "$(find /usr/local/lib -path '*/selkies/selkies_web/index.html' | head -n 1)")"; \
+    web="$(dirname "$(find /usr/local/lib -path '*/selkies/selkies_web/index.html' -print -quit)")"; \
     cp /usr/local/share/claude-code-linux/claude-code.svg "${web}/claude-code.svg"; \
     sed -i -e 's#<link rel="icon" type="image/png" href="icon.png">#<link rel="icon" type="image/svg+xml" href="claude-code.svg">\n<link rel="icon" type="image/png" href="icon.png">#' -e 's#<title>Selkies</title>#<title>Claude Code</title>#' "${web}/index.html"; \
     grep -q 'href="claude-code.svg"' "${web}/index.html"; \
@@ -180,7 +184,7 @@ RUN set -eu; \
 RUN set -eu; \
     git config --system credential.https://github.com.helper '!/usr/bin/gh auth git-credential'; \
     git config --system credential.https://gist.github.com.helper '!/usr/bin/gh auth git-credential'; \
-    git config --system --get credential.https://github.com.helper | grep -q 'gh auth git-credential'
+    test "$(git config --system --get credential.https://github.com.helper)" = '!/usr/bin/gh auth git-credential'
 # Window and desktop polish: Claude opens maximized (Openbox rule on its WM class,
 # `claude-desktop`), and the desktop is a solid colour — the stock per-screen SVG
 # wallpaper does not render here, which leaves a black desktop.
@@ -376,6 +380,19 @@ RUN set -eu; \
     test -x "${cli_root}/@anthropic-ai/claude-code/bin/claude.exe"; \
     command -v claude > /dev/null; \
     echo "claude-code ${cli_version} installed and on PATH"
+
+# Package layer 4 — REA, pinned, from npm. Only the global install: registering it
+# with Claude Code is `rea setup`, which writes ~/.claude.json on the home mount.
+# hadolint ignore=SC1008
+RUN set -eu; \
+    npm install -g --no-fund --no-audit --cache /tmp/npm-cache \
+        "rea-agents@${REA_AGENTS_VERSION}"; \
+    rm -rf /tmp/npm-cache; \
+    rea_version="$(rea --version 2>/dev/null)"; \
+    case "${rea_version}" in *"${REA_AGENTS_VERSION}"*) ;; \
+        *) echo "FATAL: rea reports '${rea_version}', pinned ${REA_AGENTS_VERSION}" >&2; exit 1 ;; esac; \
+    command -v rea > /dev/null; \
+    echo "rea-agents ${REA_AGENTS_VERSION} installed and on PATH"
 
 # ---------------------------------------------------------------------------
 # Close the bracket: real root, outside the fakeroot shell.
