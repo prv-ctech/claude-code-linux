@@ -172,7 +172,7 @@ COPY --chown=1000:1000 rootfs/ /
 # SVG (from lobehub's icon set) is added next to it and linked first. grep fails
 # the build if the base image's index.html no longer has the line being replaced.
 RUN set -eu; \
-    web="$(dirname "$(find /usr/local/lib -path '*/selkies/selkies_web/index.html' | head -n 1)")"; \
+    web="$(dirname "$(find /usr/local/lib -path '*/selkies/selkies_web/index.html' -print -quit)")"; \
     cp /usr/local/share/claude-code-linux/claude-code.svg "${web}/claude-code.svg"; \
     sed -i -e 's#<link rel="icon" type="image/png" href="icon.png">#<link rel="icon" type="image/svg+xml" href="claude-code.svg">\n<link rel="icon" type="image/png" href="icon.png">#' -e 's#<title>Selkies</title>#<title>Claude Code</title>#' "${web}/index.html"; \
     grep -q 'href="claude-code.svg"' "${web}/index.html"; \
@@ -184,7 +184,7 @@ RUN set -eu; \
 RUN set -eu; \
     git config --system credential.https://github.com.helper '!/usr/bin/gh auth git-credential'; \
     git config --system credential.https://gist.github.com.helper '!/usr/bin/gh auth git-credential'; \
-    git config --system --get credential.https://github.com.helper | grep -q 'gh auth git-credential'
+    test "$(git config --system --get credential.https://github.com.helper)" = '!/usr/bin/gh auth git-credential'
 # Window and desktop polish: Claude opens maximized (Openbox rule on its WM class,
 # `claude-desktop`), and the desktop is a solid colour — the stock per-screen SVG
 # wallpaper does not render here, which leaves a black desktop.
@@ -388,7 +388,7 @@ RUN set -eu; \
     npm install -g --no-fund --no-audit --cache /tmp/npm-cache \
         "rea-agents@${REA_AGENTS_VERSION}"; \
     rm -rf /tmp/npm-cache; \
-    rea_version="$(rea --version 2>/dev/null | head -n 1)"; \
+    rea_version="$(rea --version 2>/dev/null)"; \
     case "${rea_version}" in *"${REA_AGENTS_VERSION}"*) ;; \
         *) echo "FATAL: rea reports '${rea_version}', pinned ${REA_AGENTS_VERSION}" >&2; exit 1 ;; esac; \
     command -v rea > /dev/null; \
