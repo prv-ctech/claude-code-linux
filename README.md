@@ -77,6 +77,12 @@ configuration and `~/.claude/.credentials.json` for the CLI. That is why an upda
 asks you to sign in again — and why it is worth backing up, keeping at uid 1000, and never pointing at
 `/config` (Unraid rewrites that mount target to its own app config path).
 
+## Python and CPU encoding
+
+`python3`, `pip` and `uv` are installed. `pip install --user` and `uv tool install` write under
+`/home/ubuntu`, so they persist with the rest of the state. Video is encoded on the CPU (x264); no GPU
+or device passthrough is needed.
+
 ## PUID / PGID: 1000/1000 only
 
 `PUID=1000` and `PGID=1000` are the **only** supported values. The Selkies desktop layer is rootless

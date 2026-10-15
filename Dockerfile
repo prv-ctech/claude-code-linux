@@ -120,6 +120,14 @@ ENV PUID=1000 \
 ENV DISABLE_AUTOUPDATER=1 \
     DISABLE_UPDATES=1
 
+# Python tooling: uv is copied from Astral's pinned image; pip is the apt one.
+# Everything a user installs lands under HOME=/home/ubuntu (the mounted state):
+# `pip install --user` goes to ~/.local (PEP 668 override; no PIP_USER, which breaks venvs), `uv tool` to
+# ~/.local/share/uv and ~/.local/bin, uv's managed Pythons and venvs likewise.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PATH="${PATH}:/home/ubuntu/.local/bin"
+COPY --from=ghcr.io/astral-sh/uv:0.9.0 /uv /uvx /usr/local/bin/
+
 # CLAUDE_CONFIG_DIR is deliberately NOT set (§2.2): with HOME=/home/ubuntu the CLI
 # keeps ~/.claude/.credentials.json and the separate ~/.claude.json under the one
 # mounted state path. Pointing CLAUDE_CONFIG_DIR anywhere else would split the
@@ -156,6 +164,14 @@ SHELL ["/bin/sh", "-c"]
 COPY --chown=1000:1000 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --chown=1000:1000 scripts/install-claude-desktop.sh /usr/local/bin/install-claude-desktop.sh
 COPY --chown=1000:1000 rootfs/ /
+# Window and desktop polish: Claude opens maximized (Openbox rule on its WM class,
+# `claude-desktop`), and the desktop is a solid colour — the stock per-screen SVG
+# wallpaper does not render here, which leaves a black desktop.
+RUN set -eu; \
+    sed -i 's#</applications>#<application class="com.anthropic.Claude"><maximized>yes</maximized></application>\n</applications>#' /etc/xdg/openbox/rc.xml; \
+    grep -q 'class="com.anthropic.Claude"' /etc/xdg/openbox/rc.xml; \
+    sed -i -e 's/^WallpaperMode=.*/WallpaperMode=color/' -e 's/^PerScreenWallpaper=.*/PerScreenWallpaper=false/' -e 's/^BgColor=.*/BgColor=#1f2937/' /etc/xdg/pcmanfm-qt/lxqt/settings.conf; \
+    grep -q '^WallpaperMode=color' /etc/xdg/pcmanfm-qt/lxqt/settings.conf
 RUN set -eu; \
     for f in /usr/local/bin/docker-entrypoint.sh \
              /usr/local/bin/install-claude-desktop.sh \
@@ -264,7 +280,10 @@ RUN set -eu; \
         xdg-desktop-portal-gtk \
         gpgv \
         nodejs \
-        npm; \
+        npm \
+        python3 \
+        python3-pip \
+        python3-venv; \
     if [ "${CLAUDE_DESKTOP_COWORK}" = "true" ]; then \
         echo "Cowork requested: installing qemu-system-x86, ovmf and virtiofsd (the devices are still the caller's to pass)"; \
         apt-get install --no-install-recommends -y qemu-system-x86 ovmf virtiofsd; \
