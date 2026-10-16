@@ -46,15 +46,4 @@ else
 	echo "[claude-desktop] WARNING: the keyring did not report ready within 30s; starting Claude Desktop anyway"
 fi
 
-# The caveman mod ships in the image; register it in the persisted ~/.claude so the
-# app loads it. Best effort: the app must start even if this fails.
-mods=/usr/local/share/claude-code-linux/mods
-timeout 60 sh -c "claude plugin marketplace add ${mods} || claude plugin marketplace update claude-code-linux; claude plugin install caveman-mod@claude-code-linux || claude plugin update caveman-mod@claude-code-linux" || echo "[claude-desktop] WARNING: caveman mod not installed"
-
-# The codebase-memory mod: MCP server, skill and graph hooks in one plugin. Same pattern.
-timeout 60 sh -c "claude plugin marketplace add ${mods} || claude plugin marketplace update claude-code-linux; claude plugin install codebase-memory-mod@claude-code-linux || claude plugin update codebase-memory-mod@claude-code-linux" || echo "[claude-desktop] WARNING: codebase-memory mod not installed"
-# The mod's MCP server downloads its pinned binary on first use. Fetch it now, before the
-# app starts the server, so the first session does not race that download. Best effort.
-timeout 300 sh "${mods}/mods/codebase-memory-mod/bin/codebase-memory-mcp" --version > /dev/null || echo "[claude-desktop] WARNING: codebase-memory binary not fetched; the mod fetches it on first use"
-
 exec claude-desktop

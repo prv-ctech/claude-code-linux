@@ -619,28 +619,12 @@ jobs:
           printf '%s' "$reject" | grep -q 'PUID/PGID must be 1000/1000' \
             || { echo "::error::rejection message does not name the supported values"; echo "$reject"; exit 1; }
 
-          # 8. the codebase-memory-mod plugin is installed by the desktop session, and its
-          #    MCP server connects: the wrapper downloads the pinned binary on first use, so
-          #    "Connected" proves the download, the checksum and the server start together.
-          #    The install runs when the desktop starts, so poll rather than race it.
-          registered=no
-          for _ in $(seq 1 18); do
-            if docker exec -u 1000:1000 -e HOME=/home/ubuntu "$name" sh -c \
-                'claude mcp list 2>/dev/null | grep "codebase-memory-mcp" | grep -q Connected'; then
-              registered=yes
-              break
-            fi
-            sleep 10
-          done
-          [ "$registered" = yes ] || { echo "::error::codebase-memory-mcp plugin server did not connect within 3 minutes"; exit 1; }
-
           {
             echo "| assertion | observed |"
             echo "|---|---|"
             echo "| .State.Health.Status | $status |"
             echo "| dpkg-query claude-desktop | $ver |"
             echo "| claude --version | $cli |"
-            echo "| codebase-memory-mcp plugin server connected | $registered |"
             echo "| pid 1 uid / session uid:gid | $pid1 / $uid:$gid |"
             echo "| /home/ubuntu owner | $owner |"
             echo "| /api/health | HTTP $code |"
