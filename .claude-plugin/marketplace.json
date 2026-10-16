@@ -11,6 +11,11 @@
       "name": "caveman-mod",
       "source": "./mods/caveman-mod",
       "description": "Caveman's three modes (caveman, ultracave, megacave) and its hooks, with a GUI switch above the prompt."
+    },
+    {
+      "name": "codebase-memory-mod",
+      "source": "./mods/codebase-memory-mod",
+      "description": "codebase-memory-mcp for Claude Code: MCP server, skill, and graph hooks, installed in one step."
     }
   ]
 }

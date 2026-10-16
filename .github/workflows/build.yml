@@ -92,8 +92,6 @@ jobs:
       desktop_deb_url: ${{ steps.decide.outputs.desktop_deb_url }}
       cli: ${{ steps.cli.outputs.version }}
       rea: ${{ steps.rea.outputs.version }}
-      cbm: ${{ steps.cbm.outputs.version }}
-      cbm_sha256: ${{ steps.cbm.outputs.sha256 }}
       recipe: ${{ steps.decide.outputs.recipe }}
       flavor: ${{ steps.recipe.outputs.flavor }}
       reason: ${{ steps.decide.outputs.reason }}
@@ -175,33 +173,6 @@ jobs:
           echo "version=$rea" >> "$GITHUB_OUTPUT"
           echo "pinned REA version: $rea"
 
-      - name: Resolve codebase-memory-mcp signal (npm packument dist-tags.latest)
-        id: cbm
-        run: |
-          set -euo pipefail
-          # Same rule as the CLI and REA: dist-tags.latest only. The image layer is a
-          # global npm install of codebase-memory-mcp, which fetches the matching
-          # GitHub release binary and checks it against that release's checksums.
-          packument='https://registry.npmjs.org/codebase-memory-mcp'
-          cbm=$(curl -fsSL --max-time 60 "$packument" | jq -r '."dist-tags".latest')
-          if ! printf '%s' "$cbm" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::npm codebase-memory-mcp dist-tags.latest is not a version: '$cbm'"
-            exit 1
-          fi
-          # The image downloads the GitHub release archive, not the npm package (its
-          # installer refuses the 331 MB binary). Pin the archive's SHA256 from that
-          # release's own checksums.txt, the same way the desktop .deb is pinned.
-          sha=$(curl -fsSL --max-time 60 \
-              "https://github.com/DeusData/codebase-memory-mcp/releases/download/v$cbm/checksums.txt" \
-            | awk '$2 == "codebase-memory-mcp-linux-amd64.tar.gz" { print $1 }')
-          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{64}$'; then
-            echo "::error::no SHA256 for codebase-memory-mcp-linux-amd64.tar.gz in release v$cbm checksums.txt"
-            exit 1
-          fi
-          echo "version=$cbm" >> "$GITHUB_OUTPUT"
-          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
-          echo "pinned codebase-memory-mcp version: $cbm ($sha)"
-
       - name: Compute recipe hash base
         id: recipe
         run: |
@@ -228,8 +199,6 @@ jobs:
             printf 'BASE_IMAGE=%s\n'    "$BASE_IMAGE"
             printf 'CLAUDE_CODE_VERSION=%s\n' '${{ steps.cli.outputs.version }}'
             printf 'REA_AGENTS_VERSION=%s\n' '${{ steps.rea.outputs.version }}'
-            printf 'CODEBASE_MEMORY_MCP_VERSION=%s\n' '${{ steps.cbm.outputs.version }}'
-            printf 'CODEBASE_MEMORY_MCP_SHA256=%s\n' '${{ steps.cbm.outputs.sha256 }}'
             for f in $files; do
               # A missing input is a broken hash input, not a file to skip: the
               # hash would silently stop covering it.
@@ -369,7 +338,6 @@ jobs:
             echo "| chosen stanza .deb -> build arg | \`$chosen_url\` |"
             echo "| CLI pin (npm dist-tags.latest) | \`${{ steps.cli.outputs.version }}\` |"
             echo "| REA pin (npm rea-agents dist-tags.latest) | \`${{ steps.rea.outputs.version }}\` |"
-            echo "| codebase-memory-mcp pin (npm dist-tags.latest) | \`${{ steps.cbm.outputs.version }}\` |"
             echo "| recipe hash (over the chosen version) | \`$recipe\` |"
             echo "| flavor tag | \`${{ steps.recipe.outputs.flavor }}\` |"
             echo "| build this run | \`$build\` ($reason) |"
@@ -398,8 +366,6 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           CLI: ${{ needs.plan.outputs.cli }}
           REA: ${{ needs.plan.outputs.rea }}
-          CBM: ${{ needs.plan.outputs.cbm }}
-          CBM_SHA256: ${{ needs.plan.outputs.cbm_sha256 }}
           RECIPE: ${{ needs.plan.outputs.recipe }}
           FLAVOR: ${{ needs.plan.outputs.flavor }}
           SHA256: ${{ needs.plan.outputs.desktop_sha256 }}
@@ -420,8 +386,6 @@ jobs:
             --build-arg "CLAUDE_DESKTOP_DEB_URL=$DEB_URL" \
             --build-arg "CLAUDE_CODE_VERSION=$CLI" \
             --build-arg "REA_AGENTS_VERSION=$REA" \
-            --build-arg "CODEBASE_MEMORY_MCP_VERSION=$CBM" \
-            --build-arg "CODEBASE_MEMORY_MCP_SHA256=$CBM_SHA256" \
             --label "org.opencontainers.image.title=claude-code-linux" \
             --label "org.opencontainers.image.version=$VERSION" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
@@ -430,7 +394,6 @@ jobs:
             --label "com.prvctech.claude-desktop-version=$VERSION" \
             --label "com.prvctech.claude-code-version=$CLI" \
             --label "com.prvctech.rea-agents-version=$REA" \
-            --label "com.prvctech.codebase-memory-mcp-version=$CBM" \
             --label "com.prvctech.claude-recipe=$RECIPE" \
             -t "$IMAGE:$VERSION" \
             -t "$IMAGE:$VERSION-$FLAVOR" \
@@ -444,7 +407,6 @@ jobs:
         env:
           VERSION: ${{ needs.plan.outputs.version }}
           CLI: ${{ needs.plan.outputs.cli }}
-          CBM: ${{ needs.plan.outputs.cbm }}
         run: |
           set -euo pipefail
           local_ref="claude-code-linux:smoke"
@@ -657,22 +619,20 @@ jobs:
           printf '%s' "$reject" | grep -q 'PUID/PGID must be 1000/1000' \
             || { echo "::error::rejection message does not name the supported values"; echo "$reject"; exit 1; }
 
-          # 8. codebase-memory-mcp equals its pin as the session user, and the desktop
-          #    autostart registered it with Claude Code in the state path the session owns.
-          #    Registration runs after the desktop is up, so poll for it rather than race it.
-          cbm=$(docker exec -u 1000:1000 -e HOME=/home/ubuntu "$name" codebase-memory-mcp --version \
-            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-          [ "$cbm" = "$CBM" ] || { echo "::error::codebase-memory-mcp is $cbm, expected $CBM"; exit 1; }
+          # 8. the codebase-memory-mod plugin is installed by the desktop session, and its
+          #    MCP server connects: the wrapper downloads the pinned binary on first use, so
+          #    "Connected" proves the download, the checksum and the server start together.
+          #    The install runs when the desktop starts, so poll rather than race it.
           registered=no
           for _ in $(seq 1 18); do
-            if docker exec -u 1000:1000 -e HOME=/home/ubuntu "$name" \
-                claude mcp get codebase-memory-mcp > /dev/null 2>&1; then
+            if docker exec -u 1000:1000 -e HOME=/home/ubuntu "$name" sh -c \
+                'claude mcp list 2>/dev/null | grep "codebase-memory-mcp" | grep -q Connected'; then
               registered=yes
               break
             fi
             sleep 10
           done
-          [ "$registered" = yes ] || { echo "::error::codebase-memory-mcp was not registered with Claude Code within 3 minutes"; exit 1; }
+          [ "$registered" = yes ] || { echo "::error::codebase-memory-mcp plugin server did not connect within 3 minutes"; exit 1; }
 
           {
             echo "| assertion | observed |"
@@ -680,7 +640,7 @@ jobs:
             echo "| .State.Health.Status | $status |"
             echo "| dpkg-query claude-desktop | $ver |"
             echo "| claude --version | $cli |"
-            echo "| codebase-memory-mcp --version | $cbm (registered with Claude Code: $registered) |"
+            echo "| codebase-memory-mcp plugin server connected | $registered |"
             echo "| pid 1 uid / session uid:gid | $pid1 / $uid:$gid |"
             echo "| /home/ubuntu owner | $owner |"
             echo "| /api/health | HTTP $code |"
