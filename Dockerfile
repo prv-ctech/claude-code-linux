@@ -199,14 +199,17 @@ RUN set -eu; \
     git config --system credential.https://github.com.helper '!/usr/bin/gh auth git-credential'; \
     git config --system credential.https://gist.github.com.helper '!/usr/bin/gh auth git-credential'; \
     test "$(git config --system --get credential.https://github.com.helper)" = '!/usr/bin/gh auth git-credential'
-# Window and desktop polish: Claude opens maximized (Openbox rule on its WM class,
-# `claude-desktop`), and the desktop is a solid colour — the stock per-screen SVG
-# wallpaper does not render here, which leaves a black desktop.
+# Window and desktop polish: the panel hides until the pointer reaches the bottom
+# edge, Claude opens maximized (Openbox rule on its WM class, `claude-desktop`), and
+# the desktop is a solid colour — the stock per-screen SVG wallpaper does not render
+# here, which leaves a black desktop.
 RUN set -eu; \
     sed -i 's#</applications>#<application class="com.anthropic.Claude"><maximized>yes</maximized></application>\n</applications>#' /etc/xdg/openbox/rc.xml; \
     grep -q 'class="com.anthropic.Claude"' /etc/xdg/openbox/rc.xml; \
     sed -i -e 's/^WallpaperMode=.*/WallpaperMode=color/' -e 's/^PerScreenWallpaper=.*/PerScreenWallpaper=false/' -e 's/^BgColor=.*/BgColor=#1f2937/' /etc/xdg/pcmanfm-qt/lxqt/settings.conf; \
-    grep -q '^WallpaperMode=color' /etc/xdg/pcmanfm-qt/lxqt/settings.conf
+    grep -q '^WallpaperMode=color' /etc/xdg/pcmanfm-qt/lxqt/settings.conf; \
+    sed -i 's/^desktop=0$/desktop=0\nhidable=true\nvisible-margin=true\nanimation-duration=0\nshow-delay=0/' /etc/xdg/lxqt/panel.conf; \
+    grep -q '^hidable=true' /etc/xdg/lxqt/panel.conf
 RUN set -eu; \
     for f in /usr/local/bin/docker-entrypoint.sh \
              /usr/local/bin/install-claude-desktop.sh \
