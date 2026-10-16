@@ -1,0 +1,16 @@
+{
+  "name": "claude-code-linux",
+  "owner": {
+    "name": "prv-ctech"
+  },
+  "metadata": {
+    "description": "Mods for this repo's Claude Code setup."
+  },
+  "plugins": [
+    {
+      "name": "caveman-mod",
+      "source": "./mods/caveman-mod",
+      "description": "Caveman's three modes (caveman, ultracave, megacave) and its hooks, with a GUI switch above the prompt."
+    }
+  ]
+}
