@@ -67,6 +67,21 @@ fatal() {
 	exit 78
 }
 
+# WORKSPACE_GID is optional: a host group that owns a bind-mounted workspace
+# (Unraid: `users`, gid 100). The session stays uid/gid 1000 and gains that group
+# as a supplementary one, so group-writable host files are reachable without
+# chowning anything. It has to be done here: `setpriv --init-groups` below
+# rebuilds the group list from /etc/group, so a `docker run --group-add` would be
+# discarded. gid 0 is refused, it would hand the session root's group.
+WORKSPACE_GID="${WORKSPACE_GID:-}"
+if [ -n "${WORKSPACE_GID}" ]; then
+	case "${WORKSPACE_GID}" in
+		*[!0-9]* | 0*)
+			fatal "WORKSPACE_GID must be a positive decimal group id without leading zeros (got '${WORKSPACE_GID}')"
+			;;
+	esac
+fi
+
 reject_identity() {
 	cat >&2 <<EOF
 FATAL: PUID/PGID must be 1000/1000 (got PUID=${PUID} PGID=${PGID}).
@@ -128,6 +143,17 @@ EOF
 			echo "WARNING: could not take ownership of ${runtime_dir}; the session may fail to create its sockets" >&2
 	fi
 
+	if [ -n "${WORKSPACE_GID}" ]; then
+		workspace_group="$(getent group "${WORKSPACE_GID}" | cut -d: -f1)"
+		if [ -z "${workspace_group}" ]; then
+			workspace_group="workspace"
+			groupadd -g "${WORKSPACE_GID}" "${workspace_group}" ||
+				fatal "could not create group ${workspace_group} with gid ${WORKSPACE_GID} for WORKSPACE_GID"
+		fi
+		usermod -aG "${workspace_group}" ubuntu ||
+			fatal "could not add ubuntu to group ${workspace_group} (gid ${WORKSPACE_GID}) for WORKSPACE_GID"
+	fi
+
 	# The privilege drop itself. `--init-groups` and not `--clear-groups`: uid
 	# 1000 has a passwd entry here (`ubuntu`) and its supplementary groups
 	# (render, video, audio, input) are what the GPU, audio and gamepad paths use.
@@ -184,6 +210,10 @@ ownership of the state path first (§4.2). Either start it as root, or start it 
 ${SUPPORTED_ID}:${SUPPORTED_ID} with ${STATE_DIR} already owned by that id.
 EOF
 	exit 78
+fi
+
+if [ -n "${WORKSPACE_GID}" ]; then
+	echo "WARNING: WORKSPACE_GID=${WORKSPACE_GID} is ignored: adding a group needs root, and this container was started as uid ${SUPPORTED_ID}." >&2
 fi
 
 if [ ! -w "${STATE_DIR}" ]; then

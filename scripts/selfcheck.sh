@@ -780,6 +780,59 @@ assert_log 'setpriv --reuid=1000 --regid=1000 --clear-groups' "the fallback is u
 assert_in cleargroups out 'base-ran' "the session still starts"
 ok "a failing --init-groups falls back to --clear-groups and still starts the session"
 
+# --- 5.7b WORKSPACE_GID joins a host group before the privilege drop ---------
+scenario entrypoint-workspace-gid
+state="${SCEN}/state"
+mkdir -p "${state}"
+mountinfo="${SCEN}/mountinfo"
+printf '%s\n' "36 35 0:32 / ${state} rw,relatime shared:1 - tmpfs tmpfs rw" > "${mountinfo}"
+# getent knows gid 100 as `users` and nothing else; groupadd and usermod only log.
+cat > "${FIX}/getent.sh" <<'EOS'
+log "$@"
+[ "$1 $2" = "group 100" ] && echo "users:x:100:"
+exit 0
+EOS
+stub_file getent "${FIX}/getent.sh"
+stub groupadd 'log "$@"'
+stub usermod 'log "$@"'
+
+entrypoint wsgid-existing 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+	FAKE_EUID=0 WORKSPACE_GID=100 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
+	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+assert_log 'usermod.* -aG users ubuntu' "an existing group is joined by its own name"
+assert_no_log 'groupadd' "an existing gid is not created again"
+join_line=$(grep -n 'usermod' "${LOG}" | head -1 | cut -d: -f1)
+drop_line=$(grep -n 'setpriv --reuid' "${LOG}" | head -1 | cut -d: -f1)
+if [ -z "${join_line}" ] || [ -z "${drop_line}" ] || [ "${join_line}" -ge "${drop_line}" ]; then
+	fail "the group must be joined before the privilege drop (usermod at ${join_line}, setpriv at ${drop_line})"
+fi
+
+: > "${LOG}"
+entrypoint wsgid-new 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+	FAKE_EUID=0 WORKSPACE_GID=4242 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
+	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+assert_log 'groupadd.* -g 4242 workspace' "an unknown gid is created"
+assert_log 'usermod.* -aG workspace ubuntu' "the created group is joined"
+
+: > "${LOG}"
+entrypoint wsgid-unset 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+	FAKE_EUID=0 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
+	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+assert_no_log 'usermod' "no group is touched when WORKSPACE_GID is unset"
+
+for bad in 0 abc 1x 007 -5; do
+	entrypoint "wsgid-bad-${bad}" 78 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+		FAKE_EUID=0 WORKSPACE_GID="${bad}" STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
+		DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+	assert_in "wsgid-bad-${bad}" err 'WORKSPACE_GID must be a positive decimal' "WORKSPACE_GID=${bad} is refused"
+done
+
+entrypoint wsgid-nonroot 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+	FAKE_EUID=1000 WORKSPACE_GID=100 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
+	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+assert_in wsgid-nonroot err 'WORKSPACE_GID=100 is ignored' "a non-root start says the group cannot be added"
+ok "WORKSPACE_GID joins an existing or new group before the drop, rejects bad ids, and is ignored with a warning without root"
+
 # =============================================================================
 # claude-keyring-init
 # =============================================================================

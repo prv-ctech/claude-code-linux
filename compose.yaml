@@ -39,6 +39,10 @@ services:
       SELKIES_ENABLE_BASIC_AUTH: ${CLAUDE_BASIC_AUTH:-false}
       PASSWD: ${CLAUDE_PASSWORD:-}
       TZ: ${CLAUDE_TZ:-Etc/UTC}
+      # Optional host group id that owns the workspace mount (Unraid: 100, "users").
+      # The session keeps uid/gid 1000 and joins that group, so group-writable host
+      # files are writable; nothing on the host is chowned. Empty = do nothing.
+      WORKSPACE_GID: ${CLAUDE_WORKSPACE_GID:-}
       # websocket needs no extra ports. webRTC would also need TURN 3478 and
       # 65532-65535 published, which this file deliberately does not do.
       SELKIES_MODE: ${SELKIES_MODE:-websocket}
@@ -58,6 +62,9 @@ services:
       # use /config as the target, which Unraid rewrites to its own app config
       # path and would make the mount host-dependent.
       - "${CLAUDE_STATE:-./claude-code-state}:/home/ubuntu"
+      # Your projects. Any host folder; it appears at /workspaces. Use
+      # CLAUDE_WORKSPACE_GID if its group is not 1000.
+      - "${CLAUDE_WORKSPACE:-./workspace}:/workspaces"
     healthcheck:
       # Inherited from the base image and repeated here only so `docker compose`
       # shows the same probe. /api/health stays open in secure mode; / is never
