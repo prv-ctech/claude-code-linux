@@ -2,8 +2,6 @@ import type { Hook, Register } from 'claude-code'
 
 // Caveman's own hook scripts run as shipped (src/hooks), minus the statusline nudge and the
 // cavecrew override. This module passes them the payloads the plugin's hooks would get.
-const LOGO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Caveman"><circle cx="32" cy="32" r="28" fill="#6B7280"/><path d="M18 40c4-10 24-10 28 0" fill="none" stroke="#F9FAFB" stroke-linecap="round" stroke-width="4"/><circle cx="24" cy="27" r="4" fill="#F9FAFB"/><circle cx="40" cy="27" r="4" fill="#F9FAFB"/><path d="M21 18c3-5 8-8 15-8 5 0 10 2 14 7" fill="none" stroke="#D1D5DB" stroke-linecap="round" stroke-width="4"/></svg>`
-
 type Dollar = Parameters<Hook<'session.start'>>[0]
 
 const MODES = [
@@ -14,10 +12,10 @@ const MODES = [
 ] as const
 
 // Per-load state: the module's own variables, reset on each reload
-const st = { root: '', cwd: '', sessionId: '', mode: 'off', pending: [] as string[] }
+const st = { root: '', cwd: '', sessionId: '', mode: 'off', lastPress: 0, pending: [] as string[] }
 
 const run = async ($: Dollar, script: string, payload: Record<string, string>, subagent = false) => {
-  const { stdout } = await $.process.run(['node', `${st.root}/mods/caveman-mod/src/hooks/${script}`, ...(subagent ? ['--subagent'] : [])], {
+  const { stdout } = await $.process.run(['node', `${st.root}/src/hooks/${script}`, ...(subagent ? ['--subagent'] : [])], {
     stdin: JSON.stringify({ session_id: st.sessionId, cwd: st.cwd, ...payload }),
     timeoutMs: 10000,
   })
@@ -48,13 +46,13 @@ const pick = async ($: Dollar, id: string, command: string) => {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    st.root = await $.session.root()
+    st.root = $.plugin.root
     st.cwd = e.cwd
     st.sessionId = await $.session.id()
     // resume: reads this session's stored mode, or the configured default for a new session
     takeRuleset(await run($, 'caveman-activate.js', { source: 'resume' }))
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('session.compact', async ($, e, next) => {
     takeRuleset(await run($, 'caveman-activate.js', { source: 'compact' }))
@@ -74,22 +72,21 @@ export const register: Register = on => {
     return next(rules ? { ...e, prompt: `${rules}\n\n${e.prompt}` } : e)
   }).catch(($, e, next) => next(e))
 
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
+  // The prompt footer, beside the model picker, shows the mode; a press cycles it. The footer
+  // keeps only text and buttons. One press per second at most: the host can raise a press twice.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     const ui = $.ui.resolve(e)
-    const logo = 'Svg' in ui
-      ? <ui.Svg source={LOGO} alt="Caveman" width={18} height={18} />
-      : <ui.Text>caveman</ui.Text>
     return (
       <ui.Box>
-        {logo}
-        <ui.Text dimColor>Caveman: {st.mode}  </ui.Text>
-        {MODES.map(m => (
-          <ui.Button
-            key={m.id}
-            label={m.id === st.mode ? `● ${m.label}` : m.label}
-            onPress={() => pick($, m.id, m.command)}
-          />
-        ))}
+        <ui.Button
+          label={MODES.find(m => m.id === st.mode)?.label ?? st.mode}
+          onPress={() => {
+            if (Date.now() - st.lastPress < 1000) return
+            st.lastPress = Date.now()
+            const m = MODES[(MODES.findIndex(x => x.id === st.mode) + 1) % MODES.length]
+            return pick($, m.id, m.command)
+          }}
+        />
       </ui.Box>
     )
   })
