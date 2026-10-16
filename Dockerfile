@@ -172,15 +172,23 @@ SHELL ["/bin/sh", "-c"]
 COPY --chown=1000:1000 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --chown=1000:1000 scripts/install-claude-desktop.sh /usr/local/bin/install-claude-desktop.sh
 COPY --chown=1000:1000 rootfs/ /
-# Browser-tab icon: the Selkies page has only a PNG icon, so the Claude Code crab
-# SVG (from lobehub's icon set) is added next to it and linked first. grep fails
-# the build if the base image's index.html no longer has the line being replaced.
+# Browser-tab icon and title. The Selkies page ships a PNG icon, which is replaced by
+# the Claude Code crab SVG (from lobehub's icon set). The client bundle sets
+# document.title to 'Selkies' on load and again from manifest.json, so the bundle and
+# the manifest are patched as well, or the tab flips back. Each grep fails the build
+# if the base image no longer has the text being replaced.
 RUN set -eu; \
     web="$(dirname "$(find /usr/local/lib -path '*/selkies/selkies_web/index.html' -print -quit)")"; \
     cp /usr/local/share/claude-code-linux/claude-code.svg "${web}/claude-code.svg"; \
-    sed -i -e 's#<link rel="icon" type="image/png" href="icon.png">#<link rel="icon" type="image/svg+xml" href="claude-code.svg">\n<link rel="icon" type="image/png" href="icon.png">#' -e 's#<title>Selkies</title>#<title>Claude Code</title>#' "${web}/index.html"; \
+    sed -i -e 's#<link rel="icon" type="image/png" href="icon.png">#<link rel="icon" type="image/svg+xml" href="claude-code.svg">#' -e 's#<title>Selkies</title>#<title>Claude Code</title>#' "${web}/index.html"; \
+    sed -i -e 's#"name":"Selkies","short_name":"Selkies"#"name":"Claude Code","short_name":"Claude Code"#' "${web}/manifest.json"; \
+    sed -i 's#document\.title=\x60Selkies\x60#document.title=\x60Claude Code\x60#g' "${web}"/assets/*.js; \
     grep -q 'href="claude-code.svg"' "${web}/index.html"; \
-    grep -q '<title>Claude Code</title>' "${web}/index.html"
+    if grep -q 'href="icon.png"' "${web}/index.html"; then exit 1; fi; \
+    grep -q '<title>Claude Code</title>' "${web}/index.html"; \
+    grep -q '"name":"Claude Code"' "${web}/manifest.json"; \
+    if grep -qP 'document\.title=\x60Selkies' "${web}"/assets/*.js; then exit 1; fi; \
+    grep -qP 'document\.title=\x60Claude Code\x60' "${web}"/assets/*.js
 # git push over HTTPS for github.com goes through the GitHub CLI, so `gh auth login`
 # (run once in the desktop's terminal) is the only sign-in. Its token lives in
 # ~/.config/gh, inside the /home/ubuntu mount, so it survives a container recreate.
