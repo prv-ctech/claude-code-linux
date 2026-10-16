@@ -46,4 +46,9 @@ else
 	echo "[claude-desktop] WARNING: the keyring did not report ready within 30s; starting Claude Desktop anyway"
 fi
 
+# The caveman mod ships in the image; register it in the persisted ~/.claude so the
+# app loads it. Best effort: the app must start even if this fails.
+mods=/usr/local/share/claude-code-linux/mods
+timeout 60 sh -c "claude plugin marketplace add ${mods} || claude plugin marketplace update claude-code-linux; claude plugin install caveman-mod@claude-code-linux || claude plugin update caveman-mod@claude-code-linux" || echo "[claude-desktop] WARNING: caveman mod not installed"
+
 exec claude-desktop

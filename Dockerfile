@@ -172,6 +172,8 @@ SHELL ["/bin/sh", "-c"]
 COPY --chown=1000:1000 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --chown=1000:1000 scripts/install-claude-desktop.sh /usr/local/bin/install-claude-desktop.sh
 COPY --chown=1000:1000 rootfs/ /
+COPY --chown=1000:1000 .claude-plugin/ /usr/local/share/claude-code-linux/mods/.claude-plugin/
+COPY --chown=1000:1000 mods/ /usr/local/share/claude-code-linux/mods/mods/
 # Browser-tab icon and title. The Selkies page ships a PNG icon, which is replaced by
 # the Claude Code crab SVG (from lobehub's icon set). The client bundle sets
 # document.title to 'Selkies' on load and again from manifest.json, so the bundle and

@@ -33,6 +33,11 @@
 
 set -eu
 
+# xdg-open, as the app runs it, finds no desktop environment and so no browser
+# ("no method available"), and the sign-in link opens nowhere. BROWSER is its
+# fallback; it names the browser mimeapps.list already picks.
+export BROWSER=google-chrome
+
 app="/usr/lib/claude-desktop/claude-desktop"
 if [ ! -x "${app}" ]; then
 	echo "FATAL: ${app} is missing or not executable; the claude-desktop package is not installed in this image" >&2
