@@ -113,6 +113,10 @@ LABEL org.opencontainers.image.title="claude-code-linux" \
 ENV PUID=1000 \
     PGID=1000
 
+# Selkies basic auth is opt-in. Off here, so the desktop opens with no login behind the
+# reverse proxy. SELKIES_ENABLE_BASIC_AUTH=true plus PASSWD turns the ubuntu login on.
+ENV SELKIES_ENABLE_BASIC_AUTH=false
+
 # Neither application may mutate this container; it moves when the image is
 # rebuilt (D10). DISABLE_AUTOUPDATER stops the CLI's background update check.
 # DISABLE_UPDATES is the documented stronger seal — it blocks `claude update` and

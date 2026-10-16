@@ -2,8 +2,8 @@
 # (unraid/claude-code-linux.xml); this file encodes the same port, state path,
 # /dev/shm size and PUID/PGID defaults so the two cannot drift.
 #
-#   cp .env.example .env   # CLAUDE_PASSWORD is required, so this file is not
-#   docker compose up -d   # optional on its own; compose fails closed without it
+#   cp .env.example .env   # no desktop login by default; the reverse proxy is the gate
+#   docker compose up -d
 
 services:
   claude-code-linux:
@@ -33,8 +33,11 @@ services:
       # 78 with no obvious cause. The container-side names must stay PUID/PGID.
       PUID: ${CLAUDE_PUID:-1000}
       PGID: ${CLAUDE_PGID:-1000}
-      # Required: login for the streamed desktop. Never leave this at a default.
-      PASSWD: ${CLAUDE_PASSWORD:?set CLAUDE_PASSWORD in .env}
+      # Basic auth is off by default: the reverse proxy is the gate. Set CLAUDE_BASIC_AUTH=true
+      # and CLAUDE_PASSWORD to require the ubuntu login. The server refuses to start with
+      # basic auth on and no password.
+      SELKIES_ENABLE_BASIC_AUTH: ${CLAUDE_BASIC_AUTH:-false}
+      PASSWD: ${CLAUDE_PASSWORD:-}
       TZ: ${CLAUDE_TZ:-Etc/UTC}
       # websocket needs no extra ports. webRTC would also need TURN 3478 and
       # 65532-65535 published, which this file deliberately does not do.

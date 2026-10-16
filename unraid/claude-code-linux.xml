@@ -30,7 +30,7 @@ pasting a GitHub personal access token with read:packages when prompted. Without
 
 PUID and PGID must BOTH be 1000. The Selkies desktop layer is rootless at uid 1000 and the image refuses any other value with exit code 78; no remap exists. Unraid's own default is 99/100, so leave these fields at 1000.
 
-PASSWD is required and has no default: it is the login for the streamed desktop.
+Basic auth is off by default. Set SELKIES_ENABLE_BASIC_AUTH to true and PASSWD to require the ubuntu login.
 
 Unraid pre-creates the appdata directory as nobody:users (99:100) while the session runs as uid 1000. The container re-chowns /home/ubuntu at every start, so the stock flow works. If a start still reports a write or permission error, run on the Unraid terminal:
 chown -R 1000:1000 /mnt/user/appdata/claude-code-linux
@@ -70,9 +70,13 @@ Updates: GitHub Actions rebuilds the image whenever Anthropic publishes a newer 
           Description="Group id the session runs as. Must be 1000 for the same reason as PUID."
           Type="Variable" Display="advanced" Required="true" Mask="false"/>
 
+  <Config Name="SELKIES_ENABLE_BASIC_AUTH" Target="SELKIES_ENABLE_BASIC_AUTH" Default="false" Mode=""
+          Description="Require a login on the streamed desktop. Off by default: the reverse proxy is the gate. Set to true and set PASSWD to turn the ubuntu login on."
+          Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
   <Config Name="PASSWD" Target="PASSWD" Default="" Mode=""
-          Description="Required. Login password for the streamed desktop (the user name is ubuntu). The image has no passwordless default; set one before first start."
-          Type="Variable" Display="always" Required="true" Mask="true"/>
+          Description="Login password for the streamed desktop (user name ubuntu). Read only when SELKIES_ENABLE_BASIC_AUTH is true."
+          Type="Variable" Display="advanced" Required="false" Mask="true"/>
 
   <Config Name="SELKIES_MODE" Target="SELKIES_MODE" Default="websocket" Mode=""
           Description="Transport for the stream. websocket needs no extra ports. Setting webRTC also requires TURN ports 3478 and 65532-65535 to be published, which this template deliberately does not do."

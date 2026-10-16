@@ -32,13 +32,13 @@ survives every container update because it lives in the mounted state directory.
 1. `docker login ghcr.io -u YOUR-GITHUB-USERNAME` in the Unraid terminal (PAT with `read:packages`).
 2. Community Applications → *claude-code-linux* (or add the template manually from
    [`unraid/claude-code-linux.xml`](unraid/claude-code-linux.xml)).
-3. Set **PASSWD** (required, no default). Leave **PUID** and **PGID** at `1000`.
+3. Leave **PUID** and **PGID** at `1000`. Set **PASSWD** and **SELKIES_ENABLE_BASIC_AUTH** only if you want a login on the desktop.
 4. Apply, then open the WebUI on port `8080` (the certificate is self-signed, so the browser warns).
 
 ### Docker Compose
 
 ```bash
-cp .env.example .env      # CLAUDE_PASSWORD is required; compose fails closed without it
+cp .env.example .env      # no desktop login by default; see Ports and exposure
 docker compose up -d
 docker compose logs -f
 ```
@@ -51,8 +51,7 @@ cannot drift.
 
 1. **Open the session.** Browse to `https://<server>:8080` (the Unraid template's *WebUI* button does
    exactly this). The in-container certificate is self-signed, so accept the browser warning.
-2. **Log in to the streamed desktop.** User name `ubuntu`, password is the `PASSWD` you set (for compose,
-   `CLAUDE_PASSWORD`). That login is the only gate in front of the desktop.
+2. **Log in to the streamed desktop**, only when `SELKIES_ENABLE_BASIC_AUTH=true`. User name `ubuntu`, password is the `PASSWD` you set (for compose, `CLAUDE_PASSWORD`). Off by default, so the reverse proxy is the only gate.
 3. **Sign in to Claude.** The session autostarts the secret service and then Claude Desktop; the app's
    sign-in page opens in the session's **Google Chrome**, which is the desktop's default browser on
    purpose ([`rootfs/etc/xdg/mimeapps.list`](rootfs/etc/xdg/mimeapps.list)). Sign in with your Anthropic
@@ -110,8 +109,7 @@ sets `shm_size: 2gb`. This is required, not tuning.
 `8080/tcp` is the only port the image serves. Selkies' default `SELKIES_MODE=websocket` needs no other
 port; WebRTC mode would additionally need TURN `3478/tcp+udp` and `65532-65535`, which neither the
 template nor compose publishes. **Do not expose 8080 to the Internet**: the streamed session holds
-your claude.ai and Claude Code credentials, TLS is a self-signed certificate, and the desktop login
-(`ubuntu` + your `PASSWD`) is the only gate in front of it. Put a reverse proxy with real TLS in front
+your claude.ai and Claude Code credentials, TLS is a self-signed certificate, and the desktop has no login by default, so the reverse proxy's auth is the only gate. Set `SELKIES_ENABLE_BASIC_AUTH=true` and `PASSWD` to add the `ubuntu` login. Put a reverse proxy with real TLS in front
 if you need remote access.
 
 ## Cowork (QEMU/KVM) is unsupported
@@ -325,7 +323,7 @@ sh -n scripts/published-recipe.sh && sh -n scripts/latest-upstream-version.sh
 bash scripts/latest-upstream-version.sh                # e.g. 2.26454.2
 bash scripts/latest-upstream-version.sh --json         # version, sha256, deb URL, stanza count
 sh scripts/recipe-inputs.sh                            # every file the recipe hash covers
-cp .env.example .env && docker compose config -q       # CLAUDE_PASSWORD must be set
+cp .env.example .env && docker compose config -q       # no desktop login by default
 ```
 
 What has and has not been proven on a host without a container runtime is recorded in
