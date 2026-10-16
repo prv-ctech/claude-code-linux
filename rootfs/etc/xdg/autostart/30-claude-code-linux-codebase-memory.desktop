@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Claude Code Linux Codebase Memory
+Comment=Register the codebase-memory-mcp server with Claude Code for this session user
+Exec=/usr/local/bin/claude-codebase-memory-setup
+Icon=claude-desktop
+Terminal=false
+OnlyShowIn=LXQt;
