@@ -80,7 +80,8 @@ asks you to sign in again — and why it is worth backing up, keeping at uid 100
 
 `python3`, `pip` and `uv` are installed. `pip install --user` and `uv tool install` write under
 `/home/ubuntu`, so they persist with the rest of the state. Video is encoded on the CPU (x264); no GPU
-or device passthrough is needed.
+or device passthrough is needed. H.264 is the default encoder and the webcam uplink is locked to H.264, on
+CPU and GPU alike (`SELKIES_ENCODER`, `SELKIES_WEBCAM_ENCODER`).
 
 ## PUID / PGID: 1000/1000 only
 
