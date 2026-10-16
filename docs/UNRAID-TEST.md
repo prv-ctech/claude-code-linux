@@ -44,7 +44,7 @@ closes; this README will say when that changes.
 | WebUI Port | `8080` → container `8080` |
 | AppData path | `/mnt/user/appdata/claude-code-linux` → container `/home/ubuntu` |
 | PUID / PGID | **`1000` / `1000`** — leave them exactly there |
-| PASSWD | a password you choose — **required**, no default |
+| SELKIES_ENABLE_BASIC_AUTH / PASSWD | off by default; set `true` and a password only to require a login |
 | Extra Parameters | `--shm-size=2g` |
 
 **Keep PUID and PGID at 1000/1000.** Unraid's own default is 99/100, but this image is rootless at uid
@@ -67,7 +67,7 @@ it at every start, so this line is the fallback, not the normal path.)
 
 ```bash
 git clone https://github.com/prv-ctech/claude-code-linux && cd claude-code-linux
-cp .env.example .env        # set CLAUDE_PASSWORD; leave CLAUDE_PUID/CLAUDE_PGID at 1000
+cp .env.example .env        # leave CLAUDE_PUID/CLAUDE_PGID at 1000
 docker compose up -d
 docker compose logs -f
 ```
@@ -76,7 +76,7 @@ docker compose logs -f
 
 1. Open the WebUI on **`https://<your-unraid-ip>:8080`**. The certificate is self-signed, so the browser
    warns — accept it and continue.
-2. Log in to the desktop: user **`ubuntu`**, password = the `PASSWD` you set.
+2. Only with `SELKIES_ENABLE_BASIC_AUTH=true`: log in as **`ubuntu`** with the `PASSWD` you set. Otherwise the desktop opens without a login.
 3. Claude Desktop starts by itself and its sign-in page opens in **Google Chrome**. Sign in with your
    Anthropic account.
 4. You should land on the Claude Desktop window. The Claude Code CLI is also there: open a terminal in

@@ -413,7 +413,8 @@ jobs:
           name=claude-smoke
           mkdir -p "$RUNNER_TEMP/state"
           docker rm -f "$name" >/dev/null 2>&1 || true
-          # PASSWD is mandatory (the base's default login is ubuntu/mypasswd);
+          # Basic auth is off by default (SELKIES_ENABLE_BASIC_AUTH=false in the image);
+          # PASSWD is set but unused here;
           # --shm-size=2g because browser renderers crash on Docker's 64 MB
           # default; the state path is /home/ubuntu (never /config).
           docker run -d --name "$name" \
