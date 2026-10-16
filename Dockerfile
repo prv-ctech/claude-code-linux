@@ -74,6 +74,10 @@ ARG CLAUDE_CODE_VERSION=2.1.294
 # registration in ~/.claude.json points at /usr/local/bin/rea, so this install
 # must be rebuilt with the image. Ghidra and the JDK stay on the home mount.
 ARG REA_AGENTS_VERSION=6.5.0
+# codebase-memory-mcp (code graph MCP server): pinned npm version. The npm package
+# downloads the matching GitHub release binary at install time and verifies it against
+# the release checksums. Registration is done per session by claude-codebase-memory-setup.
+ARG CODEBASE_MEMORY_MCP_VERSION=0.12.0
 # The Anthropic Claude Code signing key, fingerprint
 # 31DD DE24 DDFA B679 F42D 7BD2 BAA9 29FF 1A7E CACE. The SHA256 is the pin over
 # the key's own bytes (the same file is served as
@@ -133,6 +137,11 @@ ENV SELKIES_ENCODER=h264enc,h264enc-striped,h265enc,vp8enc,vp9enc,av1enc,jpeg \
 # the image the next container starts from.
 ENV DISABLE_AUTOUPDATER=1 \
     DISABLE_UPDATES=1
+
+# codebase-memory-mcp keeps its daemon socket in CBM_RUNTIME_DIR and refuses a parent
+# that is world-writable, which /tmp is. The image creates this private directory for uid
+# 1000 in the root bracket at the end of this file; it is not on the state mount.
+ENV CBM_RUNTIME_DIR=/run/codebase-memory-mcp
 
 # Python tooling: uv is copied from Astral's pinned image; pip is the apt one.
 # Everything a user installs lands under HOME=/home/ubuntu (the mounted state):
@@ -222,8 +231,12 @@ RUN set -eu; \
              /usr/local/bin/claude-desktop \
              /usr/local/bin/claude-desktop-session \
              /usr/local/bin/claude-keyring-init \
+             /usr/local/bin/claude-codebase-memory-setup \
              /etc/xdg/autostart/10-claude-code-linux-keyring.desktop \
              /etc/xdg/autostart/20-claude-code-linux-claude-desktop.desktop \
+             /etc/xdg/autostart/30-claude-code-linux-codebase-memory.desktop \
+             /etc/claude-code/CLAUDE.md \
+             /usr/local/share/claude-code-linux/AGENTS.md \
              /etc/xdg/mimeapps.list; do \
         test -e "${f}" || { echo "FATAL: the build did not copy ${f}" >&2; exit 1; }; \
     done; \
@@ -231,9 +244,11 @@ RUN set -eu; \
               /usr/local/bin/install-claude-desktop.sh \
               /usr/local/bin/claude-desktop \
               /usr/local/bin/claude-desktop-session \
-              /usr/local/bin/claude-keyring-init; \
+              /usr/local/bin/claude-keyring-init \
+              /usr/local/bin/claude-codebase-memory-setup; \
     chmod 644 /etc/xdg/autostart/10-claude-code-linux-keyring.desktop \
               /etc/xdg/autostart/20-claude-code-linux-claude-desktop.desktop \
+              /etc/xdg/autostart/30-claude-code-linux-codebase-memory.desktop \
               /etc/xdg/mimeapps.list; \
     test -x /etc/container-entrypoint.sh; \
     test -d /etc/service; \
@@ -417,6 +432,20 @@ RUN set -eu; \
     command -v rea > /dev/null; \
     echo "rea-agents ${REA_AGENTS_VERSION} installed and on PATH"
 
+# Package layer 5 — codebase-memory-mcp, pinned, from npm. The binary lands on PATH; the
+# Claude Code registration is per session (claude-codebase-memory-setup), so it is always
+# the image's binary that runs. `update` is not used: the image is the update mechanism.
+# hadolint ignore=SC1008
+RUN set -eu; \
+    npm install -g --no-fund --no-audit --cache /tmp/npm-cache \
+        "codebase-memory-mcp@${CODEBASE_MEMORY_MCP_VERSION}"; \
+    rm -rf /tmp/npm-cache; \
+    cbm_version="$(codebase-memory-mcp --version 2>/dev/null)"; \
+    case "${cbm_version}" in *"${CODEBASE_MEMORY_MCP_VERSION}"*) ;; \
+        *) echo "FATAL: codebase-memory-mcp reports '${cbm_version}', pinned ${CODEBASE_MEMORY_MCP_VERSION}" >&2; exit 1 ;; esac; \
+    command -v codebase-memory-mcp > /dev/null; \
+    echo "codebase-memory-mcp ${CODEBASE_MEMORY_MCP_VERSION} installed and on PATH"
+
 # ---------------------------------------------------------------------------
 # Close the bracket: real root, outside the fakeroot shell.
 # ---------------------------------------------------------------------------
@@ -447,6 +476,12 @@ RUN set -eu; \
     chmod 4755 "${helper}"; \
     test "$(stat -c '%U:%G %a' "${helper}")" = "root:root 4755"; \
     echo "chrome-sandbox: $(stat -c '%U:%G %a' "${helper}")"; \
+    chown root:root /etc/claude-code/CLAUDE.md /usr/local/share/claude-code-linux/AGENTS.md; \
+    chmod 644 /etc/claude-code/CLAUDE.md /usr/local/share/claude-code-linux/AGENTS.md; \
+    install -d -m 0700 -o 1000 -g 1000 /run/codebase-memory-mcp; \
+    test "$(stat -c '%u:%g %a' /run/codebase-memory-mcp)" = "1000:1000 700"; \
+    command -v codebase-memory-mcp > /dev/null; \
+    command -v claude-codebase-memory-setup > /dev/null; \
     test -u /usr/bin/sudo-root; \
     test -x /etc/container-entrypoint.sh; \
     command -v claude-desktop > /dev/null; \
