@@ -32,7 +32,7 @@ survives every container update because it lives in the mounted state directory.
 1. `docker login ghcr.io -u YOUR-GITHUB-USERNAME` in the Unraid terminal (PAT with `read:packages`).
 2. Community Applications → *claude-code-linux* (or add the template manually from
    [`unraid/claude-code-linux.xml`](unraid/claude-code-linux.xml)).
-3. Leave **PUID** and **PGID** at `1000`. Set **TZ** to your IANA zone (default `Etc/UTC`, compose `CLAUDE_TZ`). Set **PASSWD** and **SELKIES_ENABLE_BASIC_AUTH** only if you want a login on the desktop.
+3. Leave **PUID** and **PGID** at `1000`. Set **TZ** to your IANA zone (default `Etc/UTC`, compose `CLAUDE_TZ`). Set **PASSWD** and **SELKIES_ENABLE_BASIC_AUTH** only if you want a login on the desktop. To work on a host folder, set **Workspace** (it appears at `/workspaces`) and, if its group is not 1000, **WORKSPACE_GID** (Unraid: `100`); see [Workspace access](#workspace-access).
 4. Apply, then open the WebUI on port `8080` (the certificate is self-signed, so the browser warns).
 
 ### Docker Compose
@@ -97,6 +97,20 @@ so the stock flow works with no user action. If a start still reports a write or
 ```bash
 chown -R 1000:1000 /mnt/user/appdata/claude-code-linux
 ```
+
+## Workspace access
+
+A host folder with your projects can be mounted at `/workspaces` (Unraid: the **Workspace** path; compose:
+`CLAUDE_WORKSPACE`, default `./workspace`). The session is uid/gid 1000 and cannot be remapped, so on a
+share owned by another group it needs that group. Set `WORKSPACE_GID` (compose: `CLAUDE_WORKSPACE_GID`)
+to the group's id (Unraid `users` is `100`): at start the root bootstrap adds `ubuntu` to that group,
+creating it as `workspace` if the id is unknown, before dropping to uid 1000. It survives a recreate
+because it runs every start. Docker's `--group-add` does not work here, as the drop rebuilds the group
+list from `/etc/group`.
+
+Nothing on the host is chowned or chmod'd. The folder must already give that group read/write (for
+example group `rwx`, a default ACL and setgid directories). Empty or unset does nothing; `0` and
+non-numeric values exit `78`.
 
 ## `/dev/shm` is 2 GB on purpose
 

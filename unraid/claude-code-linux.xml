@@ -62,6 +62,14 @@ Updates: GitHub Actions rebuilds the image whenever Anthropic publishes a newer 
           Description="Persistent desktop state: Chrome profile, keyring, Claude Desktop config and the Claude Code CLI credentials. The target must stay /home/ubuntu; do not change it to /config, which Unraid rewrites."
           Type="Path" Display="always" Required="true" Mask="false"/>
 
+  <Config Name="Workspace" Target="/workspaces" Default="" Mode="rw"
+          Description="Optional. A host folder with your projects, shown inside the container at /workspaces. Leave empty for none. Set WORKSPACE_GID if its group is not 1000."
+          Type="Path" Display="always" Required="false" Mask="false"/>
+
+  <Config Name="WORKSPACE_GID" Target="WORKSPACE_GID" Default="" Mode=""
+          Description="Optional. Group id that owns the workspace on the host (Unraid: 100, users). The session stays uid/gid 1000 and joins this group, so group-writable files are writable. Nothing on the host is chowned. Empty = off."
+          Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
   <Config Name="PUID" Target="PUID" Default="1000" Mode=""
           Description="User id the session runs as. Must be 1000: the image is rootless at uid 1000 and exits 78 for any other value."
           Type="Variable" Display="advanced" Required="true" Mask="false"/>

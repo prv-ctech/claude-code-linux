@@ -45,6 +45,9 @@ closes; this README will say when that changes.
 | AppData path | `/mnt/user/appdata/claude-code-linux` → container `/home/ubuntu` |
 | PUID / PGID | **`1000` / `1000`** — leave them exactly there |
 | SELKIES_ENABLE_BASIC_AUTH / PASSWD | off by default; set `true` and a password only to require a login |
+| Workspace path (optional) | your projects folder → container `/workspaces` |
+| WORKSPACE_GID (optional) | group id owning that folder, e.g. `100`; empty = off |
+| TZ | IANA zone, default `Etc/UTC` |
 | Extra Parameters | `--shm-size=2g` |
 
 **Keep PUID and PGID at 1000/1000.** Unraid's own default is 99/100, but this image is rootless at uid
