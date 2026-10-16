@@ -1,11 +1,8 @@
 {
   "mcpServers": {
     "codebase-memory-mcp": {
-      "command": "codebase-memory-mcp",
-      "args": [],
-      "env": {
-        "CBM_RUNTIME_DIR": "/run/codebase-memory-mcp"
-      }
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/codebase-memory-mcp",
+      "args": []
     }
   }
 }

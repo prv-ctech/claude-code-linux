@@ -1,7 +1,7 @@
 {
   "name": "codebase-memory-mod",
-  "version": "0.1.0",
-  "description": "codebase-memory-mcp for Claude Code: the code-graph MCP server (binary in the image), a skill, and SessionStart and PreToolUse hooks that point the agent at the graph.",
+  "version": "0.2.0",
+  "description": "codebase-memory-mcp for Claude Code: installs the pinned binary on first use, the MCP server, a skill, graph hooks, and the per-workspace instructions. One install does all of it.",
   "author": {
     "name": "prv-ctech"
   },

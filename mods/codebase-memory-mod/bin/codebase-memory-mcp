@@ -1,0 +1,62 @@
+#!/bin/sh
+# codebase-memory-mcp, as this plugin runs it. The binary is not in the image. On first use
+# this wrapper downloads the pinned release archive into ${CLAUDE_PLUGIN_DATA}, checks its
+# SHA256 and member list, installs it, and then runs it. Updating the plugin changes VERSION
+# and the checksums here, so the next start fetches the new build. Old builds are left alone.
+#
+# stdout is the MCP stdio channel, so every message here goes to stderr.
+set -eu
+
+VERSION=0.12.0
+SHA256_AMD64=2c0a3f3314874e2315ed169165f1fdf74d9628c7f8b301579b900fcc6d7bcd9c
+SHA256_ARM64=8a0882c443efabcac4f7eb9ff01da9e4b7fc65ccf6f49b5b08f53d654db6a196
+
+if [ "$(uname -s)" != Linux ]; then
+	echo "codebase-memory-mcp: this plugin installs the Linux build only" >&2
+	exit 1
+fi
+case "$(uname -m)" in
+	x86_64 | amd64) arch=amd64; sha256=${SHA256_AMD64} ;;
+	aarch64 | arm64) arch=arm64; sha256=${SHA256_ARM64} ;;
+	*) echo "codebase-memory-mcp: unsupported architecture $(uname -m)" >&2; exit 1 ;;
+esac
+
+# Claude sets CLAUDE_PLUGIN_DATA to <plugin id> under ~/.claude/plugins/data; the default is the same path.
+data="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/codebase-memory-mod-claude-code-linux}"
+bin="${data}/codebase-memory-mcp-${VERSION}/codebase-memory-mcp"
+
+if [ ! -x "${bin}" ]; then
+	mkdir -p "${data}"
+	tmp="$(mktemp -d "${data}/install.XXXXXX")"
+	trap 'rm -rf "${tmp}"' EXIT
+	url="https://github.com/DeusData/codebase-memory-mcp/releases/download/v${VERSION}/codebase-memory-mcp-linux-${arch}.tar.gz"
+	echo "codebase-memory-mcp: downloading ${VERSION} (${arch}) from the release" >&2
+	curl -fsSL --retry 3 --retry-all-errors -o "${tmp}/archive.tar.gz" "${url}"
+	printf '%s  %s\n' "${sha256}" "${tmp}/archive.tar.gz" > "${tmp}/SHA256SUMS"
+	if ! sha256sum -c "${tmp}/SHA256SUMS" >&2; then
+		echo "codebase-memory-mcp: SHA256 does not match the pin for ${VERSION} ${arch}; not installed" >&2
+		exit 1
+	fi
+	tar -tzf "${tmp}/archive.tar.gz" > "${tmp}/members"
+	members="$(LC_ALL=C sort "${tmp}/members" | tr '\n' ' ')"
+	if [ "${members}" != "LICENSE THIRD_PARTY_NOTICES.md codebase-memory-mcp install.sh " ]; then
+		echo "codebase-memory-mcp: archive holds unexpected members: ${members}; not installed" >&2
+		exit 1
+	fi
+	tar --no-same-owner -xzf "${tmp}/archive.tar.gz" -C "${tmp}" codebase-memory-mcp
+	mkdir -p "$(dirname "${bin}")"
+	chmod 755 "${tmp}/codebase-memory-mcp"
+	mv -f "${tmp}/codebase-memory-mcp" "${bin}"
+	rm -rf "${tmp}"
+	trap - EXIT
+fi
+
+# The daemon socket needs a private directory whose parents are not world-writable, which
+# rules out /tmp. Keep it short: the socket path must fit the 108-byte AF_UNIX limit, and the
+# plugin data path is too long for that. It stays per user, under the user's cache.
+run="${HOME}/.cache/codebase-memory-mcp/run"
+mkdir -p -m 700 "${run}"
+CBM_RUNTIME_DIR="${run}"
+export CBM_RUNTIME_DIR
+
+exec "${bin}" "$@"

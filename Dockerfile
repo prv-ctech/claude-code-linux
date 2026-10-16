@@ -74,12 +74,6 @@ ARG CLAUDE_CODE_VERSION=2.1.294
 # registration in ~/.claude.json points at /usr/local/bin/rea, so this install
 # must be rebuilt with the image. Ghidra and the JDK stay on the home mount.
 ARG REA_AGENTS_VERSION=6.5.0
-# codebase-memory-mcp (code graph MCP server): the GitHub release archive for the linux-amd64
-# build, pinned by version and by the SHA256 of that archive from the release's checksums.txt.
-# Not the npm package: its installer refuses the 331 MB binary (256 MiB member limit).
-# The Claude Code side (MCP server, skill, hooks) ships as the codebase-memory-mod plugin.
-ARG CODEBASE_MEMORY_MCP_VERSION=0.12.0
-ARG CODEBASE_MEMORY_MCP_SHA256=2c0a3f3314874e2315ed169165f1fdf74d9628c7f8b301579b900fcc6d7bcd9c
 # The Anthropic Claude Code signing key, fingerprint
 # 31DD DE24 DDFA B679 F42D 7BD2 BAA9 29FF 1A7E CACE. The SHA256 is the pin over
 # the key's own bytes (the same file is served as
@@ -139,11 +133,6 @@ ENV SELKIES_ENCODER=h264enc,h264enc-striped,h265enc,vp8enc,vp9enc,av1enc,jpeg \
 # the image the next container starts from.
 ENV DISABLE_AUTOUPDATER=1 \
     DISABLE_UPDATES=1
-
-# codebase-memory-mcp keeps its daemon socket in CBM_RUNTIME_DIR and refuses a parent
-# that is world-writable, which /tmp is. The image creates this private directory for uid
-# 1000 in the root bracket at the end of this file; it is not on the state mount.
-ENV CBM_RUNTIME_DIR=/run/codebase-memory-mcp
 
 # Python tooling: uv is copied from Astral's pinned image; pip is the apt one.
 # Everything a user installs lands under HOME=/home/ubuntu (the mounted state):
@@ -235,8 +224,6 @@ RUN set -eu; \
              /usr/local/bin/claude-keyring-init \
              /etc/xdg/autostart/10-claude-code-linux-keyring.desktop \
              /etc/xdg/autostart/20-claude-code-linux-claude-desktop.desktop \
-             /etc/claude-code/CLAUDE.md \
-             /usr/local/share/claude-code-linux/AGENTS.md \
              /etc/xdg/mimeapps.list; do \
         test -e "${f}" || { echo "FATAL: the build did not copy ${f}" >&2; exit 1; }; \
     done; \
@@ -430,32 +417,6 @@ RUN set -eu; \
     command -v rea > /dev/null; \
     echo "rea-agents ${REA_AGENTS_VERSION} installed and on PATH"
 
-# Package layer 5 — codebase-memory-mcp, pinned, from its GitHub release. The archive is
-# checked against the pinned SHA256 and must hold exactly the four members the release ships.
-# The binary lands in /usr/local/bin; the Claude Code registration is per session
-# (the codebase-memory-mod plugin), so it is always the image's binary that runs. `update` is
-# not used: the image is the update mechanism.
-# hadolint ignore=SC1008
-RUN set -eu; \
-    cbm_dir="$(mktemp -d)"; \
-    cbm_url="https://github.com/DeusData/codebase-memory-mcp/releases/download/v${CODEBASE_MEMORY_MCP_VERSION}/codebase-memory-mcp-linux-amd64.tar.gz"; \
-    curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --retry-connrefused \
-        -o "${cbm_dir}/archive.tar.gz" "${cbm_url}"; \
-    printf '%s  %s\n' "${CODEBASE_MEMORY_MCP_SHA256}" "${cbm_dir}/archive.tar.gz" > "${cbm_dir}/SHA256SUMS"; \
-    sha256sum -c "${cbm_dir}/SHA256SUMS"; \
-    tar -tzf "${cbm_dir}/archive.tar.gz" > "${cbm_dir}/members"; \
-    LC_ALL=C sort -o "${cbm_dir}/members" "${cbm_dir}/members"; \
-    members="$(tr '\n' ' ' < "${cbm_dir}/members")"; \
-    [ "${members}" = "LICENSE THIRD_PARTY_NOTICES.md codebase-memory-mcp install.sh " ] || { echo "FATAL: unexpected codebase-memory-mcp archive members: ${members}" >&2; exit 1; }; \
-    tar --no-same-owner -xzf "${cbm_dir}/archive.tar.gz" -C "${cbm_dir}" codebase-memory-mcp; \
-    install -m 0755 "${cbm_dir}/codebase-memory-mcp" /usr/local/bin/codebase-memory-mcp; \
-    rm -rf "${cbm_dir}"; \
-    cbm_version="$(codebase-memory-mcp --version 2>/dev/null)"; \
-    case "${cbm_version}" in *"${CODEBASE_MEMORY_MCP_VERSION}"*) ;; \
-        *) echo "FATAL: codebase-memory-mcp reports '${cbm_version}', pinned ${CODEBASE_MEMORY_MCP_VERSION}" >&2; exit 1 ;; esac; \
-    command -v codebase-memory-mcp > /dev/null; \
-    echo "codebase-memory-mcp ${CODEBASE_MEMORY_MCP_VERSION} installed and on PATH"
-
 # ---------------------------------------------------------------------------
 # Close the bracket: real root, outside the fakeroot shell.
 # ---------------------------------------------------------------------------
@@ -486,11 +447,6 @@ RUN set -eu; \
     chmod 4755 "${helper}"; \
     test "$(stat -c '%U:%G %a' "${helper}")" = "root:root 4755"; \
     echo "chrome-sandbox: $(stat -c '%U:%G %a' "${helper}")"; \
-    chown root:root /etc/claude-code/CLAUDE.md /usr/local/share/claude-code-linux/AGENTS.md; \
-    chmod 644 /etc/claude-code/CLAUDE.md /usr/local/share/claude-code-linux/AGENTS.md; \
-    install -d -m 0700 -o 1000 -g 1000 /run/codebase-memory-mcp; \
-    test "$(stat -c '%u:%g %a' /run/codebase-memory-mcp)" = "1000:1000 700"; \
-    command -v codebase-memory-mcp > /dev/null; \
     test -u /usr/bin/sudo-root; \
     test -x /etc/container-entrypoint.sh; \
     command -v claude-desktop > /dev/null; \
