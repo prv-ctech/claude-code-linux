@@ -51,4 +51,7 @@ fi
 mods=/usr/local/share/claude-code-linux/mods
 timeout 60 sh -c "claude plugin marketplace add ${mods} || claude plugin marketplace update claude-code-linux; claude plugin install caveman-mod@claude-code-linux || claude plugin update caveman-mod@claude-code-linux" || echo "[claude-desktop] WARNING: caveman mod not installed"
 
+# The codebase-memory mod: MCP server, skill and graph hooks in one plugin. Same pattern.
+timeout 60 sh -c "claude plugin marketplace add ${mods} || claude plugin marketplace update claude-code-linux; claude plugin install codebase-memory-mod@claude-code-linux || claude plugin update codebase-memory-mod@claude-code-linux" || echo "[claude-desktop] WARNING: codebase-memory mod not installed"
+
 exec claude-desktop

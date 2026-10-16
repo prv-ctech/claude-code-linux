@@ -77,7 +77,7 @@ ARG REA_AGENTS_VERSION=6.5.0
 # codebase-memory-mcp (code graph MCP server): the GitHub release archive for the linux-amd64
 # build, pinned by version and by the SHA256 of that archive from the release's checksums.txt.
 # Not the npm package: its installer refuses the 331 MB binary (256 MiB member limit).
-# Registration is done per session by claude-codebase-memory-setup.
+# The Claude Code side (MCP server, skill, hooks) ships as the codebase-memory-mod plugin.
 ARG CODEBASE_MEMORY_MCP_VERSION=0.12.0
 ARG CODEBASE_MEMORY_MCP_SHA256=2c0a3f3314874e2315ed169165f1fdf74d9628c7f8b301579b900fcc6d7bcd9c
 # The Anthropic Claude Code signing key, fingerprint
@@ -233,10 +233,8 @@ RUN set -eu; \
              /usr/local/bin/claude-desktop \
              /usr/local/bin/claude-desktop-session \
              /usr/local/bin/claude-keyring-init \
-             /usr/local/bin/claude-codebase-memory-setup \
              /etc/xdg/autostart/10-claude-code-linux-keyring.desktop \
              /etc/xdg/autostart/20-claude-code-linux-claude-desktop.desktop \
-             /etc/xdg/autostart/30-claude-code-linux-codebase-memory.desktop \
              /etc/claude-code/CLAUDE.md \
              /usr/local/share/claude-code-linux/AGENTS.md \
              /etc/xdg/mimeapps.list; do \
@@ -246,11 +244,9 @@ RUN set -eu; \
               /usr/local/bin/install-claude-desktop.sh \
               /usr/local/bin/claude-desktop \
               /usr/local/bin/claude-desktop-session \
-              /usr/local/bin/claude-keyring-init \
-              /usr/local/bin/claude-codebase-memory-setup; \
+              /usr/local/bin/claude-keyring-init; \
     chmod 644 /etc/xdg/autostart/10-claude-code-linux-keyring.desktop \
               /etc/xdg/autostart/20-claude-code-linux-claude-desktop.desktop \
-              /etc/xdg/autostart/30-claude-code-linux-codebase-memory.desktop \
               /etc/xdg/mimeapps.list; \
     test -x /etc/container-entrypoint.sh; \
     test -d /etc/service; \
@@ -437,7 +433,7 @@ RUN set -eu; \
 # Package layer 5 — codebase-memory-mcp, pinned, from its GitHub release. The archive is
 # checked against the pinned SHA256 and must hold exactly the four members the release ships.
 # The binary lands in /usr/local/bin; the Claude Code registration is per session
-# (claude-codebase-memory-setup), so it is always the image's binary that runs. `update` is
+# (the codebase-memory-mod plugin), so it is always the image's binary that runs. `update` is
 # not used: the image is the update mechanism.
 # hadolint ignore=SC1008
 RUN set -eu; \
@@ -495,7 +491,6 @@ RUN set -eu; \
     install -d -m 0700 -o 1000 -g 1000 /run/codebase-memory-mcp; \
     test "$(stat -c '%u:%g %a' /run/codebase-memory-mcp)" = "1000:1000 700"; \
     command -v codebase-memory-mcp > /dev/null; \
-    command -v claude-codebase-memory-setup > /dev/null; \
     test -u /usr/bin/sudo-root; \
     test -x /etc/container-entrypoint.sh; \
     command -v claude-desktop > /dev/null; \

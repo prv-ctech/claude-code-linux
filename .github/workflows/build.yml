@@ -658,21 +658,21 @@ jobs:
             || { echo "::error::rejection message does not name the supported values"; echo "$reject"; exit 1; }
 
           # 8. codebase-memory-mcp equals its pin as the session user, and the desktop
-          #    autostart registered it with Claude Code in the state path the session owns.
-          #    Registration runs after the desktop is up, so poll for it rather than race it.
+          #    session installed the codebase-memory-mod plugin, which provides the MCP
+          #    server. The install runs when the desktop starts, so poll for it.
           cbm=$(docker exec -u 1000:1000 -e HOME=/home/ubuntu "$name" codebase-memory-mcp --version \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
           [ "$cbm" = "$CBM" ] || { echo "::error::codebase-memory-mcp is $cbm, expected $CBM"; exit 1; }
           registered=no
           for _ in $(seq 1 18); do
             if docker exec -u 1000:1000 -e HOME=/home/ubuntu "$name" \
-                claude mcp get codebase-memory-mcp > /dev/null 2>&1; then
+                claude mcp get plugin:codebase-memory-mod:codebase-memory-mcp > /dev/null 2>&1; then
               registered=yes
               break
             fi
             sleep 10
           done
-          [ "$registered" = yes ] || { echo "::error::codebase-memory-mcp was not registered with Claude Code within 3 minutes"; exit 1; }
+          [ "$registered" = yes ] || { echo "::error::codebase-memory-mod plugin did not provide codebase-memory-mcp within 3 minutes"; exit 1; }
 
           {
             echo "| assertion | observed |"
@@ -680,7 +680,7 @@ jobs:
             echo "| .State.Health.Status | $status |"
             echo "| dpkg-query claude-desktop | $ver |"
             echo "| claude --version | $cli |"
-            echo "| codebase-memory-mcp --version | $cbm (registered with Claude Code: $registered) |"
+            echo "| codebase-memory-mcp --version | $cbm (plugin MCP server present: $registered) |"
             echo "| pid 1 uid / session uid:gid | $pid1 / $uid:$gid |"
             echo "| /home/ubuntu owner | $owner |"
             echo "| /api/health | HTTP $code |"

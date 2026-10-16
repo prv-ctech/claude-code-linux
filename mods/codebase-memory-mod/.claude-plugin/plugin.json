@@ -1,0 +1,10 @@
+{
+  "name": "codebase-memory-mod",
+  "version": "0.1.0",
+  "description": "codebase-memory-mcp for Claude Code: the code-graph MCP server (binary in the image), a skill, and SessionStart and PreToolUse hooks that point the agent at the graph.",
+  "author": {
+    "name": "prv-ctech"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/DeusData/codebase-memory-mcp"
+}
