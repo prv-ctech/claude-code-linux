@@ -32,7 +32,7 @@ survives every container update because it lives in the mounted state directory.
 1. `docker login ghcr.io -u YOUR-GITHUB-USERNAME` in the Unraid terminal (PAT with `read:packages`).
 2. Community Applications → *claude-code-linux* (or add the template manually from
    [`unraid/claude-code-linux.xml`](unraid/claude-code-linux.xml)).
-3. Leave **PUID** and **PGID** at `1000`. Set **PASSWD** and **SELKIES_ENABLE_BASIC_AUTH** only if you want a login on the desktop.
+3. Leave **PUID** and **PGID** at `1000`. Set **TZ** to your IANA zone (default `Etc/UTC`, compose `CLAUDE_TZ`). Set **PASSWD** and **SELKIES_ENABLE_BASIC_AUTH** only if you want a login on the desktop.
 4. Apply, then open the WebUI on port `8080` (the certificate is self-signed, so the browser warns).
 
 ### Docker Compose
@@ -43,7 +43,7 @@ docker compose up -d
 docker compose logs -f
 ```
 
-Host port `8080` is published; state lands in `./claude-code-state` by default. Both files encode the
+Host port `8080` is published; state lands in `./claude-code-state` by default. Time zone comes from `CLAUDE_TZ` in `.env` (default `Etc/UTC`). Both files encode the
 same port, `/dev/shm` size, PUID/PGID defaults and state path as the Unraid template, so the two
 cannot drift.
 
