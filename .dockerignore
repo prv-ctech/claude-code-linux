@@ -14,6 +14,10 @@
 .agent-teams
 .codebase-memory
 
+# The plugin marketplace and its mods: installed from GitHub with /plugin, not built in
+.claude-plugin
+mods
+
 # Documentation and research (the design contract is read on the host, not built in)
 docs
 *.md
