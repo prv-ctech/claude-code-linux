@@ -5,18 +5,36 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start.sh"
+            "command": "cat \"${CLAUDE_PLUGIN_ROOT}/AGENTS.md\""
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codebase-memory-mcp\" hook-augment",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codebase-memory-mcp\" hook-augment",
+            "timeout": 5
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Grep|Glob",
+        "matcher": "Grep|Glob|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/grep-context.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codebase-memory-mcp\" hook-augment",
+            "timeout": 5
           }
         ]
       }
