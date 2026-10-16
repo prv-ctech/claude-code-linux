@@ -93,6 +93,7 @@ jobs:
       cli: ${{ steps.cli.outputs.version }}
       rea: ${{ steps.rea.outputs.version }}
       cbm: ${{ steps.cbm.outputs.version }}
+      cbm_sha256: ${{ steps.cbm.outputs.sha256 }}
       recipe: ${{ steps.decide.outputs.recipe }}
       flavor: ${{ steps.recipe.outputs.flavor }}
       reason: ${{ steps.decide.outputs.reason }}
@@ -187,8 +188,19 @@ jobs:
             echo "::error::npm codebase-memory-mcp dist-tags.latest is not a version: '$cbm'"
             exit 1
           fi
+          # The image downloads the GitHub release archive, not the npm package (its
+          # installer refuses the 331 MB binary). Pin the archive's SHA256 from that
+          # release's own checksums.txt, the same way the desktop .deb is pinned.
+          sha=$(curl -fsSL --max-time 60 \
+              "https://github.com/DeusData/codebase-memory-mcp/releases/download/v$cbm/checksums.txt" \
+            | awk '$2 == "codebase-memory-mcp-linux-amd64.tar.gz" { print $1 }')
+          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{64}$'; then
+            echo "::error::no SHA256 for codebase-memory-mcp-linux-amd64.tar.gz in release v$cbm checksums.txt"
+            exit 1
+          fi
           echo "version=$cbm" >> "$GITHUB_OUTPUT"
-          echo "pinned codebase-memory-mcp version: $cbm"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "pinned codebase-memory-mcp version: $cbm ($sha)"
 
       - name: Compute recipe hash base
         id: recipe
@@ -217,6 +229,7 @@ jobs:
             printf 'CLAUDE_CODE_VERSION=%s\n' '${{ steps.cli.outputs.version }}'
             printf 'REA_AGENTS_VERSION=%s\n' '${{ steps.rea.outputs.version }}'
             printf 'CODEBASE_MEMORY_MCP_VERSION=%s\n' '${{ steps.cbm.outputs.version }}'
+            printf 'CODEBASE_MEMORY_MCP_SHA256=%s\n' '${{ steps.cbm.outputs.sha256 }}'
             for f in $files; do
               # A missing input is a broken hash input, not a file to skip: the
               # hash would silently stop covering it.
@@ -386,6 +399,7 @@ jobs:
           CLI: ${{ needs.plan.outputs.cli }}
           REA: ${{ needs.plan.outputs.rea }}
           CBM: ${{ needs.plan.outputs.cbm }}
+          CBM_SHA256: ${{ needs.plan.outputs.cbm_sha256 }}
           RECIPE: ${{ needs.plan.outputs.recipe }}
           FLAVOR: ${{ needs.plan.outputs.flavor }}
           SHA256: ${{ needs.plan.outputs.desktop_sha256 }}
@@ -407,6 +421,7 @@ jobs:
             --build-arg "CLAUDE_CODE_VERSION=$CLI" \
             --build-arg "REA_AGENTS_VERSION=$REA" \
             --build-arg "CODEBASE_MEMORY_MCP_VERSION=$CBM" \
+            --build-arg "CODEBASE_MEMORY_MCP_SHA256=$CBM_SHA256" \
             --label "org.opencontainers.image.title=claude-code-linux" \
             --label "org.opencontainers.image.version=$VERSION" \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
