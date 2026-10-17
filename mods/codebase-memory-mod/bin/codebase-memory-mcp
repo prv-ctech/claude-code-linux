@@ -25,12 +25,6 @@ esac
 data="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/codebase-memory-mod-claude-code-linux}"
 bin="${data}/codebase-memory-mcp-${VERSION}/codebase-memory-mcp"
 
-# A hook runs under a short timeout and must not download: stay silent until the MCP server
-# has fetched the binary.
-if [ ! -x "${bin}" ] && [ "${1:-}" = hook-augment ]; then
-	exit 0
-fi
-
 if [ ! -x "${bin}" ]; then
 	mkdir -p "${data}"
 	tmp="$(mktemp -d "${data}/install.XXXXXX")"
