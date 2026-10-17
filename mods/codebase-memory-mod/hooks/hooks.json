@@ -5,11 +5,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cat \"${CLAUDE_PLUGIN_ROOT}/AGENTS.md\""
-          },
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/context.js\" session",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codebase-memory-mcp\" hook-augment",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/context.js\" prompt",
             "timeout": 5
           }
         ]
@@ -21,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codebase-memory-mcp\" hook-augment",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/context.js\" subagent",
             "timeout": 5
           }
         ]
@@ -33,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/codebase-memory-mcp\" hook-augment",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.js\"",
             "timeout": 5
           }
         ]

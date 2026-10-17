@@ -1,19 +1,29 @@
 # Codebase memory
 
-The `codebase-memory-mcp` MCP server gives you a code graph of the workspace you are in: symbols, callers, call paths and architecture. Use it before grep for navigation.
+This workspace uses the codebase-memory graph for code discovery. Once the workspace is indexed, the graph is stored in `.codebase-memory/graph.db.zst`.
 
-## Start of work in a workspace
+## Tools
 
-The workspace is the directory the session started in, for example `/workspaces/my-project`. Once per workspace:
+The tools are MCP tools named `mcp__plugin_codebase-memory-mod_codebase-memory-mcp__<tool>`. Their schemas are deferred: load the ones needed with one ToolSearch call (`select:` and the full names) before the first call.
 
-1. If `<workspace>/.codebase-memory/graph.db.zst` exists, the workspace is indexed. Go to step 3.
-2. If it is missing, build the index: call `index_repository` with `repo_path` set to the absolute workspace path and `persistence: true`. This writes `.codebase-memory/` into the workspace. Tell the user it was built.
-3. Find the project with `list_projects`. Match the entry whose `root_path` is the workspace path. Its `name` is the path with `/` replaced by `-`, for example `workspaces-my-project`. Match on `root_path`, not on name alone.
-4. Query that project with `search_graph`, `trace_path`, `get_code_snippet` or `query_graph`.
+| Question | Tool |
+|---|---|
+| Find a symbol by name | `search_graph` with `name_pattern` |
+| Who calls X / what X calls | `trace_path` with `direction` inbound, outbound or both |
+| Source of one symbol | `get_code_snippet` with the qualified name from `search_graph` |
+| Outline of one file | `get_file_outline` |
+| Literal text, strings, comments | `search_code` |
+| Multi-hop questions | `query_graph` |
+| Module overview | `get_architecture` |
+| What uncommitted changes affect | `detect_changes` |
+| Dead code | `search_graph` with `max_degree: 0` and `exclude_entry_points: true` |
 
 ## Rules
 
-- Do not `git add` or commit `.codebase-memory/` unless the user asks.
-- Re-run `index_repository` for the workspace after a large `git pull`, branch switch or rebase.
-- Do not pass a custom `name`, and do not change the server's config, unless the user asks.
-- If the server fails, say so and fall back to grep.
+- Code discovery in this workspace starts with these tools, in the main chat and in every subagent. A hook blocks Grep, Glob, and grep, rg, ag, ack or find on code while the graph exists.
+- Read opens a file whose path is already known. Use it once the graph has given the location.
+- Resolve exact names with `search_graph` before `trace_path` or `get_code_snippet`.
+- Before a claim that nothing uses a symbol, run `check_index_coverage` on the files relied on.
+- If a codebase-memory tool returns an error, report the exact error to the user and stop that line of work. Do not fall back to grep.
+- Rebuild the index with `index_repository` (`repo_path` set to the absolute workspace path, `persistence: true`) after a large pull, a branch switch or a rebase.
+- `.codebase-memory/` is not committed unless the user asks.
