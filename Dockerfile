@@ -131,8 +131,11 @@ ENV SELKIES_ENCODER=h264enc,h264enc-striped,h265enc,vp8enc,vp9enc,av1enc,jpeg \
 # work inside the session can start the container with -e DISABLE_UPDATES=0 and
 # keep the background check off; what changes then is that one container, never
 # the image the next container starts from.
+# The two switches above also turn off plugin auto-update. FORCE_AUTOUPDATE_PLUGINS
+# keeps it on for marketplaces that enable it, so the mods update without a rebuild.
 ENV DISABLE_AUTOUPDATER=1 \
-    DISABLE_UPDATES=1
+    DISABLE_UPDATES=1 \
+    FORCE_AUTOUPDATE_PLUGINS=1
 
 # Python tooling: uv is copied from Astral's pinned image; pip is the apt one.
 # Everything a user installs lands under HOME=/home/ubuntu (the mounted state):

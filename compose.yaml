@@ -51,6 +51,9 @@ services:
       # update path (Dockerfile ARG pins both upstreams).
       DISABLE_AUTOUPDATER: "1"
       DISABLE_UPDATES: "1"
+      # The two switches above also turn off plugin auto-update. This keeps it on for
+      # marketplaces that enable it (the mods), so they update without an image rebuild.
+      FORCE_AUTOUPDATE_PLUGINS: "1"
     ports:
       # 8080/tcp is the only port the image serves. Do not publish it to the
       # Internet: the session holds your claude.ai and Claude Code credentials
