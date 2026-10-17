@@ -94,5 +94,8 @@ Updates: GitHub Actions rebuilds the image whenever Anthropic publishes a newer 
           Description="Transport for the stream. websocket needs no extra ports. Setting webRTC also requires TURN ports 3478 and 65532-65535 to be published, which this template deliberately does not do."
           Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
+  <Config Name="FORCE_AUTOUPDATE_PLUGINS" Target="FORCE_AUTOUPDATE_PLUGINS" Default="1" Mode=""
+          Description="Keeps plugin auto-update on, so the mods in this image update without a rebuild. The image turns off Claude Code's own updater, and that switch also turns off plugin updates; this one keeps the plugin updates. Leave at 1."
+          Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
 </Container>
