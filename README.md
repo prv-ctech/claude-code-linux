@@ -82,9 +82,11 @@ asks you to sign in again — and why it is worth backing up, keeping at uid 100
 `/home/ubuntu`, so they persist with the rest of the state. Video is encoded on the CPU (x264) by
 default; no GPU or device passthrough is needed. With `--device=/dev/dri` (compose: `devices:`), Selkies
 detects an Intel or AMD render node at start and encodes with VA-API where the GPU supports the codec
-(checked on an Intel Arc A380; NVIDIA is untested). Claude Desktop then logs repeated
-`XFree86-VidModeExtension missing` and `glXGetMscRateOML failed` lines; they are harmless, the virtual X
-display has no vblank source. H.264 is the default encoder and the webcam uplink is locked to H.264, on
+(checked on an Intel Arc A380; NVIDIA is untested). No driver install is needed on the host or in the
+image: the host kernel's GPU driver is enough (`i915` on the A380), and the image already carries the
+VA-API, Mesa and Vulkan drivers. Claude Desktop then renders through ANGLE on Vulkan, on the same GPU;
+its default GL backend would log `XFree86-VidModeExtension missing` and `glXGetMscRateOML failed` on
+every frame, because the virtual X display has no refresh rate to report. H.264 is the default encoder and the webcam uplink is locked to H.264, on
 CPU and GPU alike (`SELKIES_ENCODER`, `SELKIES_WEBCAM_ENCODER`).
 
 ## PUID / PGID: 1000/1000 only
