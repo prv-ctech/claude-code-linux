@@ -117,11 +117,24 @@ fi
 # taken on, and a recreated container gets a new hostname. Chrome reads the old
 # container's lock as another computer using the profile and refuses to start
 # ("profile is locked"), which also stops it opening Claude's sign-in links.
-# Nothing runs yet at this point; a lock from this same hostname Chrome clears
-# itself once its pid is gone, so only a foreign one is removed.
+# A lock from this same hostname Chrome clears itself once its pid is gone, so
+# only a foreign one is removed, and only when no other container is using this
+# state path: fd 9 holds a flock on it for this container's life (every session
+# process inherits the fd), so a second container started on the same mount
+# fails to take it and leaves the first one's live Chrome lock alone.
+state_lock="${STATE_DIR}/.config/claude-code-linux/state.lock"
+state_locked=0
+if mkdir -p "${state_lock%/*}" 2>/dev/null && touch "${state_lock}" 2>/dev/null; then
+	exec 9>>"${state_lock}"
+	if flock -n 9; then
+		state_locked=1
+	else
+		echo "WARNING: another container is using ${STATE_DIR}; running two at once on one state path can corrupt the Chrome profile and the keyring." >&2
+	fi
+fi
 chrome_dir="${STATE_DIR}/.config/google-chrome"
 chrome_lock="$(readlink "${chrome_dir}/SingletonLock" 2>/dev/null || true)"
-if [ -n "${chrome_lock}" ] && [ "${chrome_lock%-*}" != "$(uname -n)" ]; then
+if [ "${state_locked}" -eq 1 ] && [ -n "${chrome_lock}" ] && [ "${chrome_lock%-*}" != "$(uname -n)" ]; then
 	rm -f "${chrome_dir}/SingletonLock" "${chrome_dir}/SingletonSocket" "${chrome_dir}/SingletonCookie"
 	echo "Removed the Chrome profile lock left by container ${chrome_lock%-*}." >&2
 fi

@@ -707,7 +707,21 @@ for f in SingletonLock SingletonSocket SingletonCookie; do
 	[ -L "${chrome_dir}/${f}" ] && fail "the old container's Chrome ${f} was left in place"
 done
 assert_in oldlock err 'left by container old-container' "the lock removal is logged"
-ok "the entrypoint removes a Chrome profile lock taken under another hostname, and keeps this hostname's"
+
+# a sibling container still running on the same state path holds the state flock:
+# its Chrome lock is live and must survive
+ln -s "sibling-container-77" "${chrome_dir}/SingletonLock"
+flock -n "${state}/.config/claude-code-linux/state.lock" sleep 30 &
+sibling=$!
+sleep 0.5
+entrypoint siblinglock 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
+	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+kill "${sibling}" 2>/dev/null || true
+wait "${sibling}" 2>/dev/null || true
+[ -L "${chrome_dir}/SingletonLock" ] || fail "a Chrome lock held by a live sibling container was removed"
+assert_in siblinglock err 'another container is using' "the shared-state warning"
+ok "the entrypoint removes a Chrome profile lock taken under another hostname only when no other container holds the state path, and keeps this hostname's"
 
 # --- 5.5 the root path: chown once, setpriv drop, TERM, exit status ----------
 # The base entrypoint is a generated stub that records how it was started, traps
