@@ -6,6 +6,7 @@
 |---|---|
 | `.mcp.json` | Registers the `rea` MCP server, run through `bin/rea mcp`. |
 | `bin/rea` | On first use installs the pinned `rea-agents` with npm into the plugin data directory (`~/.claude/plugins/data/rea-mod-claude-code-linux`). Starts a background install of the analysis engines REA uses but never installs, each checked against a pinned SHA256: Temurin JDK 21, Ghidra 12.1.4, jadx-headless-mcp 0.7.1, Apktool 3.0.3. Once they are in place it sets `JAVA_HOME`, `GHIDRA_INSTALL_DIR`, `REA_JADX_MCP_JAR` and `REA_APKTOOL_COMMAND` for REA. |
+| `commands/rea.md` | `/rea <task>` tells Claude to work on the task with REA's skill and MCP tools, for when the request does not say so. |
 | `skills/reverse-engineer-anything` | REA's own skill, copied from the same `rea-agents` release. |
 
 The first session installs REA in a few seconds; the engines (about 1 GB) arrive in the background. Restart the session once `tools.log` in the data directory says they are installed. The engines are the Linux x64 builds, the image's only platform.
