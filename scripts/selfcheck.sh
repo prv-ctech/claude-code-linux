@@ -1210,6 +1210,42 @@ assert_missing "${SCEN}/unbound.out" 'pinned stanza:' "the mismatched index must
 assert_missing "${SCEN}/unbound.out" 'downloaded' "and nothing after it may run either"
 ok "the installer rejects a Packages file its signed InRelease does not vouch for, and parses the one it does"
 
+# --- 5.16b rea-mod follows npm's rea-agents latest ---------------------------
+scenario rea-mod-update
+mkdir -p "${SCEN}/repo/scripts" "${SCEN}/repo/mods"
+cp "${ROOT}/scripts/update-rea-mod.sh" "${SCEN}/repo/scripts/"
+cp -R "${ROOT}/mods/rea-mod" "${SCEN}/repo/mods/"
+pinned="$(sed -n 's/^VERSION=//p' "${SCEN}/repo/mods/rea-mod/bin/rea")"
+plugin_version() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "${SCEN}/repo/mods/rea-mod/.claude-plugin/plugin.json"; }
+before="$(plugin_version)"
+cat > "${BIN}/npm" <<-'EOS'
+	#!/bin/sh
+	case "$1" in
+		view) echo "${FAKE_REA_LATEST}" ;;
+		pack)
+			mkdir -p package/skills/reverse-engineer-anything
+			echo "skill from $3" > package/skills/reverse-engineer-anything/SKILL.md
+			tar -czf rea-agents-x.tgz package && rm -rf package
+			;;
+	esac
+	EOS
+chmod 755 "${BIN}/npm"
+run reanew 0 env -i PATH="${BIN}:${REAL_PATH}" FAKE_REA_LATEST=99.1.0 sh "${SCEN}/repo/scripts/update-rea-mod.sh"
+assert_in reanew out '^99.1.0$' "the update prints the new version"
+[ "$(sed -n 's/^VERSION=//p' "${SCEN}/repo/mods/rea-mod/bin/rea")" = 99.1.0 ] || fail "bin/rea was not moved to 99.1.0"
+grep -q 'skill from rea-agents@99.1.0' "${SCEN}/repo/mods/rea-mod/skills/reverse-engineer-anything/SKILL.md" ||
+	fail "the skill was not refreshed from rea-agents@99.1.0"
+bumped="$(plugin_version)"
+[ "${bumped}" != "${before}" ] || fail "the plugin version was not bumped (still ${before})"
+run reasame 0 env -i PATH="${BIN}:${REAL_PATH}" FAKE_REA_LATEST=99.1.0 sh "${SCEN}/repo/scripts/update-rea-mod.sh"
+[ ! -s "${SCEN}/reasame.out" ] || fail "an up-to-date mod printed a version"
+[ "$(plugin_version)" = "${bumped}" ] || fail "an up-to-date mod bumped the plugin version again"
+run reabad 1 env -i PATH="${BIN}:${REAL_PATH}" FAKE_REA_LATEST='99.2.0-beta' sh "${SCEN}/repo/scripts/update-rea-mod.sh"
+assert_in reabad err 'is not a version' "a non-release dist-tag is refused"
+[ "$(sed -n 's/^VERSION=//p' "${SCEN}/repo/mods/rea-mod/bin/rea")" = 99.1.0 ] || fail "a refused tag moved the pin"
+[ "${pinned}" != 99.1.0 ] || fail "the fixture already pinned 99.1.0"
+ok "update-rea-mod.sh moves the pin, the skill and the plugin version to a new rea-agents release, and only then"
+
 # --- 5.17 the gate stays out of the image -----------------------------------
 grep -q 'selfcheck' "${ROOT}/Dockerfile" &&
 	fail "the Dockerfile mentions selfcheck: it must not be copied into the image"

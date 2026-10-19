@@ -16,6 +16,11 @@
       "name": "codebase-memory-mod",
       "source": "./mods/codebase-memory-mod",
       "description": "codebase-memory-mcp for Claude Code: MCP server, skill, and hooks that put the graph first in every chat and subagent, with a gate on grep for indexed code."
+    },
+    {
+      "name": "rea-mod",
+      "source": "./mods/rea-mod",
+      "description": "REA reverse engineering for Claude Code: MCP server, skill and analysis engines (JDK 21, Ghidra, jadx, Apktool) installed by the mod on first use, kept on rea-agents' latest release."
     }
   ]
 }

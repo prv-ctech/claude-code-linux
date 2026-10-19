@@ -70,10 +70,6 @@ ARG CLAUDE_DESKTOP_VERSION=2.26454.2
 # Claude Code CLI: npm `dist-tags.latest`. Never a max scan of versions[], where
 # dist-tags.next sits ahead of latest and would publish an unreleased build.
 ARG CLAUDE_CODE_VERSION=2.1.294
-# REA (reverse-engineering MCP server): pinned npm version of rea-agents. Its
-# registration in ~/.claude.json points at /usr/local/bin/rea, so this install
-# must be rebuilt with the image. Ghidra and the JDK stay on the home mount.
-ARG REA_AGENTS_VERSION=6.5.0
 # The Anthropic Claude Code signing key, fingerprint
 # 31DD DE24 DDFA B679 F42D 7BD2 BAA9 29FF 1A7E CACE. The SHA256 is the pin over
 # the key's own bytes (the same file is served as
@@ -419,19 +415,6 @@ RUN set -eu; \
     test -x "${cli_root}/@anthropic-ai/claude-code/bin/claude.exe"; \
     command -v claude > /dev/null; \
     echo "claude-code ${cli_version} installed and on PATH"
-
-# Package layer 4 — REA, pinned, from npm. Only the global install: registering it
-# with Claude Code is `rea setup`, which writes ~/.claude.json on the home mount.
-# hadolint ignore=SC1008
-RUN set -eu; \
-    npm install -g --no-fund --no-audit --cache /tmp/npm-cache \
-        "rea-agents@${REA_AGENTS_VERSION}"; \
-    rm -rf /tmp/npm-cache; \
-    rea_version="$(rea --version 2>/dev/null)"; \
-    case "${rea_version}" in *"${REA_AGENTS_VERSION}"*) ;; \
-        *) echo "FATAL: rea reports '${rea_version}', pinned ${REA_AGENTS_VERSION}" >&2; exit 1 ;; esac; \
-    command -v rea > /dev/null; \
-    echo "rea-agents ${REA_AGENTS_VERSION} installed and on PATH"
 
 # ---------------------------------------------------------------------------
 # Close the bracket: real root, outside the fakeroot shell.
