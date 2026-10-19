@@ -83,7 +83,9 @@ services:
     # CLAUDE_WORKSPACE_GID to the host's render group id (ls -ln /dev/dri): the
     # entrypoint adds it to uid 1000's groups. Do not use group_add, the privilege
     # drop rebuilds the group list from /etc/group and discards it. That variable
-    # holds one gid, so it cannot also name a workspace group. Without the device,
+    # holds one gid, so it cannot also name a workspace group. No driver install is
+    # needed on the host or in the image. With the device, Claude Desktop renders
+    # through ANGLE on Vulkan (rootfs/usr/local/bin/claude-desktop). Without it,
     # video is encoded on the CPU (x264).
     # devices:
     #   - /dev/dri:/dev/dri

@@ -44,6 +44,17 @@ if [ ! -x "${app}" ]; then
 	exit 127
 fi
 
+# With a GPU, ANGLE's default GL backend asks GLX for the display's refresh rate
+# on every frame, which the virtual X server cannot answer, and the app logs
+# "XFree86-VidModeExtension missing" and "glXGetMscRateOML failed" each time.
+# ANGLE on Vulkan renders on the same GPU without asking. SELKIES_GPU_RENDER_NODE
+# is the base's probe result, the node the session renders on, empty without one;
+# without a GPU the default backend stays.
+node="${SELKIES_GPU_RENDER_NODE:-}"
+if [ -n "${node}" ] && [ -r "${node}" ]; then
+	set -- --use-angle=vulkan "$@"
+fi
+
 if unshare --user --map-root-user --pid --net --fork true 2> /dev/null; then
 	exec "${app}" "$@"
 fi

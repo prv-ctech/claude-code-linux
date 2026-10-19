@@ -1037,6 +1037,22 @@ assert_log 'app ' "the app is started with the sandbox intact"
 assert_no_log 'app --no-sandbox' "with namespaces available the sandbox must be left alone"
 ok "the launcher probes unshare, agrees with the real unshare on this host, and adds --no-sandbox only when namespaces are gone"
 
+# --- 5.15b ANGLE on Vulkan only with a readable render node -------------------
+# The probe's SELKIES_GPU_RENDER_NODE names the node; a fixture file stands in
+# for it, readable for the GPU case and absent for the stale-value case.
+gpu_node="${SCEN}/fix/renderD128"
+: > "${gpu_node}"
+: > "${LOG}"
+run gpu 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${SCEN}/home" SELKIES_GPU_RENDER_NODE="${gpu_node}" "${SCEN}/claude-desktop" --x
+assert_log 'app --use-angle=vulkan --x' "with a readable render node the launcher selects ANGLE on Vulkan, ahead of the caller's arguments"
+: > "${LOG}"
+run nogpu 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${SCEN}/home" SELKIES_GPU_RENDER_NODE= "${SCEN}/claude-desktop"
+assert_no_log 'use-angle' "without a render node the default GL backend stays"
+: > "${LOG}"
+run gonegpu 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${SCEN}/home" SELKIES_GPU_RENDER_NODE="${SCEN}/fix/absent/renderD128" "${SCEN}/claude-desktop"
+assert_no_log 'use-angle' "a render node that cannot be read keeps the default GL backend"
+ok "the launcher adds --use-angle=vulkan only when the session's render node is readable"
+
 # --- 5.16 the installer binds the index it parses to the signed InRelease ----
 # F1: step 1 verifies the InRelease signature, step 2 parses a separately fetched
 # Packages file. The signature is over the InRelease, so the only thing that ties
