@@ -688,6 +688,41 @@ assert_in unwritable err 'chown -R 1000:1000 /mnt/user/appdata/claude-code-linux
 chmod 700 "${state}"
 ok "without root: writable state runs the base entrypoint, unwritable state exits 78 with the fix, and a non-1000 uid is refused"
 
+# --- 5.4b a Chrome profile lock from another container is removed -------------
+chrome_dir="${state}/.config/google-chrome"
+mkdir -p "${chrome_dir}"
+ln -s "$(uname -n)-1" "${chrome_dir}/SingletonLock"
+entrypoint samelock 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
+	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+[ -L "${chrome_dir}/SingletonLock" ] || fail "a Chrome lock from this hostname was removed; Chrome clears its own"
+rm -f "${chrome_dir}/SingletonLock"
+ln -s "old-container-1459" "${chrome_dir}/SingletonLock"
+ln -s "/tmp/gone/SingletonSocket" "${chrome_dir}/SingletonSocket"
+ln -s "123" "${chrome_dir}/SingletonCookie"
+entrypoint oldlock 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
+	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+for f in SingletonLock SingletonSocket SingletonCookie; do
+	[ -L "${chrome_dir}/${f}" ] && fail "the old container's Chrome ${f} was left in place"
+done
+assert_in oldlock err 'left by container old-container' "the lock removal is logged"
+
+# a sibling container still running on the same state path holds the state flock:
+# its Chrome lock is live and must survive
+ln -s "sibling-container-77" "${chrome_dir}/SingletonLock"
+flock -n "${state}/.config/claude-code-linux/state.lock" sleep 30 &
+sibling=$!
+sleep 0.5
+entrypoint siblinglock 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
+	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+kill "${sibling}" 2>/dev/null || true
+wait "${sibling}" 2>/dev/null || true
+[ -L "${chrome_dir}/SingletonLock" ] || fail "a Chrome lock held by a live sibling container was removed"
+assert_in siblinglock err 'another container is using' "the shared-state warning"
+ok "the entrypoint removes a Chrome profile lock taken under another hostname only when no other container holds the state path, and keeps this hostname's"
+
 # --- 5.5 the root path: chown once, setpriv drop, TERM, exit status ----------
 # The base entrypoint is a generated stub that records how it was started, traps
 # TERM, and exits 42 — so "TERM is forwarded" and "the session's status is
