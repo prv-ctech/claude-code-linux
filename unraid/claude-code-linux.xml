@@ -39,7 +39,7 @@ chown -R 1000:1000 /mnt/user/appdata/claude-code-linux
 
 Cowork (the QEMU/KVM virtual machine feature) needs /dev/kvm and /dev/vhost-vsock, which this template does not grant, so Cowork is unsupported. The Claude Code CLI ships in the same image and is the documented fallback.
 
-Video is encoded on the CPU (x264); no GPU or device passthrough is needed. python3, pip and uv are installed; what you install with pip --user or uv lives under /home/ubuntu and persists.
+Video is encoded on the CPU (x264) by default; no GPU or device passthrough is needed. To use an Intel or AMD GPU, add --device=/dev/dri to ExtraParams: Selkies detects the render node at start and encodes H.264, H.265, VP9 and AV1 with VA-API where the GPU supports them (checked on an Intel Arc A380; NVIDIA is untested). With a GPU, Claude Desktop logs repeated "Xlib: extension XFree86-VidModeExtension missing" and "eglGetMscRateANGLE: glXGetMscRateOML failed" lines. They are harmless: the virtual X display has no vblank source. python3, pip and uv are installed; what you install with pip --user or uv lives under /home/ubuntu and persists.
 
 Do not expose port 8080 to the Internet: the session holds your claude.ai and Claude Code credentials and the in-container TLS certificate is self-signed.
 
@@ -51,7 +51,9 @@ Updates: GitHub Actions rebuilds the image whenever Anthropic publishes a newer 
        any additional flag goes on this same line.
        Unraid emits no restart flag of its own (it manages autostart); if you
        want one, append the restart=unless-stopped flag here.
-       Cowork (KVM) is unsupported, so no devices are passed. -->
+       Cowork (KVM) is unsupported, so no devices are passed. For GPU
+       encoding append the device flag for /dev/dri (see the Overview) to this
+       same line. -->
   <ExtraParams>--shm-size=2g</ExtraParams>
 
   <Config Name="WebUI Port" Target="8080" Default="8080" Mode="tcp"
@@ -90,8 +92,8 @@ Updates: GitHub Actions rebuilds the image whenever Anthropic publishes a newer 
           Description="Time zone for the desktop, as an IANA name such as Europe/Berlin. Matches compose CLAUDE_TZ."
           Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
-  <Config Name="SELKIES_MODE" Target="SELKIES_MODE" Default="websocket" Mode=""
-          Description="Transport for the stream. websocket needs no extra ports. Setting webRTC also requires TURN ports 3478 and 65532-65535 to be published, which this template deliberately does not do."
+  <Config Name="SELKIES_MODE" Target="SELKIES_MODE" Default="websockets" Mode=""
+          Description="Transport for the stream. websockets needs no extra ports. Setting webRTC also requires TURN ports 3478 and 65532-65535 to be published, which this template deliberately does not do."
           Type="Variable" Display="advanced" Required="false" Mask="false"/>
 
   <Config Name="FORCE_AUTOUPDATE_PLUGINS" Target="FORCE_AUTOUPDATE_PLUGINS" Default="1" Mode=""

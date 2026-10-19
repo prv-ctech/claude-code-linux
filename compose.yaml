@@ -43,9 +43,9 @@ services:
       # The session keeps uid/gid 1000 and joins that group, so group-writable host
       # files are writable; nothing on the host is chowned. Empty = do nothing.
       WORKSPACE_GID: ${CLAUDE_WORKSPACE_GID:-}
-      # websocket needs no extra ports. webRTC would also need TURN 3478 and
+      # websockets needs no extra ports. webrtc would also need TURN 3478 and
       # 65532-65535 published, which this file deliberately does not do.
-      SELKIES_MODE: ${SELKIES_MODE:-websocket}
+      SELKIES_MODE: ${SELKIES_MODE:-websockets}
       # The container never self-updates: the apt repo is not registered inside
       # the image and the CLI updater is disabled. The image rebuild is the
       # update path (Dockerfile ARG pins both upstreams).
@@ -77,6 +77,16 @@ services:
       timeout: 5s
       start_period: 60s
       retries: 3
+
+    # Optional GPU encoding (Intel/AMD, VA-API): uncomment and Selkies picks the
+    # render node itself. If the node is not readable by uid 1000, set
+    # CLAUDE_WORKSPACE_GID to the host's render group id (ls -ln /dev/dri): the
+    # entrypoint adds it to uid 1000's groups. Do not use group_add, the privilege
+    # drop rebuilds the group list from /etc/group and discards it. That variable
+    # holds one gid, so it cannot also name a workspace group. Without the device,
+    # video is encoded on the CPU (x264).
+    # devices:
+    #   - /dev/dri:/dev/dri
 
     # Optional, unsupported: Cowork needs hardware virtualization. Uncomment both
     # devices plus the KVM group (keep the supplementary group id of your host's

@@ -79,8 +79,12 @@ asks you to sign in again — and why it is worth backing up, keeping at uid 100
 ## Python and CPU encoding
 
 `python3`, `pip` and `uv` are installed. `pip install --user` and `uv tool install` write under
-`/home/ubuntu`, so they persist with the rest of the state. Video is encoded on the CPU (x264); no GPU
-or device passthrough is needed. H.264 is the default encoder and the webcam uplink is locked to H.264, on
+`/home/ubuntu`, so they persist with the rest of the state. Video is encoded on the CPU (x264) by
+default; no GPU or device passthrough is needed. With `--device=/dev/dri` (compose: `devices:`), Selkies
+detects an Intel or AMD render node at start and encodes with VA-API where the GPU supports the codec
+(checked on an Intel Arc A380; NVIDIA is untested). Claude Desktop then logs repeated
+`XFree86-VidModeExtension missing` and `glXGetMscRateOML failed` lines; they are harmless, the virtual X
+display has no vblank source. H.264 is the default encoder and the webcam uplink is locked to H.264, on
 CPU and GPU alike (`SELKIES_ENCODER`, `SELKIES_WEBCAM_ENCODER`).
 
 ## PUID / PGID: 1000/1000 only
@@ -121,7 +125,7 @@ sets `shm_size: 2gb`. This is required, not tuning.
 
 ## Ports and exposure
 
-`8080/tcp` is the only port the image serves. Selkies' default `SELKIES_MODE=websocket` needs no other
+`8080/tcp` is the only port the image serves. Selkies' default `SELKIES_MODE=websockets` needs no other
 port; WebRTC mode would additionally need TURN `3478/tcp+udp` and `65532-65535`, which neither the
 template nor compose publishes. **Do not expose 8080 to the Internet**: the streamed session holds
 your claude.ai and Claude Code credentials, TLS is a self-signed certificate, and the desktop has no login by default, so the reverse proxy's auth is the only gate. Set `SELKIES_ENABLE_BASIC_AUTH=true` and `PASSWD` to add the `ubuntu` login. Put a reverse proxy with real TLS in front
