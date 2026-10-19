@@ -1,0 +1,38 @@
+name: rea-mod
+
+# Keeps mods/rea-mod on npm's rea-agents dist-tags.latest. A new release moves the pin in
+# mods/rea-mod/bin/rea, refreshes the skill from the same package and bumps the plugin version;
+# Claude Code's marketplace auto-update then installs it. No image rebuild: mods/ is not a
+# recipe path of build.yml.
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rea-mod
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Move rea-mod to rea-agents latest
+        run: |
+          set -eu
+          version="$(./scripts/update-rea-mod.sh)"
+          if [ -z "$version" ]; then
+            echo "rea-mod is on rea-agents latest"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mods/rea-mod
+          git commit -m "chore(rea-mod): rea-agents $version"
+          git push
+          echo "rea-mod moved to rea-agents $version" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rea": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/rea",
+      "args": ["mcp"]
+    }
+  }
+}

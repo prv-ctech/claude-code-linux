@@ -1,0 +1,107 @@
+#!/bin/sh
+# REA (npm rea-agents), as this plugin runs it. Nothing of REA is in the image. On first use
+# this wrapper installs the pinned rea-agents into ${CLAUDE_PLUGIN_DATA} with npm (which checks
+# the registry's integrity hash) and runs it. The analysis engines REA uses but never installs
+# (a JDK 21, Ghidra, jadx-headless-mcp, Apktool) are fetched in the background, each checked
+# against a pinned SHA256, so the MCP server starts at once and picks them up on its next
+# start. .github/workflows/rea-mod.yml moves VERSION to npm's latest and bumps the plugin
+# version, so installed copies update with the marketplace. Old installs are left alone.
+#
+# stdout is the MCP stdio channel, so every message here goes to stderr.
+set -eu
+
+VERSION=6.7.0
+
+# Versions REA itself verifies against: Ghidra 12.1.4 on Java 21, jadx-headless-mcp 0.7.1.
+JDK=jdk-21.0.12.1+1
+JDK_URL=https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz
+JDK_SHA256=ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94
+GHIDRA=ghidra_12.1.4_PUBLIC
+GHIDRA_URL=https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip
+GHIDRA_SHA256=ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db
+JADX=jadx-headless-mcp-0.7.1-all.jar
+JADX_URL=https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar
+JADX_SHA256=6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75
+APKTOOL=apktool_3.0.3.jar
+APKTOOL_URL=https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar
+APKTOOL_SHA256=dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423
+
+# Claude sets CLAUDE_PLUGIN_DATA to <plugin id> under ~/.claude/plugins/data; the default is the same path.
+data="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/rea-mod-claude-code-linux}"
+tools="${data}/tools"
+prefix="${data}/rea-agents-${VERSION}"
+rea="${prefix}/node_modules/rea-agents/scripts/rea.mjs"
+
+# fetch <url> <sha256> <file>
+fetch() {
+	echo "rea-mod: downloading $1" >&2
+	curl -fsSL --retry 3 --retry-all-errors -o "$3" "$1"
+	if ! printf '%s  %s\n' "$2" "$3" | sha256sum -c - >&2; then
+		echo "rea-mod: SHA256 does not match the pin for $1; not installed" >&2
+		return 1
+	fi
+}
+
+# Each engine lands in ${tools} by one rename, so a present path is a complete install.
+install_tools() {
+	mkdir -p "${tools}"
+	exec 8> "${data}/tools.lock"
+	flock -n 8 || exit 0
+	tmp="$(mktemp -d "${data}/tools.XXXXXX")"
+	trap 'rm -rf "${tmp}"' EXIT
+	if [ ! -d "${tools}/${JDK}" ]; then
+		fetch "${JDK_URL}" "${JDK_SHA256}" "${tmp}/jdk.tar.gz"
+		tar --no-same-owner -xzf "${tmp}/jdk.tar.gz" -C "${tmp}"
+		mv "${tmp}/${JDK}" "${tools}/"
+	fi
+	if [ ! -d "${tools}/${GHIDRA}" ]; then
+		fetch "${GHIDRA_URL}" "${GHIDRA_SHA256}" "${tmp}/ghidra.zip"
+		unzip -q "${tmp}/ghidra.zip" -d "${tmp}"
+		mv "${tmp}/${GHIDRA}" "${tools}/"
+	fi
+	for jar in JADX APKTOOL; do
+		eval "name=\${${jar}} url=\${${jar}_URL} sha=\${${jar}_SHA256}"
+		if [ ! -f "${tools}/${name}" ]; then
+			fetch "${url}" "${sha}" "${tmp}/${name}"
+			mv "${tmp}/${name}" "${tools}/"
+		fi
+	done
+	printf '#!/bin/sh\nexec "%s/bin/java" -jar "%s" "$@"\n' "${tools}/${JDK}" "${tools}/${APKTOOL}" > "${tmp}/apktool"
+	chmod 755 "${tmp}/apktool"
+	mv "${tmp}/apktool" "${tools}/"
+	echo "rea-mod: analysis engines installed in ${tools}" >&2
+}
+
+if [ "${1:-}" = --install-tools ]; then
+	install_tools
+	exit 0
+fi
+
+if [ ! -f "${rea}" ]; then
+	mkdir -p "${data}"
+	tmp="$(mktemp -d "${data}/install.XXXXXX")"
+	trap 'rm -rf "${tmp}"' EXIT
+	echo "rea-mod: installing rea-agents ${VERSION} from npm" >&2
+	npm install --prefix "${tmp}" --no-fund --no-audit --no-save --loglevel=error "rea-agents@${VERSION}" >&2
+	rm -rf "${prefix}"
+	mv "${tmp}" "${prefix}"
+	trap - EXIT
+fi
+
+# shortcut: the engines are the Linux x64 builds, the image's only platform; arm64 gets REA without them.
+if [ "$(uname -m)" = x86_64 ]; then
+	# The apktool launcher is written last, so its presence means every engine is in place.
+	if [ -x "${tools}/apktool" ]; then
+		JAVA_HOME="${tools}/${JDK}"
+		GHIDRA_INSTALL_DIR="${tools}/${GHIDRA}"
+		REA_JADX_MCP_JAR="${tools}/${JADX}"
+		REA_APKTOOL_COMMAND="${tools}/apktool"
+		export JAVA_HOME GHIDRA_INSTALL_DIR REA_JADX_MCP_JAR REA_APKTOOL_COMMAND
+	else
+		echo "rea-mod: installing the analysis engines in the background (log: ${data}/tools.log); restart the session once it finishes" >&2
+		mkdir -p "${data}"
+		nohup "$0" --install-tools < /dev/null >> "${data}/tools.log" 2>&1 &
+	fi
+fi
+
+exec node "${rea}" "$@"
