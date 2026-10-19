@@ -31,6 +31,8 @@ data="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/rea-mod-claude-code-lin
 tools="${data}/tools"
 prefix="${data}/rea-agents-${VERSION}"
 rea="${prefix}/node_modules/rea-agents/scripts/rea.mjs"
+# Named after the JDK and Apktool it runs, so a pin change asks for a new one.
+launcher="${tools}/${APKTOOL%.jar}-${JDK}"
 
 # fetch <url> <sha256> <file>
 fetch() {
@@ -68,7 +70,7 @@ install_tools() {
 	done
 	printf '#!/bin/sh\nexec "%s/bin/java" -jar "%s" "$@"\n' "${tools}/${JDK}" "${tools}/${APKTOOL}" > "${tmp}/apktool"
 	chmod 755 "${tmp}/apktool"
-	mv "${tmp}/apktool" "${tools}/"
+	mv "${tmp}/apktool" "${launcher}"
 	echo "rea-mod: analysis engines installed in ${tools}" >&2
 }
 
@@ -78,24 +80,31 @@ if [ "${1:-}" = --install-tools ]; then
 fi
 
 if [ ! -f "${rea}" ]; then
+	# Sessions starting together wait for one install instead of racing it. The lock fd is
+	# closed again before exec, so the running server does not hold it.
 	mkdir -p "${data}"
-	tmp="$(mktemp -d "${data}/install.XXXXXX")"
-	trap 'rm -rf "${tmp}"' EXIT
-	echo "rea-mod: installing rea-agents ${VERSION} from npm" >&2
-	npm install --prefix "${tmp}" --no-fund --no-audit --no-save --loglevel=error "rea-agents@${VERSION}" >&2
-	rm -rf "${prefix}"
-	mv "${tmp}" "${prefix}"
-	trap - EXIT
+	exec 7> "${data}/install.lock"
+	flock 7
+	if [ ! -f "${rea}" ]; then
+		tmp="$(mktemp -d "${data}/install.XXXXXX")"
+		trap 'rm -rf "${tmp}"' EXIT
+		echo "rea-mod: installing rea-agents ${VERSION} from npm" >&2
+		npm install --prefix "${tmp}" --no-fund --no-audit --no-save --loglevel=error "rea-agents@${VERSION}" >&2
+		rm -rf "${prefix}"
+		mv "${tmp}" "${prefix}"
+		trap - EXIT
+	fi
+	exec 7>&-
 fi
 
 # shortcut: the engines are the Linux x64 builds, the image's only platform; arm64 gets REA without them.
 if [ "$(uname -m)" = x86_64 ]; then
-	# The apktool launcher is written last, so its presence means every engine is in place.
-	if [ -x "${tools}/apktool" ]; then
+	# The launcher is written last, so with the pinned Ghidra and jadx it means every engine is in place.
+	if [ -x "${launcher}" ] && [ -d "${tools}/${GHIDRA}" ] && [ -f "${tools}/${JADX}" ]; then
 		JAVA_HOME="${tools}/${JDK}"
 		GHIDRA_INSTALL_DIR="${tools}/${GHIDRA}"
 		REA_JADX_MCP_JAR="${tools}/${JADX}"
-		REA_APKTOOL_COMMAND="${tools}/apktool"
+		REA_APKTOOL_COMMAND="${launcher}"
 		export JAVA_HOME GHIDRA_INSTALL_DIR REA_JADX_MCP_JAR REA_APKTOOL_COMMAND
 	else
 		echo "rea-mod: installing the analysis engines in the background (log: ${data}/tools.log); restart the session once it finishes" >&2
