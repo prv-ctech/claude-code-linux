@@ -283,6 +283,12 @@ RUN set -eu; \
 #                              selects the LXQt portal the desktop layer already
 #                              ships — this is the backend for the interfaces
 #                              that one does not implement.
+#   qtxdg-tools                `qtxdg-mat`. With XDG_CURRENT_DESKTOP=LXQt,
+#                              xdg-open hands every link to it and fails with
+#                              "no method available" when it is missing, so the
+#                              app's sign-in and "Install GitHub App" links never
+#                              reached Chrome, and Chrome's claude:// hand-back
+#                              never reached the app.
 #   gpgv                       install-claude-desktop.sh verifies the
 #                              repository's signature and reads the fingerprint
 #                              out of it with this. apt needs a signature
@@ -332,6 +338,7 @@ RUN set -eu; \
         libasound2t64 \
         pipewire-alsa \
         xdg-desktop-portal-gtk \
+        qtxdg-tools \
         gpgv \
         nodejs \
         npm \
