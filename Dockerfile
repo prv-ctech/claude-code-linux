@@ -123,6 +123,14 @@ ENV SELKIES_ENABLE_BASIC_AUTH=false
 ENV SELKIES_ENCODER=h264enc,h264enc-striped,h265enc,vp8enc,vp9enc,av1enc,jpeg \
     SELKIES_WEBCAM_ENCODER=h264
 
+# Intel Arc (DG2): with CCS compression on, the X server hands pixelflux's DRI3
+# zero-copy capture a compressed buffer that VA-API encodes as scrambled tiles, on
+# every codec (checked on an A380: 1.9 dB PSNR against the screen, 29.8 dB with
+# this set, the same as the XShm path). noccs stops Mesa's Intel drivers from
+# offering compressed buffers. Only Mesa's Intel drivers read it; other GPUs and
+# CPU-only hosts ignore it.
+ENV INTEL_DEBUG=noccs
+
 # Neither application may mutate this container; it moves when the image is
 # rebuilt (D10). DISABLE_AUTOUPDATER stops the CLI's background update check.
 # DISABLE_UPDATES is the documented stronger seal — it blocks `claude update` and

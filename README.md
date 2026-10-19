@@ -86,8 +86,11 @@ detects an Intel or AMD render node at start and encodes with VA-API where the G
 image: the host kernel's GPU driver is enough (`i915` on the A380), and the image already carries the
 VA-API, Mesa and Vulkan drivers. Claude Desktop then renders through ANGLE on Vulkan, on the same GPU;
 its default GL backend would log `XFree86-VidModeExtension missing` and `glXGetMscRateOML failed` on
-every frame, because the virtual X display has no refresh rate to report. H.264 is the default encoder and the webcam uplink is locked to H.264, on
-CPU and GPU alike (`SELKIES_ENCODER`, `SELKIES_WEBCAM_ENCODER`).
+every frame, because the virtual X display has no refresh rate to report. The image sets
+`INTEL_DEBUG=noccs`: on Intel Arc, compressed (CCS) buffers on the zero-copy capture path stream as
+scrambled tiles. The sidebar's Full Color button asks for 4:4:4, which an Arc encodes in hardware only
+for H.265 and VP9, so with it on, H.264 falls back to the CPU (x264). H.264 is the default encoder and
+the webcam uplink is locked to H.264, on CPU and GPU alike (`SELKIES_ENCODER`, `SELKIES_WEBCAM_ENCODER`).
 
 ## PUID / PGID: 1000/1000 only
 
