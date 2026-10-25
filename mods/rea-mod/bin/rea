@@ -10,7 +10,7 @@
 # stdout is the MCP stdio channel, so every message here goes to stderr.
 set -eu
 
-VERSION=6.7.0
+VERSION=6.8.0
 
 # Versions REA itself verifies against: Ghidra 12.1.4 on Java 21, jadx-headless-mcp 0.7.1.
 JDK=jdk-21.0.12.1+1

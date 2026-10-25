@@ -1,6 +1,6 @@
 {
   "name": "rea-mod",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "REA (rea-agents) for Claude Code: installs the pinned rea-agents and its analysis engines (JDK 21, Ghidra, jadx-headless-mcp, Apktool) on first use, the MCP server, and the reverse-engineer-anything skill. Kept on npm's latest by a scheduled workflow.",
   "author": {
     "name": "prv-ctech"
