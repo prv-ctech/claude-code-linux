@@ -2,7 +2,7 @@
 # Start Claude Desktop at session start, once the keyring that stores its sign-in
 # is ready.
 #
-# WHY IT WAITS (docs/DESIGN.md §5.1, R2)
+# WHY IT WAITS
 #   Claude Desktop registers the claude.ai sign-in through the freedesktop secret
 #   service, and a sign-in it cannot store is one the user repeats on every start.
 #   The Openbox autostart (/defaults/autostart) runs the keyring init first; this

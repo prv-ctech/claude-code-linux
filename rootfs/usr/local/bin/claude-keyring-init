@@ -2,7 +2,7 @@
 # Start and unlock the secret service that Claude Desktop saves the claude.ai
 # sign-in in.
 #
-# WHY THIS EXISTS (docs/DESIGN.md §5.1, R2)
+# WHY THIS EXISTS
 #   Claude Desktop stores its sign-in through libsecret, i.e. the freedesktop
 #   secret service. Anthropic's own documentation: "Claude Desktop saves your
 #   sign-in in your desktop's keyring… If it can't reach an unlocked keyring,

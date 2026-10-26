@@ -18,7 +18,7 @@
 # nothing else. So any recipe edit produces a different value and exactly one
 # rebuild. It is stamped on the image as
 # org.opencontainers.image.claude-code-linux-recipe (and mirrored on
-# com.prvctech.claude-recipe for the DESIGN.md label table).
+# com.prvctech.claude-recipe).
 #
 # Reads the image config over the OCI registry API instead of `docker buildx
 # imagetools`: the labels live in the config blob, so this needs nothing beyond
@@ -29,7 +29,7 @@
 #
 # The optional credential is a GitHub token (GITHUB_TOKEN or a PAT), used to
 # exchange for an anonymous-or-scoped registry token when the package is private
-# (it is, see DESIGN.md R3). Omit it for public packages.
+# (it is while the licensing review is open). Omit it for public packages.
 #
 # EXIT CODES — the caller must distinguish them, because "the tag is not
 # published yet" (rebuild) and "the registry could not be read" (stop) lead to

@@ -2,7 +2,7 @@
 # Every workspace file the image build consumes: one repo-relative path per line,
 # LC_ALL=C sorted and deduplicated. This is the input set of the recipe hash.
 #
-# It is DERIVED, never hand-maintained (reviewer finding F9). The workflow used
+# It is DERIVED, never hand-maintained. The workflow used
 # to carry a literal list, and the list omitted scripts/install-claude-desktop.sh
 # even though the Dockerfile COPYs it (Dockerfile:157) and executes it (:289):
 # editing it produced an unchanged recipe hash, the plan job concluded "up to

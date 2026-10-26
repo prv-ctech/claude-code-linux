@@ -1,7 +1,7 @@
 #!/bin/sh
 # Resolve the newest official Claude Desktop version from Anthropic's apt index.
 #
-# Contract (docs/DESIGN.md D2): ONE fetch of the Packages index, parse it as
+# Contract: ONE fetch of the Packages index, parse it as
 # RFC-822 stanzas, keep only stanzas whose first line is `Package: claude-desktop`,
 # take the SHA256 from the SAME stanza, order with `sort -V`, last line wins.
 #

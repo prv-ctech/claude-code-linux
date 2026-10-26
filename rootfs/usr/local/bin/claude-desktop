@@ -24,7 +24,7 @@
 #
 # --password-store=basic is deliberately NOT passed, unlike Chrome: Claude Desktop
 # has to reach the secret service, which is what keeps the sign-in across container
-# recreation (§5.1). Chrome gets the basic store only because nothing else would
+# recreation. Chrome gets the basic store only because nothing else would
 # answer its prompt.
 #
 # The package's own binary is invoked by absolute path, so this wrapper never

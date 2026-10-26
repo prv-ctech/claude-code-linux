@@ -1,12 +1,10 @@
 #!/bin/sh
 # selfcheck.sh — the workspace-executable gate over this image's shell surface.
 #
-# WHAT IT IS FOR (t11; docs/DESIGN.md §R5)
+# WHAT IT IS FOR
 #   Everything this image adds is shell: the Dockerfile's RUN bodies, the s6
-#   init, the keyring init, the session wrapper and the two launchers. The
-#   container runtime that can boot the built image does not exist in a plain
-#   workspace — §R5 puts `docker build`/`docker run` and the Selkies boot in CI
-#   and in t4 — so this script is the half of the verification that *can* run
+#   init, the keyring init, the session wrapper and the two launchers. Building
+#   and booting the image happens in CI, so this script is the half of the verification that *can* run
 #   anywhere the repository is checked out, including on a CI runner with no
 #   Docker daemon. It has to keep working in a bare container: shell tools plus,
 #   at most, two downloaded lint binaries.

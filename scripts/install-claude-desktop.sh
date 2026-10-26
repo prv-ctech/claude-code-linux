@@ -5,14 +5,14 @@
 #   install-claude-desktop.sh <version> <key-sha256> <key-fingerprint> \
 #                             [<expected-deb-sha256>] [<expected-deb-url>]
 #
-# Runs as root in the image's package layer (docs/DESIGN.md §5.1).
+# Runs as root in the image's package layer.
 #
 # THE REPOSITORY, EXACTLY AS ANTHROPIC SPECIFIES IT — the deb line the package's
 # own postinst would write, and the line this script validates with apt:
 #   deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc]\
 #       https://downloads.claude.ai/claude-desktop/apt/stable stable main
 #
-# WHAT IT PROVES, IN ORDER (§2.1, §5.1, D2, D10)
+# WHAT IT PROVES, IN ORDER
 #   1. The repository's signing key is the documented one. The key is fetched
 #      from the repository host over TLS, its SHA256 must equal the pin (the same
 #      bytes the .deb itself carries, and the pin the build declares), and gpgv
@@ -24,14 +24,14 @@
 #      read, not merely for a file that happens to share a name.
 #   2. <version> is a stanza of the repository's amd64 index, and its SHA256,
 #      Filename and Architecture are read from that same stanza — the semantics
-#      of D2 (one fetch, one stanza per field, no guessing), with the version
+#      of one fetch, one stanza per field, no guessing, with the version
 #      pinned by the caller instead of derived.
 #   3. The deb fetched from that stanza's Filename hashes to exactly that SHA256.
 #   4. apt itself accepts the documented deb line with that keyring as
 #      `signed-by`, against the same signed index.
 #   5. The package is installed from the local file with the repository NOT
 #      registered, so `apt upgrade` inside a running container cannot move off the
-#      pin (D10: the image rebuild is the update path, and the app does not update
+#      pin (the image rebuild is the update path, and the app does not update
 #      itself on Linux either).
 #   6. What was installed is what was asked for: the dpkg version equals <version>,
 #      the keyring the package wrote is the pinned key, and no apt source was left
@@ -68,7 +68,7 @@ fetch() {
 
 arch="$(dpkg --print-architecture)"
 [ "${arch}" = "amd64" ] ||
-	fatal "this image is amd64 only (D11); the repository serves amd64 and arm64 and dpkg says ${arch}"
+	fatal "this image is amd64 only; the repository serves amd64 and arm64 and dpkg says ${arch}"
 
 echo "installing claude-desktop ${version} (${arch}) from ${repo_base}"
 
@@ -197,7 +197,7 @@ echo "apt validated the deb line against ${keyring}"
 # the sources entry only when it is not false. Only "true"/"false" are honoured.
 mkdir -p /etc/default
 cat > "${defaults_file}" <<'EOF'
-# Installed by the claude-code-linux image (docs/DESIGN.md D10).
+# Installed by the claude-code-linux image.
 # Anthropic's apt repository is deliberately NOT registered in this image: the
 # package version is pinned by the image, `apt upgrade` inside a running
 # container must not move off it, and a new version arrives by rebuilding the
@@ -225,7 +225,7 @@ keyring_hash="$(sha256sum "${keyring}" | cut -d' ' -f1)"
 [ -e /usr/share/applications/com.anthropic.Claude.desktop ] ||
 	fatal "the package installed no menu entry, so Claude Desktop would not appear in the desktop menu"
 
-# D10's other half: the repository must not be in the image.
+# The other half: the repository must not be in the image.
 [ ! -e /etc/apt/sources.list.d/claude-desktop.list ] ||
 	fatal "the package registered Anthropic's apt repository; ${defaults_file} was not honoured and the image could move off its pin"
 
