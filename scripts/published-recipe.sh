@@ -7,7 +7,7 @@
 # The hash is a content hash over the recipe's own inputs: the base image pin,
 # the Claude Code CLI pin, the workflow file itself, and everything the image
 # build consumes -- .dockerignore, the installer (scripts/install-claude-desktop.sh),
-# docker-entrypoint.sh, the rootfs tree, compose.yaml and the unraid tree
+# the rootfs tree, compose.yaml and the unraid tree
 # (template and icon). That last set is DERIVED by scripts/recipe-inputs.sh from
 # the Dockerfile's COPY lines plus the fixed context and packaging inputs, never
 # hand-maintained, so it cannot silently stop covering a file.
@@ -18,7 +18,7 @@
 # nothing else. So any recipe edit produces a different value and exactly one
 # rebuild. It is stamped on the image as
 # org.opencontainers.image.claude-code-linux-recipe (and mirrored on
-# com.prvctech.claude-recipe for the DESIGN.md label table).
+# com.prvctech.claude-recipe).
 #
 # Reads the image config over the OCI registry API instead of `docker buildx
 # imagetools`: the labels live in the config blob, so this needs nothing beyond
@@ -29,7 +29,7 @@
 #
 # The optional credential is a GitHub token (GITHUB_TOKEN or a PAT), used to
 # exchange for an anonymous-or-scoped registry token when the package is private
-# (it is, see DESIGN.md R3). Omit it for public packages.
+# (it is while the licensing review is open). Omit it for public packages.
 #
 # EXIT CODES — the caller must distinguish them, because "the tag is not
 # published yet" (rebuild) and "the registry could not be read" (stop) lead to

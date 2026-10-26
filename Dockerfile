@@ -32,7 +32,7 @@
 #   basic auth; a reverse proxy (Pangolin) is the gate. SELKIES_ENABLE_BASIC_AUTH
 #   stays false as well, since Selkies refuses to start with it on and no password.
 #
-# THE IMAGE DOES NOT SELF-UPDATE (D10)
+# THE IMAGE DOES NOT SELF-UPDATE
 #   Anthropic's apt repository is not registered inside it — /etc/default/
 #   claude-desktop is written with CLAUDE_DESKTOP_ADD_REPO="false" before the
 #   package is installed — and the CLI cannot update itself. A new version of
@@ -88,7 +88,7 @@ ENV TITLE="Claude Code" \
 ENV INTEL_DEBUG=noccs
 
 # Neither application may mutate this container; it moves when the image is
-# rebuilt (D10). Those two switches also turn off plugin auto-update, which
+# rebuilt. Those two switches also turn off plugin auto-update, which
 # FORCE_AUTOUPDATE_PLUGINS keeps on, so the mods update without a rebuild.
 ENV DISABLE_AUTOUPDATER=1 \
     DISABLE_UPDATES=1 \
@@ -186,7 +186,7 @@ RUN set -eu; \
 # ---------------------------------------------------------------------------
 # Package layer 2 — the official Claude Desktop package, SHA256-verified against
 # the stanza it came from, installed from the local file with the apt repository
-# left unregistered (D10).
+# left unregistered.
 # ---------------------------------------------------------------------------
 RUN set -eu; \
     /usr/local/bin/install-claude-desktop.sh \

@@ -1,6 +1,6 @@
 name: build
 
-# Two tracked upstreams, one image (docs/DESIGN.md D1). The sweep resolves BOTH
+# Two tracked upstreams, one image. The sweep resolves BOTH
 # upstream signals and folds them into a single image build: the desktop pin and
 # the Claude Code CLI pin.
 #
@@ -58,7 +58,7 @@ env:
   # Floor for the index scan. The index is append-only and moved from the 1.x
   # line to 2.x; anything below this is not a version we would ship.
   MIN_VERSION: '2.0.0'
-  # Literal pin, same default as the Dockerfile's ARG BASE_IMAGE (DESIGN.md D4).
+  # Literal pin, same default as the Dockerfile's ARG BASE_IMAGE.
   # Overriding it here is how the base image is bumped.
   BASE_IMAGE: ghcr.io/linuxserver/baseimage-selkies:ubunturesolute
   # Distribution flavor suffix used for the second tag (:<version>-<flavor>).
@@ -169,7 +169,7 @@ jobs:
           # used to be a literal here, and it silently omitted
           # scripts/install-claude-desktop.sh, which the Dockerfile COPYs and
           # executes: editing that installer produced an unchanged hash, the plan
-          # concluded "up to date", and the edit reached no image (finding F9).
+          # concluded "up to date", and the edit reached no image.
           # The Claude Desktop version is deliberately NOT in the set: the decide
           # step mixes it in per candidate, because the hash a published :<v>
           # image carries is the hash of THAT version plus the rest of the recipe
@@ -354,7 +354,7 @@ jobs:
         run: |
           set -euo pipefail
           local_ref="claude-code-linux:smoke"
-          # amd64 only by decision (DESIGN.md D11): arm64 would mean emulated
+          # amd64 only by decision: arm64 would mean emulated
           # builds for a target nobody asked for. tags carry :<version> and
           # :<version>-<flavor> only; :latest is never a build tag, it is moved
           # later by `docker buildx imagetools create` from a smoke-tested digest.
@@ -453,14 +453,18 @@ jobs:
                    pids=$(pgrep "$@" | tr "\n" " ")
                    [ -n "${pids}" ] || { echo "${label} is not running" >&2; exit 1; }
                    for pid in ${pids}; do
-                     uid=$(ps -o uid= -p "${pid}" | tr -d " ")
+                     # a pid that exited between pgrep and ps reports no uid; skip it
+                     uid=$(ps -o uid= -p "${pid}" | tr -d " ") || continue
+                     [ -n "${uid}" ] || continue
                      [ "${uid}" = 99 ] || { echo "${label} pid ${pid} is uid ${uid}, not the session user" >&2; exit 1; }
                    done
                    printf "%s=uid99,pid %s; " "${label}" "${pids}"
                  }
                  check Xvfb -f "Xvfb ${DISPLAY}"
                  check openbox -x openbox
-                 check claude-desktop -f /usr/lib/claude-desktop/claude-desktop
+                 # -x on the process name: -f on the path would also match this
+                 # script, whose own command line contains it
+                 check claude-desktop -x claude-desktop
                  printf "display=%s %s\n" "${DISPLAY}" "${dims}"
                '); then
               desktop_up=true

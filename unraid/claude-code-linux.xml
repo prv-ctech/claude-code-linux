@@ -20,21 +20,15 @@
   <License>Proprietary upstream components. See https://github.com/prv-ctech/claude-code-linux#licensing</License>
   <Changes>Rebased on LinuxServer.io's baseimage-selkies: PUID/PGID 99/100 and UMASK work natively, state moves to /config, ports are 3000 (HTTP) and 3001 (HTTPS). This is a fresh start: point AppData at a new, empty folder and sign in to Claude once more.</Changes>
 
-  <Overview>Claude Desktop for Linux (the official Anthropic apt package) and the Claude Code CLI on a Selkies web desktop, streamed to your browser without a VNC client or a local install.&#xD;
+  <Overview>Claude Desktop and Claude Code in your web browser.&#xD;
 &#xD;
-Required first step: the GHCR package is PRIVATE until the redistribution and licensing review is closed. Open the Unraid terminal and run&#xD;
-docker login ghcr.io -u YOUR-GITHUB-USERNAME&#xD;
-pasting a GitHub personal access token with read:packages when prompted. Without this the pull fails with "denied".&#xD;
+First, once in the Unraid terminal: docker login ghcr.io -u YOUR-GITHUB-USERNAME (password: a GitHub token with read:packages).&#xD;
 &#xD;
-Notes:&#xD;
-• There is no desktop login. Put the container behind a reverse proxy that authenticates (Pangolin, for example) and point it at port 3000 (HTTP). Never forward 3000 or 3001 to the Internet directly: the session holds your claude.ai and Claude Code credentials.&#xD;
-• On the LAN, open the WebUI over HTTPS on port 3001 and accept the self-signed certificate once. Port 3000 opened directly in a browser shows a "requires a secure connection" error.&#xD;
-• Everything that must survive an update (Claude Desktop's sign-in, the keyring, the Chrome profile, the CLI's credentials) lives under /config.&#xD;
-• Your projects live under /workspaces. Files are written as PUID:PGID with UMASK, so the share stays writable for your other containers.&#xD;
-• Run the CLI from the Unraid terminal with: docker exec -it -u abc claude-code-linux claude&#xD;
-• Video is encoded on the CPU by default. Add --device=/dev/dri to Extra Parameters for VA-API encoding on an Intel or AMD GPU.&#xD;
-• Cowork (the QEMU/KVM feature) is unsupported; the Claude Code CLI ships in the same image.&#xD;
-• Updates: GitHub Actions rebuilds the image whenever Anthropic publishes a newer Claude Desktop or Claude Code CLI, and Unraid offers "update ready".&#xD;
+• Set Workspace to the folder with your projects. Leave the rest as it is.&#xD;
+• From outside your home: point your reverse proxy (for example Pangolin) at port 3000. At home: open https://YOUR-SERVER-IP:3001 and accept the certificate warning once.&#xD;
+• There is no desktop password; your reverse proxy is the lock. Never open 3000 or 3001 to the Internet directly.&#xD;
+• Your sign-ins and settings live in AppData and survive updates.&#xD;
+• Upgrading from the old version? Use a new, empty AppData folder and sign in again once.&#xD;
   </Overview>
 
   <!-- /dev/shm is not expressible as a Config: Chrome's renderers crash on

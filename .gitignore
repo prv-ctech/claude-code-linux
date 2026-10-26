@@ -1,5 +1,20 @@
-# Harness / team runtime state — never publish
-.agent-teams/
+# Code graph index
 .codebase-memory/
+
+# Local configuration and secrets
 .env
+.env.*
+!.env.example
+.claude/settings.local.json
+
+# compose.yaml's default data folders: sign-ins, keyring and Chrome profile live here
+appdata/
+workspace/
+claude-code-state/
+
+# Logs, editor and OS noise
 *.log
+.vscode/
+.idea/
+*.swp
+.DS_Store
