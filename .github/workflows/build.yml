@@ -23,13 +23,13 @@ on:
     - cron: '23 */6 * * *'
   push:
     branches: [main]
-    # Recipe paths only. A README or .env.example edit does not rebuild the image.
+    # Image inputs only. Docs, the Unraid template, compose.yaml and .env.example
+    # never reach the image, so editing them starts nothing.
     paths:
       - Dockerfile
       - .dockerignore
       - 'rootfs/**'
-      - compose.yaml
-      - 'unraid/**'
+      - unraid/icon.png
       - 'scripts/**'
       - '.github/workflows/build.yml'
   workflow_dispatch:
@@ -71,7 +71,8 @@ env:
   # 2: the input set became derived (scripts/recipe-inputs.sh) and gained
   # .dockerignore, every remaining COPY source (the installer) and unraid/icon.png.
   # 3: the rebase onto linuxserver/baseimage-selkies dropped docker-entrypoint.sh.
-  RECIPE_SCHEMA: '3'
+  # 4: compose.yaml and the Unraid template left the set; they never reach the image.
+  RECIPE_SCHEMA: '4'
   DEB_BASE: https://downloads.claude.ai/claude-desktop/apt/stable
 
 jobs:
@@ -165,7 +166,7 @@ jobs:
           # image: the base pin, the CLI pin, this workflow file itself, and every
           # file the image build consumes. That last set is DERIVED by
           # scripts/recipe-inputs.sh from the Dockerfile's own COPY lines plus the
-          # fixed context and packaging inputs -- never hand-maintained. The list
+          # Dockerfile, .dockerignore and this workflow -- never hand-maintained. The list
           # used to be a literal here, and it silently omitted
           # scripts/install-claude-desktop.sh, which the Dockerfile COPYs and
           # executes: editing that installer produced an unchanged hash, the plan
