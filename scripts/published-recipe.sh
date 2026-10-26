@@ -7,7 +7,7 @@
 # The hash is a content hash over the recipe's own inputs: the base image pin,
 # the Claude Code CLI pin, the workflow file itself, and everything the image
 # build consumes -- .dockerignore, the installer (scripts/install-claude-desktop.sh),
-# docker-entrypoint.sh, the rootfs tree, compose.yaml and the unraid tree
+# the rootfs tree, compose.yaml and the unraid tree
 # (template and icon). That last set is DERIVED by scripts/recipe-inputs.sh from
 # the Dockerfile's COPY lines plus the fixed context and packaging inputs, never
 # hand-maintained, so it cannot silently stop covering a file.
