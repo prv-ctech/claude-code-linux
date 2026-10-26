@@ -1,24 +1,24 @@
 # The build context is only what the Dockerfile copies:
 # scripts/install-claude-desktop.sh, rootfs/ and unraid/icon.png. Everything else is excluded so a
-# rebuild does not resend the research artifacts, the CI and template sources, or
-# a local .env into the daemon.
+# rebuild does not resend the docs, the CI and template sources, a local .env or
+# compose's data folders into the daemon.
 #
 # Deliberately NOT ignored, and why the exclusions are named rather than written
 # as a whitelist: a new rootfs/ file or a new script must reach the image without
 # anyone remembering to update this file.
 
-# Version control and agent/team scratch state
+# Version control, the code graph index and local Claude settings
 .git
 .gitignore
 .gitattributes
-.agent-teams
 .codebase-memory
+.claude
 
 # The plugin marketplace and its mods: installed from GitHub with /plugin, not built in
 .claude-plugin
 mods
 
-# Documentation and research (the design contract is read on the host, not built in)
+# Documentation
 docs
 *.md
 
@@ -29,9 +29,14 @@ unraid
 !unraid/icon.png
 compose.yaml
 
-# Local configuration and secrets
+# Local configuration and secrets, and compose.yaml's default data folders,
+# which hold sign-ins, the keyring and the Chrome profile
 .env
 .env.*
+appdata
+workspace
+claude-code-state
+*.log
 
 # Editor and OS noise
 .vscode
