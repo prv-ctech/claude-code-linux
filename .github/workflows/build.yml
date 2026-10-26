@@ -453,14 +453,18 @@ jobs:
                    pids=$(pgrep "$@" | tr "\n" " ")
                    [ -n "${pids}" ] || { echo "${label} is not running" >&2; exit 1; }
                    for pid in ${pids}; do
-                     uid=$(ps -o uid= -p "${pid}" | tr -d " ")
+                     # a pid that exited between pgrep and ps reports no uid; skip it
+                     uid=$(ps -o uid= -p "${pid}" | tr -d " ") || continue
+                     [ -n "${uid}" ] || continue
                      [ "${uid}" = 99 ] || { echo "${label} pid ${pid} is uid ${uid}, not the session user" >&2; exit 1; }
                    done
                    printf "%s=uid99,pid %s; " "${label}" "${pids}"
                  }
                  check Xvfb -f "Xvfb ${DISPLAY}"
                  check openbox -x openbox
-                 check claude-desktop -f /usr/lib/claude-desktop/claude-desktop
+                 # -x on the process name: -f on the path would also match this
+                 # script, whose own command line contains it
+                 check claude-desktop -x claude-desktop
                  printf "display=%s %s\n" "${DISPLAY}" "${dims}"
                '); then
               desktop_up=true
