@@ -137,6 +137,8 @@ ENV INTEL_DEBUG=noccs
 # the image the next container starts from.
 # The two switches above also turn off plugin auto-update. FORCE_AUTOUPDATE_PLUGINS
 # keeps it on for marketplaces that enable it, so the mods update without a rebuild.
+# docker-entrypoint.sh enables it on every third-party marketplace with no choice
+# recorded, so their plugin updates are offered too.
 ENV DISABLE_AUTOUPDATER=1 \
     DISABLE_UPDATES=1 \
     FORCE_AUTOUPDATE_PLUGINS=1
