@@ -8,7 +8,7 @@
 #   sign-in in your desktop's keyring… If it can't reach an unlocked keyring,
 #   your sign-in isn't saved and you sign in again each time you launch the app",
 #   and the remedy it gives for a desktop other than KDE Plasma is gnome-keyring.
-#   This desktop is LXQt, so gnome-keyring is the component — and the .deb only
+#   This desktop is Openbox, so gnome-keyring is the component — and the .deb only
 #   *recommends* it, which is why the image installs it by name.
 #
 # UNLOCKED WITHOUT A PROMPT
@@ -20,21 +20,18 @@
 #   password unlocks the same keyring and the sign-in is still there — no user
 #   action, no secret outside the user's own appdata.
 #
-# STARTED BY lxqt-session through /etc/xdg/autostart/10-…, so it inherits the
-# session bus dbus-launch created (DBUS_SESSION_BUS_ADDRESS) and the environment
-# the base entrypoint computed. It is idempotent, it proves the service by
+# STARTED BY the Openbox autostart (/defaults/autostart), so it inherits the
+# session bus dbus-launch created (DBUS_SESSION_BUS_ADDRESS). It is idempotent, it proves the service by
 # storing and reading back a probe secret (an unlocked daemon is not the same
 # thing as a locked one that answers on its socket), and it publishes a readiness
-# marker that claude-desktop-session waits for: lxqt-session starts XDG autostart
-# entries in whatever order it read them, so the app must not assume this ran
-# first. The marker is published on every path, so a failure here warns in the log
+# marker that claude-desktop-session waits for. The marker is published on every path, so a failure here warns in the log
 # instead of holding the app back.
 
 set -eu
 
-state_dir="${HOME:-/home/ubuntu}/.config/claude-code-linux"
+state_dir="${HOME:-/config}/.config/claude-code-linux"
 password_file="${state_dir}/keyring.password"
-runtime_dir="${XDG_RUNTIME_DIR:-/tmp/runtime-ubuntu}"
+runtime_dir="${XDG_RUNTIME_DIR:-${HOME:-/config}/.XDG}"
 ready_marker="${runtime_dir}/claude-code-linux-keyring-ready"
 control_dir="${runtime_dir}/keyring"
 # Attributes of the probe item; it is removed again below.

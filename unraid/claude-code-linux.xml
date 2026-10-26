@@ -6,98 +6,75 @@
   <Registry>https://ghcr.io/prv-ctech/claude-code-linux</Registry>
   <Network>bridge</Network>
   <Shell>bash</Shell>
-  <!-- The Selkies base image is rootless by design and its own docs state that
-       privileged mode must not be used, so this stays false. -->
   <Privileged>false</Privileged>
   <Support>https://github.com/prv-ctech/claude-code-linux/issues</Support>
   <Project>https://github.com/prv-ctech/claude-code-linux</Project>
   <Category>Tools:Utilities</Category>
   <Icon>https://raw.githubusercontent.com/prv-ctech/claude-code-linux/main/unraid/icon.png</Icon>
-  <WebUI>https://[IP]:[PORT:8080]</WebUI>
+  <WebUI>https://[IP]:[PORT:3001]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/prv-ctech/claude-code-linux/main/unraid/claude-code-linux.xml</TemplateURL>
   <ReadMe>https://raw.githubusercontent.com/prv-ctech/claude-code-linux/main/README.md</ReadMe>
-  <Date>2026-10-15</Date>
+  <Date>2026-10-26</Date>
   <Beta>false</Beta>
   <MinVer>6.10</MinVer>
   <License>Proprietary upstream components. See https://github.com/prv-ctech/claude-code-linux#licensing</License>
-  <Changes>Adds python3, pip and uv; Claude opens maximized on a plain desktop. Initial release: Claude Desktop 2.26454.2 and Claude Code CLI 2.1.294, streamed with Selkies on ghcr.io/selkies-project/selkies/desktop:2.0.0-ubuntu26.04. PUID/PGID 1000/1000 only, /dev/shm 2g, state bind-mounted at /home/ubuntu. See the README for the release, verification and rollback commands.</Changes>
+  <Changes>Rebased on LinuxServer.io's baseimage-selkies: PUID/PGID 99/100 and UMASK work natively, state moves to /config, ports are 3000 (HTTP) and 3001 (HTTPS). This is a fresh start: point AppData at a new, empty folder and sign in to Claude once more.</Changes>
 
-  <Overview>Claude Desktop for Linux (the official Anthropic apt package) and the Claude Code CLI, running as a full Chrome/LXQt desktop streamed to your browser with Selkies. Nothing to install on the client: open the WebUI.
+  <Overview>Claude Desktop for Linux (the official Anthropic apt package) and the Claude Code CLI on a Selkies web desktop, streamed to your browser without a VNC client or a local install.&#xD;
+&#xD;
+Required first step: the GHCR package is PRIVATE until the redistribution and licensing review is closed. Open the Unraid terminal and run&#xD;
+docker login ghcr.io -u YOUR-GITHUB-USERNAME&#xD;
+pasting a GitHub personal access token with read:packages when prompted. Without this the pull fails with "denied".&#xD;
+&#xD;
+Notes:&#xD;
+• There is no desktop login. Put the container behind a reverse proxy that authenticates (Pangolin, for example) and point it at port 3000 (HTTP). Never forward 3000 or 3001 to the Internet directly: the session holds your claude.ai and Claude Code credentials.&#xD;
+• On the LAN, open the WebUI over HTTPS on port 3001 and accept the self-signed certificate once. Port 3000 opened directly in a browser shows a "requires a secure connection" error.&#xD;
+• Everything that must survive an update (Claude Desktop's sign-in, the keyring, the Chrome profile, the CLI's credentials) lives under /config.&#xD;
+• Your projects live under /workspaces. Files are written as PUID:PGID with UMASK, so the share stays writable for your other containers.&#xD;
+• Run the CLI from the Unraid terminal with: docker exec -it -u abc claude-code-linux claude&#xD;
+• Video is encoded on the CPU by default. Add --device=/dev/dri to Extra Parameters for VA-API encoding on an Intel or AMD GPU.&#xD;
+• Cowork (the QEMU/KVM feature) is unsupported; the Claude Code CLI ships in the same image.&#xD;
+• Updates: GitHub Actions rebuilds the image whenever Anthropic publishes a newer Claude Desktop or Claude Code CLI, and Unraid offers "update ready".&#xD;
+  </Overview>
 
-Required first step: the GHCR package is PRIVATE until the redistribution and licensing review is closed. Open the Unraid terminal and run
-docker login ghcr.io -u YOUR-GITHUB-USERNAME
-pasting a GitHub personal access token with read:packages when prompted. Without this the pull fails with "denied".
+  <!-- /dev/shm is not expressible as a Config: Chrome's renderers crash on
+       Docker's 64 MB default. Append further flags (such as the /dev/dri device)
+       to this same line. -->
+  <ExtraParams>--restart=unless-stopped --shm-size=2g</ExtraParams>
 
-PUID and PGID must BOTH be 1000. The Selkies desktop layer is rootless at uid 1000 and the image refuses any other value with exit code 78; no remap exists. Unraid's own default is 99/100, so leave these fields at 1000.
+  <!-- Ports -->
+  <Config Name="WebUI Port (HTTPS / Selkies)" Target="3001" Default="3001" Mode="tcp"
+          Description="HTTPS port of the Selkies WebUI with a self-signed certificate, for use on the LAN; accept the certificate once."
+          Type="Port" Display="always" Required="true" Mask="false">3001</Config>
 
-Basic auth is off by default. Set SELKIES_ENABLE_BASIC_AUTH to true and PASSWD to require the ubuntu login.
+  <Config Name="WebUI Port (HTTP / Selkies)" Target="3000" Default="3000" Mode="tcp"
+          Description="HTTP port of the Selkies WebUI, for the reverse proxy (Pangolin) that terminates TLS and authenticates in front of the container."
+          Type="Port" Display="always" Required="true" Mask="false">3000</Config>
 
-Unraid pre-creates the appdata directory as nobody:users (99:100) while the session runs as uid 1000. The container re-chowns /home/ubuntu at every start, so the stock flow works. If a start still reports a write or permission error, run on the Unraid terminal:
-chown -R 1000:1000 /mnt/user/appdata/claude-code-linux
+  <!-- Paths -->
+  <Config Name="AppData (/config)" Target="/config" Default="/mnt/user/appdata/claude-code-linux" Mode="rw"
+          Description="Persistent desktop state: Claude Desktop's sign-in and settings, the keyring, the Chrome profile and the Claude Code CLI credentials."
+          Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/claude-code-linux</Config>
 
-/dev/shm is raised to 2g in ExtraParams because the browsers in this desktop crash on Docker's 64 MB default.
-
-Cowork (the QEMU/KVM virtual machine feature) needs /dev/kvm and /dev/vhost-vsock, which this template does not grant, so Cowork is unsupported. The Claude Code CLI ships in the same image and is the documented fallback.
-
-Video is encoded on the CPU (x264) by default; no GPU or device passthrough is needed. To use an Intel or AMD GPU, add --device=/dev/dri to ExtraParams: Selkies detects the render node at start and encodes H.264, H.265, VP9 and AV1 with VA-API where the GPU supports them (checked on an Intel Arc A380; NVIDIA is untested). No driver install is needed on the Unraid host or in the image: the host kernel's driver is enough, and the image carries the VA-API, Mesa and Vulkan drivers. With a GPU, Claude Desktop renders through ANGLE on Vulkan, which avoids the "XFree86-VidModeExtension missing" and "glXGetMscRateOML failed" lines its default GL backend logs on a virtual X display. python3, pip and uv are installed; what you install with pip --user or uv lives under /home/ubuntu and persists.
-
-Do not expose port 8080 to the Internet: the session holds your claude.ai and Claude Code credentials and the in-container TLS certificate is self-signed.
-
-Updates: GitHub Actions rebuilds the image whenever Anthropic publishes a newer claude-desktop .deb or a newer Claude Code CLI. Unraid compares the registry digest of :latest with your local image and offers "update ready"; the new container reuses the same appdata path, so your sign-in and CLI credentials survive.</Overview>
-
-  <!-- /dev/shm is not expressible as a Config, so it lives here. 2g is not
-       cosmetic: Chrome and Firefox renderers are killed on Docker's 64 MB
-       default. ExtraParams is one line appended before the image reference, so
-       any additional flag goes on this same line.
-       Unraid emits no restart flag of its own (it manages autostart); if you
-       want one, append the restart=unless-stopped flag here.
-       Cowork (KVM) is unsupported, so no devices are passed. For GPU
-       encoding append the device flag for /dev/dri (see the Overview) to this
-       same line. -->
-  <ExtraParams>--shm-size=2g</ExtraParams>
-
-  <Config Name="WebUI Port" Target="8080" Default="8080" Mode="tcp"
-          Description="Port for the streamed desktop. 8080 is the only port the image serves; WebRTC/TURN ports are opt-in and never published. Do not forward this to the Internet."
-          Type="Port" Display="always" Required="true" Mask="false"/>
-
-  <Config Name="AppData" Target="/home/ubuntu" Default="/mnt/user/appdata/claude-code-linux" Mode="rw"
-          Description="Persistent desktop state: Chrome profile, keyring, Claude Desktop config and the Claude Code CLI credentials. The target must stay /home/ubuntu; do not change it to /config, which Unraid rewrites."
-          Type="Path" Display="always" Required="true" Mask="false"/>
-
-  <Config Name="Workspace" Target="/workspaces" Default="" Mode="rw"
-          Description="Optional. A host folder with your projects, shown inside the container at /workspaces. Leave empty for none. Set WORKSPACE_GID if its group is not 1000."
+  <Config Name="Workspace (/workspaces)" Target="/workspaces" Default="" Mode="rw"
+          Description="Optional. A host folder with your projects, shown inside the container at /workspaces."
           Type="Path" Display="always" Required="false" Mask="false"/>
 
-  <Config Name="WORKSPACE_GID" Target="WORKSPACE_GID" Default="" Mode=""
-          Description="Optional. Group id that owns the workspace on the host (Unraid: 100, users). The session stays uid/gid 1000 and joins this group, so group-writable files are writable. Nothing on the host is chowned. Empty = off."
-          Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <!-- Advanced env variables -->
+  <Config Name="Timezone (TZ)" Target="TZ" Default="Etc/UTC" Mode=""
+          Description="Container timezone as an IANA name such as Europe/Berlin."
+          Type="Variable" Display="always" Required="false" Mask="false">Etc/UTC</Config>
 
-  <Config Name="PUID" Target="PUID" Default="1000" Mode=""
-          Description="User id the session runs as. Must be 1000: the image is rootless at uid 1000 and exits 78 for any other value."
-          Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="User ID (PUID)" Target="PUID" Default="99" Mode=""
+          Description="User ID the desktop runs as. Default 99 (nobody on Unraid)."
+          Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
 
-  <Config Name="PGID" Target="PGID" Default="1000" Mode=""
-          Description="Group id the session runs as. Must be 1000 for the same reason as PUID."
-          Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Group ID (PGID)" Target="PGID" Default="100" Mode=""
+          Description="Group ID. Default 100 (users on Unraid)."
+          Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
 
-  <Config Name="SELKIES_ENABLE_BASIC_AUTH" Target="SELKIES_ENABLE_BASIC_AUTH" Default="false" Mode=""
-          Description="Require a login on the streamed desktop. Off by default: the reverse proxy is the gate. Set to true and set PASSWD to turn the ubuntu login on."
-          Type="Variable" Display="advanced" Required="false" Mask="false"/>
-
-  <Config Name="PASSWD" Target="PASSWD" Default="" Mode=""
-          Description="Login password for the streamed desktop (user name ubuntu). Read only when SELKIES_ENABLE_BASIC_AUTH is true."
-          Type="Variable" Display="advanced" Required="false" Mask="true"/>
-
-  <Config Name="TZ" Target="TZ" Default="Etc/UTC" Mode=""
-          Description="Time zone for the desktop, as an IANA name such as Europe/Berlin. Matches compose CLAUDE_TZ."
-          Type="Variable" Display="advanced" Required="false" Mask="false"/>
-
-  <Config Name="SELKIES_MODE" Target="SELKIES_MODE" Default="websockets" Mode=""
-          Description="Transport for the stream. websockets needs no extra ports. Setting webRTC also requires TURN ports 3478 and 65532-65535 to be published, which this template deliberately does not do."
-          Type="Variable" Display="advanced" Required="false" Mask="false"/>
-
-  <Config Name="FORCE_AUTOUPDATE_PLUGINS" Target="FORCE_AUTOUPDATE_PLUGINS" Default="1" Mode=""
-          Description="Keeps plugin auto-update on, so the mods in this image update without a rebuild. The image turns off Claude Code's own updater, and that switch also turns off plugin updates; this one keeps the plugin updates. Leave at 1."
-          Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="UMASK" Target="UMASK" Default="002|000|022|077" Mode=""
+          Description="Permission mask for new files. The default 002 keeps them writable for the users group, which suits shares that other containers touch too."
+          Type="Variable" Display="advanced" Required="false" Mask="false">002</Config>
 
 </Container>

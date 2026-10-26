@@ -5,8 +5,7 @@
 #   install-claude-desktop.sh <version> <key-sha256> <key-fingerprint> \
 #                             [<expected-deb-sha256>] [<expected-deb-url>]
 #
-# Runs inside the image's rootless package layer: uid 1000 through fakeroot, so
-# `apt-get` and dpkg behave as they do in a live session (docs/DESIGN.md §3, §5.1).
+# Runs as root in the image's package layer (docs/DESIGN.md §5.1).
 #
 # THE REPOSITORY, EXACTLY AS ANTHROPIC SPECIFIES IT — the deb line the package's
 # own postinst would write, and the line this script validates with apt:
@@ -38,10 +37,7 @@
 #      the keyring the package wrote is the pinned key, and no apt source was left
 #      behind.
 #
-# The setuid helper the package brings is re-owned in the Dockerfile's root phase
-# instead: under fakeroot an ownership change never reaches the filesystem.
-#
-# Written as POSIX sh: this runs under `fakeroot -- /bin/sh -c`, i.e. dash.
+# Written as POSIX sh: the Dockerfile runs it with /bin/sh, i.e. dash.
 
 set -eu
 
@@ -227,7 +223,7 @@ keyring_hash="$(sha256sum "${keyring}" | cut -d' ' -f1)"
 [ -x /usr/lib/claude-desktop/claude-desktop ] || fatal "the package installed no /usr/lib/claude-desktop/claude-desktop"
 [ -L /usr/bin/claude-desktop ] || fatal "the package installed no /usr/bin/claude-desktop"
 [ -e /usr/share/applications/com.anthropic.Claude.desktop ] ||
-	fatal "the package installed no menu entry, so Claude Desktop would not appear in the LXQt menu"
+	fatal "the package installed no menu entry, so Claude Desktop would not appear in the desktop menu"
 
 # D10's other half: the repository must not be in the image.
 [ ! -e /etc/apt/sources.list.d/claude-desktop.list ] ||

@@ -1,0 +1,3 @@
+#!/usr/bin/with-contenv sh
+# Root-side state fix-ups before the desktop starts; see claude-init.
+exec /usr/local/bin/claude-init

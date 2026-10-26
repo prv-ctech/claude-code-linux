@@ -2,8 +2,8 @@
 # selfcheck.sh — the workspace-executable gate over this image's shell surface.
 #
 # WHAT IT IS FOR (t11; docs/DESIGN.md §R5)
-#   Everything this image adds is shell: the Dockerfile's RUN bodies, the root
-#   bootstrap, the keyring init, the session wrapper and the app launcher. The
+#   Everything this image adds is shell: the Dockerfile's RUN bodies, the s6
+#   init, the keyring init, the session wrapper and the two launchers. The
 #   container runtime that can boot the built image does not exist in a plain
 #   workspace — §R5 puts `docker build`/`docker run` and the Selkies boot in CI
 #   and in t4 — so this script is the half of the verification that *can* run
@@ -17,25 +17,20 @@
 # WHAT IT DOES
 #   1. hadolint the Dockerfile.
 #   2. shellcheck every shell file in the repository, as POSIX sh.
-#   3. shellcheck each RUN body extracted from the Dockerfile, as POSIX sh. This
-#      is what the Dockerfile's SC1008 comments refer to: the fakeroot SHELL is
-#      not readable as a shebang, so hadolint skips those bodies and they are
-#      checked here instead.
+#   3. shellcheck each RUN body extracted from the Dockerfile, as POSIX sh.
 #   4. `dash -n` every shell file.
-#   5. Exercise docker-entrypoint.sh, claude-keyring-init, claude-desktop-session
-#      and claude-desktop with command stubs, and assert the behaviours the
-#      contract names: PUID=99 exits 78 with the rejection message, the session's
-#      exit status is propagated, TERM reaches the session, the non-root
-#      preflight and the unwritable-state failure behave, the keyring publishes
-#      its readiness marker on every path, the session wrapper waits for it and
-#      honours its opt-out, and the launcher probes user namespaces.
+#   5. Exercise claude-init, claude-keyring-init, claude-desktop-session and
+#      claude-desktop with command stubs, and assert the behaviours the contract
+#      names: the autostart is refreshed, a foreign Chrome lock is cleared,
+#      marketplaces get autoUpdate, the keyring publishes its readiness marker on
+#      every path, the session wrapper waits for it and honours its opt-out, and
+#      the launcher probes user namespaces.
 #
 # WHAT IT DOES NOT DO, SO NOBODY MISTAKES IT FOR MORE
 #   No container is built or run, no package is installed, no display is started,
-#   and no network is touched: apt, dpkg, fakeroot, s6, Selkies and Electron are
-#   stubbed. It proves the shell logic, not the image. The one thing it cannot
-#   prove from here — that a real `chown -R` gives a real uid 1000 a writable
-#   state path — is asserted by the CI smoke test against a mounted volume.
+#   and no network is touched: apt, dpkg, s6, Selkies and Electron are stubbed. It
+#   proves the shell logic, not the image. PUID/PGID ownership of a real volume is
+#   asserted by the CI smoke test.
 #
 # THE STUBS ARE CROSS-CHECKED RATHER THAN TRUSTED
 #   A stubbed command is a lie the test invites, so the stubs are also the test's
@@ -204,15 +199,15 @@ SHELLCHECK=$(need_shellcheck)
 # that does not exist (scripts/selfcheck.sh is in this list, which is how the
 # gate is checked by itself).
 shell_files() {
-	for f in Dockerfile .dockerignore docker-entrypoint.sh scripts/*.sh rootfs/usr/local/bin/*; do
+	for f in Dockerfile .dockerignore scripts/*.sh rootfs/usr/local/bin/* rootfs/defaults/autostart; do
 		[ -f "${f}" ] || continue
 		case "${f}" in
 			Dockerfile | .dockerignore) ;;
 			*) printf '%s\n' "${f}" ;;
 		esac
 	done
-	# The .desktop and mimeapps fixtures are not shell; nothing else is missed
-	# because the rootfs tree holds only the three entry points.
+	# The s6 run file uses with-contenv as its interpreter, which shellcheck
+	# cannot follow; it is one exec line, and claude-init is checked instead.
 }
 
 extract_run_bodies() {
@@ -313,21 +308,6 @@ scenario() {
 	: > "${LOG}"
 	export STUB_LOG="${LOG}"
 	export SCEN_NAME="$1"
-	# The base image's entrypoint, at the path DOCKER_ENTRYPOINT_PREFIX resolves
-	# to. It records that it ran and waits, so a scenario can hand the container
-	# TERM the way `docker stop` does; a scenario that needs other behaviour
-	# overwrites it.
-	cat > "${SCEN}/etc/container-entrypoint.sh" <<-'EOS'
-	#!/bin/sh
-	echo "base-ran uid=$(id -u) arg=${1:-none}"
-	i=0
-	while [ "${i}" -lt 60 ]; do
-		i=$((i + 1))
-		/bin/sleep 0.1
-	done
-	EOS
-	chmod 755 "${SCEN}/etc/container-entrypoint.sh"
-	unset FAKE_EUID CHOWN_STATUS 2> /dev/null || true
 	stub_common
 }
 
@@ -386,105 +366,12 @@ stub_file() {
 
 # stub_common: the stubs that are the same in every scenario. Called after
 # `scenario`, because the stubs are written into that scenario's own fixtures.
-# `chown` is a real chown and `mkdir` a real mkdir, so a missing -R, a stray flag
-# or a wrong path still fails; only the identity `id` reports and the program
-# `setpriv` cannot be allowed to actually drop are injected. What setpriv does in
-# production is asserted by the CI smoke test against the running container's
-# uid/gid, which is the only place it can be.
+# `chown` only logs, since the session user does not exist here; `mkdir` is a
+# real mkdir.
 stub_common() {
-	cat > "${FIX}/id.sh" <<'EOS'
-if [ "$1" = "-u" ]; then echo "${FAKE_EUID:-0}"; else exec /bin/id "$@"; fi
-EOS
-	cat > "${FIX}/chown.sh" <<'EOS'
-# A real chown, so a missing -R, a stray flag or a wrong path still fails; only
-# the exit status is the scenario's to choose.
-log "$@"
-if [ "${CHOWN_STATUS:-0}" -ne 0 ]; then
-	exit "${CHOWN_STATUS}"
-fi
-case " $* " in
-	*" -R "*) ;;
-	*) exit 0 ;;
-esac
-shift                                        # drop -R
-for arg in "$@"; do
-	case "${arg}" in
-		*) log "chown target ${arg}" ;;
-	esac
-done
-exit 0
-EOS
-	cat > "${FIX}/setpriv.sh" <<'EOS'
-# setpriv cannot be stubbed into dropping privileges, so it is replaced whole:
-# what it does in production is asserted by the CI smoke test against the running
-# container's uid and gid, which is the only place it can be.
-log "setpriv $*"
-case "$*" in
-	*--init-groups*)
-		[ "${SETPRIV_INIT_GROUPS:-0}" -eq 0 ] || exec /bin/false
-		;;
-esac
-while [ "$#" -gt 0 ]; do
-	case "$1" in
-		--*) shift ;;
-		*) break ;;
-	esac
-done
-exec "$@"
-EOS
-	stub_file id "${FIX}/id.sh"
-	stub_file chown "${FIX}/chown.sh"
-	stub_file setpriv "${FIX}/setpriv.sh"
+	stub chown 'log "$@"'
 	stub mkdir 'exec /bin/mkdir "$@"'
 	stub sleep 'exit 0'
-}
-
-
-# run_in_background <label> <command...>: like run, but the command is left
-# running in the background (its pid in ${SCEN}/<label>.pid and its argv in
-# ${SCEN}/<label>.argv), so a test can send it a signal. stop_background waits for
-# it and records the status in ${SCEN}/<label>.status.
-run_in_background() {
-	label="$1"
-	shift
-	set +e
-	"$@" > "${SCEN}/${label}.out" 2> "${SCEN}/${label}.err" &
-	bg_pid=$!
-	set -e
-	printf '%s\n' "${bg_pid}" > "${SCEN}/${label}.pid"
-	printf '%s\n' "$*" > "${SCEN}/${label}.argv"
-}
-
-stop_background() {
-	label="$1"
-	pid=$(cat "${SCEN}/${label}.pid")
-	# Give the script under test time to reach the point the test is waiting for:
-	# it has either printed something on stderr or the process is gone.
-	i=0
-	while [ ! -s "${SCEN}/${label}.err" ] && [ "${i}" -lt 50 ]; do
-		i=$((i + 1))
-		kill -0 "${pid}" 2> /dev/null || break
-		/bin/sleep 0.1
-	done
-	kill -TERM "${pid}" 2> /dev/null || true
-	# `wait` has to run in this shell and not in a subshell: a subshell has no job
-	# table, so it would report 127 instead of the child's status. The redirection
-	# is what keeps the shell's own "Terminated" job-status line — which describes
-	# this test's kill, not the script under test — out of the output.
-	set +e
-	wait "${pid}" 2> /dev/null
-	bg_status=$?
-	set -e
-	printf '%s\n' "${bg_status}" > "${SCEN}/${label}.status"
-}
-
-assert_status() {
-	# assert_status <label> <expected>
-	got=$(cat "${SCEN}/$1.status")
-	[ "${got}" = "$2" ] || {
-		cat "${SCEN}/$1.out" "${SCEN}/$1.err" >&2
-		fail "$1: expected exit $2, got ${got}"
-	}
 }
 
 # run <label> <expected status> <command...>: stdout and stderr go to
@@ -535,38 +422,6 @@ assert_log() {
 	}
 }
 
-# The log is append-only, so a run can be delimited by its line count: everything
-# after that line belongs to the run that just finished.
-log_lines() { wc -l < "${LOG}" | tr -d ' '; }
-
-log_since() {
-	# log_since <first line of the run> — all the stub calls that run made, or the
-	# whole file for a run that starts at line 0 (tail -n +0 is not portable).
-	if [ "$1" -le 1 ]; then
-		cat "${LOG}"
-	else
-		tail -n "+$1" "${LOG}"
-	fi
-}
-
-assert_run_log() {
-	# assert_run_log <first line of the run> <needle> <what>
-	log_since "$1" | grep -q -e "$2" || {
-		printf -- '--- stub log from line %s ---\n' "$1" >&2
-		log_since "$1" >&2
-		fail "$3: the run did not log '$2'"
-	}
-}
-
-assert_run_log_once() {
-	# assert_run_log_once <first line> <needle> <what>
-	n=$(log_since "$1" | grep -c -e "$2")
-	[ "${n}" -eq 1 ] || {
-		log_since "$1" >&2
-		fail "$3: expected '$2' exactly once in the run, found ${n}"
-	}
-}
-
 assert_no_log() {
 	grep -q -e "$1" "${LOG}" && {
 		cat "${LOG}" >&2
@@ -575,156 +430,48 @@ assert_no_log() {
 	return 0
 }
 
-# Every scenario gets the same three stubs. They are cross-checked rather than
-# trusted: `chown` is a real chown (so a missing -R, a stray flag or a wrong path
-# still fails), `id -u` is the real id and only the uid it reports is injected,
-# and `setpriv` cannot be faked into doing anything, so it is replaced wholesale —
-# the drop it performs is asserted by the CI smoke test's uid/gid checks against
-# the running container, which is the only place it can be.
-
-# entrypoint() <label> <expected status> <extra env assignments...>
-# Runs the real docker-entrypoint.sh under the stub PATH. $1 is the label, $2 the
-# expected status, and the rest are `VAR=value` entries passed to env(1).
-entrypoint() {
-	run "$@"
-}
-
 # =============================================================================
-# docker-entrypoint.sh
+# claude-init (the s6 oneshot init-claude)
 # =============================================================================
-ENTRYPOINT="${ROOT}/docker-entrypoint.sh"
+INIT="${ROOT}/rootfs/usr/local/bin/claude-init"
+me="$(id -un)"
 
-# --- 5.1 a PUID/PGID other than 1000/1000 is rejected with exit 78 -----------
-scenario entrypoint-puid
-state="${SCEN}/state"
-mkdir -p "${state}"
-mountinfo="${SCEN}/mountinfo"
-printf '%s\n' "36 35 0:32 / ${state} rw,relatime shared:1 - tmpfs tmpfs rw" > "${mountinfo}"
+# --- 5.1 the Openbox autostart is (re)installed on every start ---------------
+scenario init-autostart
+home="${SCEN}/home"
+mkdir -p "${home}/.config/openbox"
+printf 'old\n' > "${home}/.config/openbox/autostart"
+run autostart 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${home}" \
+	DEFAULTS_DIR="${ROOT}/rootfs/defaults" SESSION_USER="${me}" "${INIT}"
+cmp -s "${ROOT}/rootfs/defaults/autostart" "${home}/.config/openbox/autostart" ||
+	fail "the image's autostart did not replace the one in /config"
+assert_log "init-autostart ${me}:${me} ${home}/.config/openbox ${home}/.config/openbox/autostart" "the autostart is handed to the session user"
+run noautostart 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${home}" \
+	DEFAULTS_DIR="${SCEN}/absent" SESSION_USER="${me}" "${INIT}"
+assert_in noautostart err 'could not install' "a missing default autostart warns and the start goes on"
+ok "the Openbox autostart is copied from /defaults on every start, and a failure only warns"
 
-entrypoint puid78 78 env -i PATH="${BIN}:${REAL_PATH}" PUID=99 PGID=100 \
-	FAKE_EUID=0 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_in puid78 err 'PUID/PGID must be 1000/1000' "PUID=99 rejection"
-assert_in puid78 err 'PUID=99 PGID=100' "PUID=99 rejection names the values"
-assert_in puid78 err 'chown -R 1000:1000 /mnt/user/appdata/claude-code-linux' "the remediation line"
-assert_no_log 'chown' "a rejected identity must not be chowned for"
-ok "PUID=99 exits 78 with the reason and the remediation, before anything is chowned"
-
-entrypoint pgid99 78 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=99 \
-	FAKE_EUID=0 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-entrypoint both99 78 env -i PATH="${BIN}:${REAL_PATH}" PUID=99 PGID=99 \
-	FAKE_EUID=0 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-ok "PGID=99 and 99/99 exit 78 as well"
-
-# --- 5.2 a base image without the Selkies entrypoint is rejected -------------
-scenario entrypoint-nobase
-rm -f "${SCEN}/etc/container-entrypoint.sh"   # the base image is missing its entrypoint
-state="${SCEN}/state"
-mkdir -p "${state}"
-mountinfo="${SCEN}/mountinfo"
-printf '%s\n' "36 35 0:32 / ${state} rw,relatime shared:1 - tmpfs tmpfs rw" > "${mountinfo}"
-entrypoint nobase 78 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=0 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_in nobase err 'must be layered on a Selkies base image' "missing base entrypoint"
-ok "a missing base entrypoint exits 78 instead of half-starting"
-
-# --- 5.3 a state path with nothing mounted at it warns -----------------------
-scenario entrypoint-unmounted
-state="${SCEN}/state"
-mkdir -p "${state}"
-: > "${SCEN}/mountinfo"   # an empty mountinfo: nothing is mounted anywhere
-
-# The warning must not depend on which start path is taken, so both are run and
-# both are left running for a moment and then stopped.
-for euid in 1000 0; do
-	label="unmounted-${euid}"
-	run_in_background "${label}" env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-		FAKE_EUID="${euid}" STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
-		DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT" --unmounted
-	stop_background "${label}"
-	assert_in "${label}" err "nothing is mounted at ${state}" "the unmounted warning (euid ${euid})"
-done
-assert_log 'chown' "the root start path still takes its one root step after warning"
-
-# the same run with the state path mounted stays quiet, and no leftover
-# /home/ubuntu dependency: the state path is where the contract says it is
-printf '%s\n' "36 35 0:32 / ${state} rw,relatime shared:1 - tmpfs tmpfs rw" > "${SCEN}/mountinfo"
-entrypoint mounted 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_missing "${SCEN}/mounted.err" 'nothing is mounted' "no warning when the state path is mounted"
-ok "the unmounted warning fires on both start paths and only when nothing is mounted"
-
-# --- 5.4 started without root: writable state execs, unwritable refuses ------
-scenario entrypoint-nonroot
-state="${SCEN}/state"
-mkdir -p "${state}"
-printf '%s\n' "36 35 0:32 / ${state} rw,relatime shared:1 - tmpfs tmpfs rw" > "${SCEN}/mountinfo"
-
-# uid 1001 (a --user override that is neither 0 nor 1000) is refused outright
-entrypoint wronguser 78 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=1001 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_in wronguser err 'was started as' "the --user override refusal"
-assert_in wronguser err 'Either start it as root' "the --user override explains both paths"
-
-# uid 1000 with a writable state path: the base entrypoint runs, exec'd
-entrypoint writable 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_in writable out 'base-ran' "a writable state path without root runs the base entrypoint"
-assert_no_log 'chown' "without root there is nothing to chown with"
-
-# uid 1000 with an unwritable state path: exit 78 with the host-side fix
-chmod 500 "${state}"
-entrypoint unwritable 78 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_in unwritable err 'not writable by uid 1000' "the unwritable-state refusal"
-assert_in unwritable err 'chown -R 1000:1000 /mnt/user/appdata/claude-code-linux' "the unwritable-state fix"
-chmod 700 "${state}"
-ok "without root: writable state runs the base entrypoint, unwritable state exits 78 with the fix, and a non-1000 uid is refused"
-
-# --- 5.4b a Chrome profile lock from another container is removed -------------
-chrome_dir="${state}/.config/google-chrome"
+# --- 5.2 a Chrome profile lock from another container is removed -------------
+chrome_dir="${home}/.config/google-chrome"
 mkdir -p "${chrome_dir}"
 ln -s "$(uname -n)-1" "${chrome_dir}/SingletonLock"
-entrypoint samelock 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+run samelock 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${home}" \
+	DEFAULTS_DIR="${ROOT}/rootfs/defaults" SESSION_USER="${me}" "${INIT}"
 [ -L "${chrome_dir}/SingletonLock" ] || fail "a Chrome lock from this hostname was removed; Chrome clears its own"
 rm -f "${chrome_dir}/SingletonLock"
 ln -s "old-container-1459" "${chrome_dir}/SingletonLock"
 ln -s "/tmp/gone/SingletonSocket" "${chrome_dir}/SingletonSocket"
 ln -s "123" "${chrome_dir}/SingletonCookie"
-entrypoint oldlock 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+run oldlock 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${home}" \
+	DEFAULTS_DIR="${ROOT}/rootfs/defaults" SESSION_USER="${me}" "${INIT}"
 for f in SingletonLock SingletonSocket SingletonCookie; do
 	[ -L "${chrome_dir}/${f}" ] && fail "the old container's Chrome ${f} was left in place"
 done
 assert_in oldlock err 'left by container old-container' "the lock removal is logged"
+ok "a Chrome profile lock taken under another hostname is removed, this hostname's is kept"
 
-# a sibling container still running on the same state path holds the state flock:
-# its Chrome lock is live and must survive
-ln -s "sibling-container-77" "${chrome_dir}/SingletonLock"
-flock -n "${state}/.config/claude-code-linux/state.lock" sleep 30 &
-sibling=$!
-sleep 0.5
-entrypoint siblinglock 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-kill "${sibling}" 2>/dev/null || true
-wait "${sibling}" 2>/dev/null || true
-[ -L "${chrome_dir}/SingletonLock" ] || fail "a Chrome lock held by a live sibling container was removed"
-assert_in siblinglock err 'another container is using' "the shared-state warning"
-ok "the entrypoint removes a Chrome profile lock taken under another hostname only when no other container holds the state path, and keeps this hostname's"
-
-# --- 5.4c third-party marketplaces get autoUpdate unless the user chose ------
-plugins_dir="${state}/.claude/plugins"
+# --- 5.3 third-party marketplaces get autoUpdate unless the user chose -------
+plugins_dir="${home}/.claude/plugins"
 mkdir -p "${plugins_dir}"
 cat > "${plugins_dir}/known_marketplaces.json" <<'EOS'
 {
@@ -734,165 +481,20 @@ cat > "${plugins_dir}/known_marketplaces.json" <<'EOS'
   "anthropic-gh": {"source": {"source": "github", "repo": "anthropics/skills"}}
 }
 EOS
-entrypoint autoupdate 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+chmod 640 "${plugins_dir}/known_marketplaces.json"
+run autoupdate 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${home}" \
+	DEFAULTS_DIR="${ROOT}/rootfs/defaults" SESSION_USER="${me}" "${INIT}"
 got=$(python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join("%s=%s" % (k, d[k].get("autoUpdate")) for k in sorted(d)))' \
 	"${plugins_dir}/known_marketplaces.json")
 [ "${got}" = "anthropic-gh=None claude-plugins-official=None opted-out=False superpowers-dev=True" ] ||
 	fail "marketplace autoUpdate: got '${got}'"
+[ "$(stat -c '%a' "${plugins_dir}/known_marketplaces.json")" = 640 ] || fail "the rewritten marketplace file lost its mode"
 printf '{broken' > "${plugins_dir}/known_marketplaces.json"
-entrypoint autoupdate-broken 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+run autoupdate-broken 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${home}" \
+	DEFAULTS_DIR="${ROOT}/rootfs/defaults" SESSION_USER="${me}" "${INIT}"
 [ "$(cat "${plugins_dir}/known_marketplaces.json")" = "{broken" ] || fail "an unreadable known_marketplaces.json was rewritten"
 assert_in autoupdate-broken err 'could not turn on marketplace auto-update' "the unreadable-file warning"
-ok "third-party marketplaces get autoUpdate: true, an explicit false and Anthropic's are left alone, and a broken file is left untouched"
-
-# --- 5.5 the root path: chown once, setpriv drop, TERM, exit status ----------
-# The base entrypoint is a generated stub that records how it was started, traps
-# TERM, and exits 42 — so "TERM is forwarded" and "the session's status is
-# propagated" are observed here, not restated.
-scenario entrypoint-root
-state="${SCEN}/state"
-mkdir -p "${state}"
-mountinfo="${SCEN}/mountinfo"
-printf '%s\n' "36 35 0:32 / ${state} rw,relatime shared:1 - tmpfs tmpfs rw" > "${mountinfo}"
-# Unquoted on purpose: `\${STUB_LOG}` is delivered literally (the heredoc is
-# expanded at generation time, and this stub cannot inherit an environment — the
-# scripts under test run under `env -i`), while the log path is written in
-# literally. shellcheck cannot see that, hence the directive.
-# shellcheck disable=SC2086
-cat > "${SCEN}/etc/container-entrypoint.sh" <<EOS
-#!/bin/sh
-# The base entrypoint as the container finds it.
-printf 'base uid=%s gid=%s arg=%s\n' "\$(id -u)" "\$(id -g)" "\${1:-none}" >> "${LOG}"
-trap 'printf "base got TERM\n" >> "${LOG}"; exit 42' TERM INT
-printf 'base up\n' >&2
-i=0
-while [ "\${i}" -lt 100 ]; do
-	i=\$((i + 1))
-	/bin/sleep 0.1
-done
-exit 7
-EOS
-chmod 755 "${SCEN}/etc/container-entrypoint.sh"
-
-first=$(log_lines)
-# Started in the background so the test can send it TERM, exactly as `docker
-# stop` signals pid 1.
-run_in_background root env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=0 STATE_DIR="${state}" XDG_RUNTIME_DIR="${SCEN}/runtime" \
-	MOUNTINFO="${mountinfo}" DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" \
-	"${ENTRYPOINT}" --from-selfcheck
-stop_background root
-
-assert_run_log_once "${first}" " -R 1000:1000 ${state}" "the state path is chowned exactly once"
-# The order matters: the ownership has to be handed back before anything else
-# runs, or a later failure would look like a keyring or sign-in problem.
-chown_line=$(log_since "${first}" | grep -n ' -R 1000:1000 ' | head -1 | cut -d: -f1)
-drop_line=$(log_since "${first}" | grep -n 'setpriv --reuid' | head -1 | cut -d: -f1)
-base_line=$(log_since "${first}" | grep -n 'base uid=' | head -1 | cut -d: -f1)
-if [ -z "${chown_line}" ] || [ -z "${drop_line}" ] || [ -z "${base_line}" ]; then
-	fail "the run did not log all of chown, setpriv and the session"
-fi
-if [ "${chown_line}" -ge "${drop_line}" ] || [ "${drop_line}" -ge "${base_line}" ]; then
-	fail "order is wrong: chown at ${chown_line}, drop at ${drop_line}, session at ${base_line}"
-fi
-assert_run_log "${first}" 'setpriv --reuid=1000 --regid=1000 --init-groups' "the drop to uid 1000"
-# The stub reports the uid it really runs under, which is this workspace's user
-# (the stub is a script, so the reuid is the stub's own to report and not the
-# kernel's): what the line does assert is that the session ran at all. The drop
-# itself is what the setpriv call above and the CI smoke test's uid/gid checks
-# cover, which is the only place a real reuid can be observed.
-assert_run_log "${first}" 'base uid=' "the session started"
-assert_run_log "${first}" 'arg=--from-selfcheck' "the container's arguments reach the session"
-assert_run_log "${first}" 'base got TERM' "TERM reaches the session"
-# The session exited 42 (not 143, not 0): the wrapper propagated what the session
-# decided, rather than the signal it received or a status of its own.
-assert_status root 42
-ok "the root path chowns once, drops with setpriv --init-groups, forwards TERM and exits 42 with the session"
-
-# --- 5.6 a refused chown is fatal, with the host-side cause ------------------
-scenario entrypoint-chownfail
-state="${SCEN}/state"
-mkdir -p "${state}"
-mountinfo="${SCEN}/mountinfo"
-printf '%s\n' "36 35 0:32 / ${state} rw,relatime shared:1 - tmpfs tmpfs rw" > "${mountinfo}"
-entrypoint chownfail 78 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=0 CHOWN_STATUS=1 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_in chownfail err 'could not take ownership' "the refused chown"
-assert_in chownfail err 'root-squashed NFS' "the refused chown names the cause"
-assert_no_log 'setpriv' "a failed chown must not be followed by the privilege drop"
-ok "a refused chown exits 78 with the root-squash explanation and starts nothing"
-
-# --- 5.7 the setpriv fallback when uid 1000 has no passwd entry --------------
-scenario entrypoint-cleargroups
-state="${SCEN}/state"
-mkdir -p "${state}"
-mountinfo="${SCEN}/mountinfo"
-printf '%s\n' "36 35 0:32 / ${state} rw,relatime shared:1 - tmpfs tmpfs rw" > "${mountinfo}"
-entrypoint cleargroups 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=0 SETPRIV_INIT_GROUPS=1 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_in cleargroups err 'continuing with --clear-groups' "the fallback is announced"
-assert_log 'setpriv --reuid=1000 --regid=1000 --clear-groups' "the fallback is used"
-assert_in cleargroups out 'base-ran' "the session still starts"
-ok "a failing --init-groups falls back to --clear-groups and still starts the session"
-
-# --- 5.7b WORKSPACE_GID joins a host group before the privilege drop ---------
-scenario entrypoint-workspace-gid
-state="${SCEN}/state"
-mkdir -p "${state}"
-mountinfo="${SCEN}/mountinfo"
-printf '%s\n' "36 35 0:32 / ${state} rw,relatime shared:1 - tmpfs tmpfs rw" > "${mountinfo}"
-# getent knows gid 100 as `users` and nothing else; groupadd and usermod only log.
-cat > "${FIX}/getent.sh" <<'EOS'
-log "$@"
-[ "$1 $2" = "group 100" ] && echo "users:x:100:"
-exit 0
-EOS
-stub_file getent "${FIX}/getent.sh"
-stub groupadd 'log "$@"'
-stub usermod 'log "$@"'
-
-entrypoint wsgid-existing 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=0 WORKSPACE_GID=100 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_log 'usermod.* -aG users ubuntu' "an existing group is joined by its own name"
-assert_no_log 'groupadd' "an existing gid is not created again"
-join_line=$(grep -n 'usermod' "${LOG}" | head -1 | cut -d: -f1)
-drop_line=$(grep -n 'setpriv --reuid' "${LOG}" | head -1 | cut -d: -f1)
-if [ -z "${join_line}" ] || [ -z "${drop_line}" ] || [ "${join_line}" -ge "${drop_line}" ]; then
-	fail "the group must be joined before the privilege drop (usermod at ${join_line}, setpriv at ${drop_line})"
-fi
-
-: > "${LOG}"
-entrypoint wsgid-new 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=0 WORKSPACE_GID=4242 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_log 'groupadd.* -g 4242 workspace' "an unknown gid is created"
-assert_log 'usermod.* -aG workspace ubuntu' "the created group is joined"
-
-: > "${LOG}"
-entrypoint wsgid-unset 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=0 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_no_log 'usermod' "no group is touched when WORKSPACE_GID is unset"
-
-for bad in 0 abc 1x 007 -5; do
-	entrypoint "wsgid-bad-${bad}" 78 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-		FAKE_EUID=0 WORKSPACE_GID="${bad}" STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-		DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-	assert_in "wsgid-bad-${bad}" err 'WORKSPACE_GID must be a positive decimal' "WORKSPACE_GID=${bad} is refused"
-done
-
-entrypoint wsgid-nonroot 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
-	FAKE_EUID=1000 WORKSPACE_GID=100 STATE_DIR="${state}" MOUNTINFO="${mountinfo}" \
-	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
-assert_in wsgid-nonroot err 'WORKSPACE_GID=100 is ignored' "a non-root start says the group cannot be added"
-ok "WORKSPACE_GID joins an existing or new group before the drop, rejects bad ids, and is ignored with a warning without root"
+ok "third-party marketplaces get autoUpdate: true, an explicit false and Anthropic's are left alone, the mode is kept, and a broken file is left untouched"
 
 # =============================================================================
 # claude-keyring-init
@@ -1099,18 +701,18 @@ assert_no_log 'app --no-sandbox' "with namespaces available the sandbox must be 
 ok "the launcher probes unshare, agrees with the real unshare on this host, and adds --no-sandbox only when namespaces are gone"
 
 # --- 5.15b ANGLE on Vulkan only with a readable render node -------------------
-# The probe's SELKIES_GPU_RENDER_NODE names the node; a fixture file stands in
+# The base's DRI_NODE names the node; a fixture file stands in
 # for it, readable for the GPU case and absent for the stale-value case.
 gpu_node="${SCEN}/fix/renderD128"
 : > "${gpu_node}"
 : > "${LOG}"
-run gpu 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${SCEN}/home" SELKIES_GPU_RENDER_NODE="${gpu_node}" "${SCEN}/claude-desktop" --x
+run gpu 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${SCEN}/home" DRI_NODE="${gpu_node}" "${SCEN}/claude-desktop" --x
 assert_log 'app --use-angle=vulkan --x' "with a readable render node the launcher selects ANGLE on Vulkan, ahead of the caller's arguments"
 : > "${LOG}"
-run nogpu 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${SCEN}/home" SELKIES_GPU_RENDER_NODE= "${SCEN}/claude-desktop"
+run nogpu 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${SCEN}/home" DRI_NODE= "${SCEN}/claude-desktop"
 assert_no_log 'use-angle' "without a render node the default GL backend stays"
 : > "${LOG}"
-run gonegpu 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${SCEN}/home" SELKIES_GPU_RENDER_NODE="${SCEN}/fix/absent/renderD128" "${SCEN}/claude-desktop"
+run gonegpu 0 env -i PATH="${BIN}:${REAL_PATH}" HOME="${SCEN}/home" DRI_NODE="${SCEN}/fix/absent/renderD128" "${SCEN}/claude-desktop"
 assert_no_log 'use-angle' "a render node that cannot be read keeps the default GL backend"
 ok "the launcher adds --use-angle=vulkan only when the session's render node is readable"
 
@@ -1280,7 +882,7 @@ ok "the Dockerfile does not mention selfcheck (the gate is never shipped)"
 # =============================================================================
 printf '\nselfcheck: %d checks passed; no docker, no container, no network.\n' "${PASS}"
 printf 'selfcheck: runtime proof (build, boot, Selkies, PUID/PGID ownership on a real\n'
-printf 'selfcheck: volume) is CI-owned — DESIGN §R5 — and is asserted by the CI smoke test,\n'
+printf 'selfcheck: volume) is CI-owned and is asserted by the CI smoke test,\n'
 printf 'selfcheck: not here. This gate proves the shell, nothing about the built image.\n'
 [ "${FAILED}" -eq 0 ] || fail "${FAILED} checks failed"
 exit 0

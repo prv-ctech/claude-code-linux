@@ -1,9 +1,11 @@
 # claude-code-linux
 
 The official **Claude Desktop for Linux** (Anthropic's apt `.deb`) plus the **Claude Code CLI**,
-running as a full Chrome/LXQt desktop inside a container and streamed to your browser with
-[Selkies](https://github.com/selkies-project/selkies). Built for Unraid Community Applications,
-also usable via `docker compose`.
+running on a Selkies web desktop and streamed to your browser. Built on LinuxServer.io's
+[baseimage-selkies](https://github.com/linuxserver/docker-baseimage-selkies), so PUID/PGID, UMASK and
+`/config` work the way every other Unraid container does (the same setup as
+[artcraft-apps](https://github.com/junkerderprovinz/artcraft-apps)). Built for Unraid Community
+Applications, also usable via `docker compose`.
 
 Nothing is installed on the client. Open the WebUI, sign in to Claude Desktop once, and the sign-in
 survives every container update because it lives in the mounted state directory.
@@ -32,54 +34,57 @@ survives every container update because it lives in the mounted state directory.
 1. `docker login ghcr.io -u YOUR-GITHUB-USERNAME` in the Unraid terminal (PAT with `read:packages`).
 2. Community Applications → *claude-code-linux* (or add the template manually from
    [`unraid/claude-code-linux.xml`](unraid/claude-code-linux.xml)).
-3. Leave **PUID** and **PGID** at `1000`. Set **TZ** to your IANA zone (default `Etc/UTC`, compose `CLAUDE_TZ`). Set **PASSWD** and **SELKIES_ENABLE_BASIC_AUTH** only if you want a login on the desktop. To work on a host folder, set **Workspace** (it appears at `/workspaces`) and, if its group is not 1000, **WORKSPACE_GID** (Unraid: `100`); see [Workspace access](#workspace-access).
-4. Apply, then open the WebUI on port `8080` (the certificate is self-signed, so the browser warns).
+3. Keep **PUID** `99`, **PGID** `100` and **UMASK** `002` (the Unraid defaults). Set **TZ** and,
+   optionally, **Workspace** (a host folder that appears at `/workspaces`).
+4. Apply. Point your reverse proxy (Pangolin) at port `3000` (HTTP); on the LAN open
+   `https://<server>:3001` and accept the self-signed certificate once.
 
 ### Docker Compose
 
 ```bash
-cp .env.example .env      # no desktop login by default; see Ports and exposure
+cp .env.example .env      # PUID/PGID/UMASK default to Unraid's 99/100/002
 docker compose up -d
 docker compose logs -f
 ```
 
-Host port `8080` is published; state lands in `./claude-code-state` by default. Time zone comes from `CLAUDE_TZ` in `.env` (default `Etc/UTC`). Both files encode the
-same port, `/dev/shm` size, PUID/PGID defaults and state path as the Unraid template, so the two
-cannot drift.
+State lands in `./appdata` by default. Both files encode the same ports, `/dev/shm` size,
+PUID/PGID/UMASK defaults and paths as the Unraid template, so the two cannot drift.
 
 ## First run
 
-1. **Open the session.** Browse to `https://<server>:8080` (the Unraid template's *WebUI* button does
-   exactly this). The in-container certificate is self-signed, so accept the browser warning.
-2. **Log in to the streamed desktop**, only when `SELKIES_ENABLE_BASIC_AUTH=true`. User name `ubuntu`, password is the `PASSWD` you set (for compose, `CLAUDE_PASSWORD`). Off by default, so the reverse proxy is the only gate.
-3. **Sign in to Claude.** The session autostarts the secret service and then Claude Desktop; the app's
+1. **Open the session** through your reverse proxy, or `https://<server>:3001` on the LAN. There is
+   no desktop login: the reverse proxy is the gate.
+2. **Sign in to Claude.** The session starts the secret service and then Claude Desktop; the app's
    sign-in page opens in the session's **Google Chrome**, which is the desktop's default browser on
-   purpose ([`rootfs/etc/xdg/mimeapps.list`](rootfs/etc/xdg/mimeapps.list)). Sign in with your Anthropic
-   account.
-4. **Or use the CLI.** A terminal inside the session has `claude` on `PATH` — the same Claude Code pin the
-   image ships — and it is the documented fallback where Cowork is unavailable.
+   purpose ([`rootfs/etc/xdg/mimeapps.list`](rootfs/etc/xdg/mimeapps.list)).
+3. **Or use the CLI.** Open *Terminal* from the desktop's right-click menu, or from the Unraid terminal
+   run `docker exec -it -u abc claude-code-linux claude`.
 
 Start the container with `CLAUDE_DESKTOP_AUTOSTART=false` for a session without the Claude window at
-start-up; the *Claude* entry in the LXQt menu opens it on demand either way.
+start-up; the desktop's right-click menu (*Claude*, *Google Chrome*, *Terminal*) opens it on demand,
+also after you close it.
 
 ### Where state lives
 
-Everything that has to survive an update is a single mount, `/home/ubuntu`:
+Everything that has to survive an update is a single mount, `/config` (the session user's `HOME`):
 
 | Host | Value |
 |---|---|
 | Unraid | `/mnt/user/appdata/claude-code-linux` (the template's *AppData* path) |
-| compose | `./claude-code-state` (`CLAUDE_STATE` in `.env`) |
+| compose | `./appdata` (`CLAUDE_STATE` in `.env`) |
 
 It holds the Chrome profile, the gnome-keyring that stores the claude.ai sign-in, the Claude Desktop
 configuration and `~/.claude/.credentials.json` for the CLI. That is why an update or a recreate never
-asks you to sign in again — and why it is worth backing up, keeping at uid 1000, and never pointing at
-`/config` (Unraid rewrites that mount target to its own app config path).
+asks you to sign in again — and why it is worth backing up.
+
+**Upgrading from the `/home/ubuntu` image** (before the LinuxServer.io rebase): start fresh. Point
+*AppData* at a new, empty folder and sign in once more; the old folder's files belong to uid 1000 and
+use the old layout.
 
 ## Python and CPU encoding
 
 `python3`, `pip` and `uv` are installed. `pip install --user` and `uv tool install` write under
-`/home/ubuntu`, so they persist with the rest of the state. Video is encoded on the CPU (x264) by
+`/config`, so they persist with the rest of the state. Video is encoded on the CPU (x264) by
 default; no GPU or device passthrough is needed. With `--device=/dev/dri` (compose: `devices:`), Selkies
 detects an Intel or AMD render node at start and encodes with VA-API where the GPU supports the codec
 (checked on an Intel Arc A380; NVIDIA is untested). No driver install is needed on the host or in the
@@ -89,38 +94,22 @@ its default GL backend would log `XFree86-VidModeExtension missing` and `glXGetM
 every frame, because the virtual X display has no refresh rate to report. The image sets
 `INTEL_DEBUG=noccs`: on Intel Arc, compressed (CCS) buffers on the zero-copy capture path stream as
 scrambled tiles. The sidebar's Full Color button asks for 4:4:4, which an Arc encodes in hardware only
-for H.265 and VP9, so with it on, H.264 falls back to the CPU (x264). H.264 is the default encoder and
-the webcam uplink is locked to H.264, on CPU and GPU alike (`SELKIES_ENCODER`, `SELKIES_WEBCAM_ENCODER`).
+for H.265 and VP9, so with it on, H.264 falls back to the CPU (x264). H.264 is the base's default
+encoder, and the webcam uplink is locked to H.264 (`SELKIES_WEBCAM_ENCODER`).
 
-## PUID / PGID: 1000/1000 only
+## PUID, PGID and UMASK
 
-`PUID=1000` and `PGID=1000` are the **only** supported values. The Selkies desktop layer is rootless
-by design at uid 1000 (`/home/ubuntu`, the build-time `fakeroot` package database and the root-owned
-setuid bracket all assume that id), and **no remap path exists**: any other value is rejected at
-start with exit status `78` and an actionable message. Unraid's own default is `99`/`100`; this
-project deliberately defaults to `1000`/`1000`, which is the natively supported mapping.
-
-**Unraid creates the appdata directory as `nobody:users` (99:100) before the container starts**, while
-the session runs as uid 1000. The container's root bootstrap re-chowns `/home/ubuntu` on every start,
-so the stock flow works with no user action. If a start still reports a write or permission error:
-
-```bash
-chown -R 1000:1000 /mnt/user/appdata/claude-code-linux
-```
+The base image's init remaps its `abc` user to `PUID`/`PGID` and applies `UMASK` before anything
+starts, so every file the desktop, Claude Desktop or the CLI writes under `/config` and `/workspaces`
+belongs to the host user that owns the share. The defaults are Unraid's: `99` (`nobody`), `100`
+(`users`) and `002` (group-writable, so your other containers can edit the same files). On another
+Linux host, set them to the ids that own your folders (often `1000`/`1000`).
 
 ## Workspace access
 
-A host folder with your projects can be mounted at `/workspaces` (Unraid: the **Workspace** path; compose:
-`CLAUDE_WORKSPACE`, default `./workspace`). The session is uid/gid 1000 and cannot be remapped, so on a
-share owned by another group it needs that group. Set `WORKSPACE_GID` (compose: `CLAUDE_WORKSPACE_GID`)
-to the group's id (Unraid `users` is `100`): at start the root bootstrap adds `ubuntu` to that group,
-creating it as `workspace` if the id is unknown, before dropping to uid 1000. It survives a recreate
-because it runs every start. Docker's `--group-add` does not work here, as the drop rebuilds the group
-list from `/etc/group`.
-
-Nothing on the host is chowned or chmod'd. The folder must already give that group read/write (for
-example group `rwx`, a default ACL and setgid directories). Empty or unset does nothing; `0` and
-non-numeric values exit `78`.
+A host folder with your projects can be mounted at `/workspaces` (Unraid: the **Workspace** path;
+compose: `CLAUDE_WORKSPACE`, default `./workspace`). With PUID/PGID matching the folder's owner it is
+writable as-is; nothing is chowned.
 
 ## `/dev/shm` is 2 GB on purpose
 
@@ -130,11 +119,15 @@ sets `shm_size: 2gb`. This is required, not tuning.
 
 ## Ports and exposure
 
-`8080/tcp` is the only port the image serves. Selkies' default `SELKIES_MODE=websockets` needs no other
-port; WebRTC mode would additionally need TURN `3478/tcp+udp` and `65532-65535`, which neither the
-template nor compose publishes. **Do not expose 8080 to the Internet**: the streamed session holds
-your claude.ai and Claude Code credentials, TLS is a self-signed certificate, and the desktop has no login by default, so the reverse proxy's auth is the only gate. Set `SELKIES_ENABLE_BASIC_AUTH=true` and `PASSWD` to add the `ubuntu` login. Put a reverse proxy with real TLS in front
-if you need remote access.
+| Port | Use |
+|---|---|
+| `3000/tcp` | HTTP, for the reverse proxy (Pangolin) that terminates TLS and authenticates. Opened directly in a browser it reports that it needs a secure connection. |
+| `3001/tcp` | HTTPS with a self-signed certificate, for the LAN. |
+
+**There is no desktop login**: `CUSTOM_USER`/`PASSWORD` are not set and `SELKIES_ENABLE_BASIC_AUTH`
+is `false`, so the reverse proxy's auth is the only gate. **Never expose 3000 or 3001 to the Internet
+directly**: the streamed session holds your claude.ai and Claude Code credentials. (Setting
+`PASSWORD`, and optionally `CUSTOM_USER`, would turn on the base's nginx basic auth.)
 
 ## Cowork (QEMU/KVM) is unsupported
 
@@ -145,9 +138,8 @@ environments, and this template grants no devices, so the Cowork tab reports its
 of half-failing. The **pinned Claude Code CLI ships in the same image** and is the documented
 fallback: it needs no virtualization.
 
-If you want to try KVM anyway, the template's comments show the optional device passthrough, and
-`compose.yaml` carries the equivalent commented `devices:` and `group_add:` entries. Nothing about
-that configuration is supported.
+If you want to try KVM anyway, build with `--build-arg CLAUDE_DESKTOP_COWORK=true` and pass
+`/dev/kvm` and `/dev/vhost-vsock`. Nothing about that configuration is supported.
 
 ## Limitations
 
@@ -157,7 +149,7 @@ that configuration is supported.
 | **Computer Use is unavailable** | It is a macOS/Windows feature — Anthropic's Linux desktop notes state it "isn't available on Linux". No image change can add it; use the bundled Claude Code CLI for automation. |
 | **Cowork needs KVM** | [`/dev/kvm` plus `/dev/vhost-vsock` and the host `kvm` group](#cowork-qemukvm-is-unsupported), which the template deliberately does not grant. The CLI in the same image is the fallback. |
 | **The Unraid icon is a generated placeholder tile** | `unraid/icon.png` is a 256×256 RGBA mark generated for this repository — not a flat colour block — because Community Applications requires an icon URL and no designed tile exists yet. Replacing that one file is the whole change when a designed tile arrives. |
-| **Self-signed TLS on `8080`** | Inherited from the Selkies base image. Put a reverse proxy with real TLS in front for anything beyond your LAN; never expose `8080` itself. |
+| **Self-signed TLS on `3001`** | Inherited from the base image. Use the reverse proxy on `3000` for anything beyond your LAN. |
 
 ## Tags and how an update reaches you
 
@@ -165,7 +157,7 @@ that configuration is supported.
 |---|---|
 | `:latest` | Moving. What the Unraid template and `compose.yaml` reference. Re-pointed by CI to a digest that already passed the smoke test; never rebuilt. |
 | `:<claude-desktop-version>` (e.g. `2.26454.2`) | Precision tag for the newest build of that desktop version. Re-pointed when the CLI pin or the recipe changes, so it is **not** byte-immutable. |
-| `:<claude-desktop-version>-ubuntu26.04` | Same build, distribution flavor suffix taken from the base image tag. |
+| `:<claude-desktop-version>-ubunturesolute` | Same build, distribution flavor suffix taken from the base image tag. |
 
 Because a version tag can be re-pointed, the immutable handle is the **digest** (`image@sha256:…`).
 Publishing a version by hand, verifying a published image and rolling a user back — all with exact
@@ -179,7 +171,7 @@ The numbers the first release is built from, re-resolved from upstream on 2026-1
 |---|---|---|
 | Claude Desktop | `2.26454.2` · `SHA256 b251a0224a8635874f33598df8ed8952b427f84815ee59580cc022d6bdb2430f` | the `Version`/`SHA256` of that one stanza in Anthropic's amd64 `Packages` index |
 | Claude Code CLI | `2.1.294` | `dist-tags.latest` of `@anthropic-ai/claude-code` (npm) |
-| Base image | `ghcr.io/selkies-project/selkies/desktop:2.0.0-ubuntu26.04` | the workflow's `BASE_IMAGE`, and the source of the `-ubuntu26.04` tag suffix |
+| Base image | `ghcr.io/linuxserver/baseimage-selkies:ubunturesolute` | the workflow's `BASE_IMAGE`, and the source of the `-ubunturesolute` tag suffix |
 
 The Unraid template and `compose.yaml` both pull `ghcr.io/prv-ctech/claude-code-linux:latest`, which
 resolves to the newest build of that pair; the precision tags are derived from it. The pins above are the
@@ -195,7 +187,7 @@ The container **never self-updates**. Anthropic's apt repository is not register
 rebuild is the update path.**
 
 Plugins are the exception: they keep updating without a rebuild. `FORCE_AUTOUPDATE_PLUGINS=1` keeps
-plugin auto-update on, and at every start `docker-entrypoint.sh` sets `autoUpdate: true` on each
+plugin auto-update on, and at every start the `init-claude` s6 step (`rootfs/usr/local/bin/claude-init`) sets `autoUpdate: true` on each
 third-party marketplace in `~/.claude/plugins/known_marketplaces.json` that has no setting yet. Without
 that, a third-party marketplace's local clone is never refreshed, so Claude Code never sees a newer
 plugin version and its update button stays grey. A marketplace you turned auto-update off for
@@ -220,7 +212,7 @@ Unraid **compares the registry manifest digest of the tag the user installed** w
 `RepoDigests`. It does **not** use the template's `<Date>` element, which the CA field reference calls
 legacy. That is exactly why the template points at the moving `:latest` while precision tags are also
 published: when CI pushes a new digest to `:latest`, Unraid shows **"update ready"** and recreates the
-container from its stored template with the same Config values. The bind-mounted `/home/ubuntu` path
+container from its stored template with the same Config values. The bind-mounted `/config` path
 is what carries your sign-in, keyring and CLI credentials across that recreation — so no re-login.
 
 ### When a rebuild happens
@@ -236,14 +228,11 @@ is what carries your sign-in, keyring and CLI credentials across that recreation
    instead of failing the image; a version below the `MIN_VERSION` floor is never considered.
 2. **`build`** builds `linux/amd64` with `load: true` and **smoke-tests before pushing**: the health
    status must be `healthy`, `dpkg-query -W claude-desktop` must equal the planned version,
-   `claude --version` must equal the CLI pin **when run as the session identity** (`docker exec -u
-   1000:1000 -e HOME=/home/ubuntu`, not as root), pid 1 must be root while the session identity is
-   `1000:1000`, `https://localhost:8080/api/health` must answer `200`, the streamed session must really
-   be up (display read from the base's own environment file, with Xvfb, `lxqt-session` and `openbox` all
-   running as uid 1000), `google-chrome --version` must execute as uid 1000, match the version dpkg
-   recorded for the single installed `google-chrome*` package, and a bounded `--headless --dump-dom` run
-   must produce DOM — and `PUID=99` must exit `78`
-   with the documented message. Only then are `:<version>` and `:<version>-<flavor>` pushed, with one
+   `claude --version` must equal the CLI pin **when run as the session user** (`docker exec -u abc`),
+   started with `PUID=99 PGID=100 UMASK=002`: `abc` must be `99:100` and own `/config`,
+   `http://localhost:3000/` must answer `200` **without a login**, Xvfb, `openbox` and Claude Desktop
+   must all be running as uid 99, and `google-chrome --version` must match the installed package and a
+   bounded `--headless --dump-dom` run must produce DOM. Only then are `:<version>` and `:<version>-<flavor>` pushed, with one
    retry for GHCR's first-publication race (`denied: permission_denied: write_package`).
 3. **`latest`** moves `:latest` with `docker buildx imagetools create --prefer-index=false` from the
    digest that just passed the smoke test, then asserts that `:latest` resolves to exactly that digest
@@ -252,14 +241,14 @@ is what carries your sign-in, keyring and CLI credentials across that recreation
    fresh index. **`:latest` is never rebuilt.**
 
 **A timer alone never rebuilds.** The recipe hash covers everything the image build consumes: the
-Dockerfile, `.dockerignore`, `docker-entrypoint.sh`, every `COPY` source of the Dockerfile (the
-`scripts/install-claude-desktop.sh` installer and the whole `rootfs` tree), `compose.yaml`, the Unraid
+Dockerfile, `.dockerignore`, every `COPY` source of the Dockerfile (the
+`scripts/install-claude-desktop.sh` installer, the whole `rootfs` tree and the icon), `compose.yaml`, the Unraid
 packaging (`unraid/**` — template and icon), **this workflow file**, a `RECIPE_SCHEMA` constant and the
 CLI pin — plus the **Claude Desktop version it is computed for**. The list is *derived*, not
 hand-maintained: [`scripts/recipe-inputs.sh`](scripts/recipe-inputs.sh) reads the Dockerfile's own
 `COPY` lines and prints it, and the `plan` job hashes exactly that output, so a new `COPY` source joins
 the hash with no other edit and no build input can silently fall out of it. The workflow's `push` filter
-covers that set — `Dockerfile`, `.dockerignore`, `docker-entrypoint.sh`, `rootfs/**`, `compose.yaml`,
+covers that set — `Dockerfile`, `.dockerignore`, `rootfs/**`, `compose.yaml`,
 `unraid/**`, `scripts/**` (which also covers the sweep tooling) and `.github/workflows/build.yml` — so
 every edit that moves the hash also starts a run, while an edit elsewhere (the docs, this README,
 `.env.example`) starts nothing. The desktop version is mixed in per candidate rather than taken from the
@@ -317,8 +306,8 @@ exists at all (the very first publication), re-run *Run workflow* with `rebuild=
 | Symptom | Cause | Fix |
 |---|---|---|
 | `denied` or `unauthorized` when pulling | The GHCR package is private | `docker login ghcr.io -u <user>` with a PAT carrying `read:packages` |
-| Container exits with code `78` and a `PUID/PGID must be 1000/1000` message | PUID or PGID was changed | Set both back to `1000` and recreate |
-| Starts, WebUI loads, but sign-in never completes / settings are not saved | The state directory is not writable by uid 1000 | `chown -R 1000:1000 /mnt/user/appdata/claude-code-linux` (on the server holding a network share) |
+| Starts, WebUI loads, but sign-in never completes / settings are not saved | AppData still holds files from the old uid-1000 image | Point *AppData* at a new, empty folder (or `chown -R 99:100` the old one) |
+| `requires a secure connection (HTTPS)` | Port 3000 opened directly in a browser | Use the reverse proxy, or `https://<server>:3001` |
 | Browser tabs crash, renderers die | `/dev/shm` too small | Keep `--shm-size=2g` / `shm_size: 2gb`; do not remove it |
 | Sign-in is not remembered across restarts | Secret-service keyring missing or locked | The image installs and unlocks `gnome-keyring` for `org.freedesktop.secrets`; check the container log for keyring errors |
 | Cowork tab says virtualization is unavailable | No `/dev/kvm` / `/dev/vhost-vsock` | Expected and unsupported; use the bundled Claude Code CLI |
@@ -327,7 +316,7 @@ exists at all (the very first publication), re-run *Run workflow* with `rebuild=
 ## Repository layout
 
 ```
-Dockerfile, docker-entrypoint.sh, rootfs/**   the image (owned by the container task)
+Dockerfile, rootfs/**                         the image (s6 init in rootfs/etc/s6-overlay)
 .dockerignore                                 build context: exactly what the Dockerfile COPYs
 .github/workflows/build.yml                   plan -> build -> latest CI, upstream sweep
 scripts/latest-upstream-version.sh            desktop version signal (apt index)
@@ -335,7 +324,7 @@ scripts/published-recipe.sh                   recipe hash read back from GHCR (c
 scripts/recipe-inputs.sh                      derives the recipe-hash input set from the Dockerfile
 scripts/install-claude-desktop.sh             key/InRelease verification + pinned .deb install
 scripts/selfcheck.sh                          workspace gate over the image's shell surface (no daemon)
-unraid/claude-code-linux.xml                  Community Applications template, PUID/PGID 1000/1000
+unraid/claude-code-linux.xml                  Community Applications template, PUID/PGID 99/100, UMASK 002
 compose.yaml, .env.example                    non-Unraid hosts
 docs/DESIGN.md                                binding build contract
 docs/RELEASE.md                               publish, verify and roll back by hand
@@ -357,7 +346,7 @@ sh -n scripts/published-recipe.sh && sh -n scripts/latest-upstream-version.sh
 bash scripts/latest-upstream-version.sh                # e.g. 2.26454.2
 bash scripts/latest-upstream-version.sh --json         # version, sha256, deb URL, stanza count
 sh scripts/recipe-inputs.sh                            # every file the recipe hash covers
-cp .env.example .env && docker compose config -q       # no desktop login by default
+cp .env.example .env && docker compose config -q       # no desktop login
 ```
 
 What has and has not been proven on a host without a container runtime is recorded in
@@ -368,7 +357,7 @@ What has and has not been proven on a host without a container runtime is record
 
 The published image contains **proprietary, closed-source software that this project does not own**:
 Anthropic's `claude-desktop` package (© Anthropic PBC, distributed under Anthropic's Commercial Terms
-of Service, no redistribution right granted) as well as Google Chrome and the Selkies desktop stack
+of Service, no redistribution right granted) as well as Google Chrome and LinuxServer.io's Selkies base image
 from their own upstreams. The `.deb` is **never vendored into this repository**: it is fetched from
 Anthropic's own apt repository at build time and verified against the `SHA256` published in that same
 index. This repository's own build files (workflow, scripts, template, compose, README) may be reused;

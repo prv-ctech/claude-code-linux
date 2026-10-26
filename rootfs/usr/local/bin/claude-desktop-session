@@ -5,22 +5,19 @@
 # WHY IT WAITS (docs/DESIGN.md §5.1, R2)
 #   Claude Desktop registers the claude.ai sign-in through the freedesktop secret
 #   service, and a sign-in it cannot store is one the user repeats on every start.
-#   The keyring entry (/etc/xdg/autostart/10-claude-code-linux-keyring.desktop) and
-#   this one are independent entries: lxqt-session starts XDG autostart entries in
-#   whatever order it read the directories, so this waits for the keyring's
-#   readiness marker instead of assuming it ran first — and gives up waiting after
-#   a bounded time, because a desktop with no Claude window is worse than a Claude
-#   window that may ask for the sign-in again.
+#   The Openbox autostart (/defaults/autostart) runs the keyring init first; this
+#   still waits for its readiness marker rather than trusting that order — and
+#   gives up waiting after a bounded time, because a desktop with no Claude window
+#   is worse than a Claude window that may ask for the sign-in again.
 #
-# STARTED BY lxqt-session, so the app inherits the session's environment: DISPLAY,
-# the session bus, PipeWire's PULSE_SERVER, and the xdg-desktop-portal that the
-# OAuth browser flow uses. `claude-desktop` resolves to /usr/local/bin/claude-desktop
+# STARTED BY the Openbox autostart, so the app inherits the session's environment:
+# DISPLAY, the session bus, PulseAudio, and the xdg-desktop-portal that the OAuth
+# browser flow uses. `claude-desktop` resolves to /usr/local/bin/claude-desktop
 # (the launcher below), which is ahead of the package's own /usr/bin/claude-desktop
 # in PATH.
 #
 # Opt out of the autostart with -e CLAUDE_DESKTOP_AUTOSTART=false — the menu entry
-# the package installs (com.anthropic.Claude.desktop, with the hicolor icons, so it
-# appears in the LXQt menu as "Claude") keeps working either way.
+# in the desktop's right-click menu ("Claude") keeps working either way.
 
 set -eu
 
@@ -33,7 +30,7 @@ case "${CLAUDE_DESKTOP_AUTOSTART:-true}" in
 		;;
 esac
 
-ready_marker="${XDG_RUNTIME_DIR:-/tmp/runtime-ubuntu}/claude-code-linux-keyring-ready"
+ready_marker="${XDG_RUNTIME_DIR:-${HOME:-/config}/.XDG}/claude-code-linux-keyring-ready"
 waited=0
 while [ ! -e "${ready_marker}" ] && [ "${waited}" -lt 60 ]; do
 	waited=$((waited + 1))

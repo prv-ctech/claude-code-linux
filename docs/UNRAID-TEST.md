@@ -41,59 +41,49 @@ closes; this README will say when that changes.
 |---|---|
 | Repository | `ghcr.io/prv-ctech/claude-code-linux:latest` |
 | Network | `bridge` |
-| WebUI Port | `8080` → container `8080` |
-| AppData path | `/mnt/user/appdata/claude-code-linux` → container `/home/ubuntu` |
-| PUID / PGID | **`1000` / `1000`** — leave them exactly there |
-| SELKIES_ENABLE_BASIC_AUTH / PASSWD | off by default; set `true` and a password only to require a login |
+| WebUI Port (HTTP) | `3000` → container `3000` (for the reverse proxy) |
+| WebUI Port (HTTPS) | `3001` → container `3001` (LAN, self-signed) |
+| AppData path | `/mnt/user/appdata/claude-code-linux` → container `/config` |
 | Workspace path (optional) | your projects folder → container `/workspaces` |
-| WORKSPACE_GID (optional) | group id owning that folder, e.g. `100`; empty = off |
+| PUID / PGID / UMASK | `99` / `100` / `002` (the Unraid defaults) |
 | TZ | IANA zone, default `Etc/UTC` |
-| Extra Parameters | `--shm-size=2g` |
+| Extra Parameters | `--restart=unless-stopped --shm-size=2g` |
 
-**Keep PUID and PGID at 1000/1000.** Unraid's own default is 99/100, but this image is rootless at uid
-1000 and refuses any other value: the container exits with code `78` and a message saying so. That is not
-a bug to work around; there is no remap.
+`--shm-size=2g` is required — Docker's 64 MB default kills Chrome in this desktop. There is no desktop
+login; do not add `CUSTOM_USER`/`PASSWORD` unless you want nginx basic auth in front of the reverse
+proxy's.
 
-`--shm-size=2g` is required too — Docker's 64 MB default kills the browsers in this desktop.
-
-**If a start still reports a permission or write error**, run this once on the Unraid terminal and start
-the container again:
-
-```bash
-chown -R 1000:1000 /mnt/user/appdata/claude-code-linux
-```
-
-(Unraid creates that directory as `nobody:users` = 99:100 before the container exists. The image re-chowns
-it at every start, so this line is the fallback, not the normal path.)
+Coming from the old `/home/ubuntu` image? Use a new, empty AppData folder: the old one is uid 1000 and
+uses the old layout.
 
 **Non-Unraid hosts, or if you prefer compose on Unraid:**
 
 ```bash
 git clone https://github.com/prv-ctech/claude-code-linux && cd claude-code-linux
-cp .env.example .env        # leave CLAUDE_PUID/CLAUDE_PGID at 1000
+cp .env.example .env        # CLAUDE_PUID/CLAUDE_PGID/CLAUDE_UMASK: your host's ids
 docker compose up -d
 docker compose logs -f
 ```
 
 ## 3. First run
 
-1. Open the WebUI on **`https://<your-unraid-ip>:8080`**. The certificate is self-signed, so the browser
-   warns — accept it and continue.
-2. Only with `SELKIES_ENABLE_BASIC_AUTH=true`: log in as **`ubuntu`** with the `PASSWD` you set. Otherwise the desktop opens without a login.
-3. Claude Desktop starts by itself and its sign-in page opens in **Google Chrome**. Sign in with your
+1. Open the session through your reverse proxy (pointed at port `3000`), or on the LAN at
+   **`https://<your-unraid-ip>:3001`**; the certificate is self-signed, so accept it once. There is no
+   desktop login.
+2. Claude Desktop starts by itself and its sign-in page opens in **Google Chrome**. Sign in with your
    Anthropic account.
-4. You should land on the Claude Desktop window. The Claude Code CLI is also there: open a terminal in
-   the session (or `docker exec -it claude-code-linux bash`) and run `claude`.
-5. **Do not forward port 8080 to the Internet.** The session holds your claude.ai and Claude Code
-   credentials and the TLS certificate is self-signed; the desktop login is the only gate.
+3. You should land on the Claude Desktop window. The Claude Code CLI is also there: *Terminal* in the
+   desktop's right-click menu, or `docker exec -it -u abc claude-code-linux claude`.
+4. **Do not forward 3000 or 3001 to the Internet.** The session holds your claude.ai and Claude Code
+   credentials, and the reverse proxy is the only gate.
 
 ## 4. Confirm it is healthy
 
 ```bash
 docker inspect --format '{{.State.Health.Status}}' claude-code-linux     # healthy
 docker exec claude-code-linux dpkg-query -W -f='${Version}' claude-desktop   # 2.26454.2
-docker exec -u 1000 claude-code-linux id -u                              # 1000
-ls -ln /mnt/user/appdata/claude-code-linux | head                        # owned by 1000 1000
+docker exec claude-code-linux id abc                                     # uid=99 gid=100
+ls -ln /mnt/user/appdata/claude-code-linux | head                        # owned by 99 100
 ```
 
 Then close the browser tab, reopen the WebUI, and check that **you are still signed in** — nothing should
@@ -119,7 +109,7 @@ Recovering:
 1. uname -m                                        # is this x86_64? arm64 is not supported
 2. docker logs --tail 100 claude-code-linux
 3. docker inspect --format '{{.State.Health.Status}} {{.State.Status}}' claude-code-linux
-4. docker exec -u 1000 claude-code-linux id 2>&1 || true
+4. docker exec claude-code-linux id abc 2>&1 || true
 5. ls -ln /mnt/user/appdata/claude-code-linux | head
 6. docker inspect --format '{{index .RepoDigests 0}}' claude-code-linux
 7. the exact command you ran and its full output (e.g. the `docker login` or the `docker pull` line)

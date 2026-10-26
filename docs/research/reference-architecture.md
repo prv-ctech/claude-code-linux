@@ -1,5 +1,13 @@
 # Reference architecture report — `prv-ctech/chatgpt-linux`
 
+> **Superseded in part (2026-10-26).** The image was rebased onto
+> `ghcr.io/linuxserver/baseimage-selkies:ubunturesolute`. Everything below about the rootless
+> `selkies-project` base, PUID/PGID 1000/1000 only, the root bootstrap in `docker-entrypoint.sh`,
+> `WORKSPACE_GID`, `/home/ubuntu`, LXQt and port 8080 is historical. The current contract: the base's
+> s6 init remaps `abc` to PUID/PGID (Unraid 99/100) and applies UMASK (002); state is `/config`; the
+> desktop is Openbox; ports are 3000 (HTTP, reverse proxy) and 3001 (HTTPS); there is no desktop login.
+> See the README, the Dockerfile and `rootfs/usr/local/bin/claude-init`.
+
 **Research date:** 2026-10-08 · **Method:** web only (`api.github.com`, `raw.githubusercontent.com`)
 
 ## 0. Headline finding — the requested repo DOES NOT EXIST
