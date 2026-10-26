@@ -1,0 +1,23 @@
+#!/bin/sh
+# The launcher for Google Chrome. /usr/bin/google-chrome-stable (and through the
+# alternatives link, /usr/bin/google-chrome) points here, so the desktop file,
+# xdg-open and Claude Desktop's sign-in links all reach it.
+#
+# Same sandbox decision as the claude-desktop launcher: where unprivileged user
+# namespaces exist the sandbox is left alone, where Docker's default seccomp
+# profile denies them Chrome runs --no-sandbox, because the container is the
+# isolation boundary there. --password-store=basic, because no prompt for
+# Chrome's own keyring could be answered in this session.
+
+set -eu
+
+chrome="/opt/google/chrome/google-chrome"
+[ -x "${chrome}" ] || {
+	echo "FATAL: ${chrome} is missing; the google-chrome-stable package is not installed in this image" >&2
+	exit 127
+}
+
+if unshare --user --map-root-user --pid --net --fork true 2> /dev/null; then
+	exec "${chrome}" --password-store=basic "$@"
+fi
+exec "${chrome}" --password-store=basic --no-sandbox --test-type "$@"

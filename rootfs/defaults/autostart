@@ -1,0 +1,11 @@
+#!/bin/sh
+# The Openbox session: openbox-autostart runs this with sh once the desktop is up,
+# inside the session bus dbus-launch created, so the keyring and the app share it.
+# init-claude copies it to ~/.config/openbox/autostart on every start.
+#
+# The keyring first, then the app: the app stores its claude.ai sign-in there.
+# Right-click the desktop for the menu (Claude, Chrome, Terminal) to start either
+# again after closing it.
+
+/usr/local/bin/claude-keyring-init
+exec /usr/local/bin/claude-desktop-session

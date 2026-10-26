@@ -1,0 +1,77 @@
+#!/bin/sh
+# claude-code-linux — the root-side state fix-ups, run once per container start by
+# the s6 oneshot init-claude, after the base's init-selkies-config and before the
+# desktop. Identity, ownership and UMASK are the base image's (PUID/PGID remap
+# abc); this script only repairs what a recreated container leaves behind.
+#
+# Every step warns and carries on: none of them is worth a desktop that does not
+# start.
+
+set -eu
+
+# Overridable so scripts/selfcheck.sh can run this outside a container.
+HOME="${HOME:-/config}"
+DEFAULTS_DIR="${DEFAULTS_DIR:-/defaults}"
+SESSION_USER="${SESSION_USER:-abc}"
+
+# The base copies /defaults/autostart into Openbox's config only on the first
+# start, so an image update would never reach an existing /config. It is copied
+# on every start instead.
+autostart="${HOME}/.config/openbox/autostart"
+if mkdir -p "${autostart%/*}" && cp -f "${DEFAULTS_DIR}/autostart" "${autostart}"; then
+	chown "${SESSION_USER}:${SESSION_USER}" "${autostart%/*}" "${autostart}" ||
+		echo "WARNING: could not hand ${autostart} to ${SESSION_USER}" >&2
+else
+	echo "WARNING: could not install ${autostart}; the desktop starts without Claude" >&2
+fi
+
+# Chrome's profile lock (a symlink to "<hostname>-<pid>") names the host it was
+# taken on, and a recreated container gets a new hostname. Chrome reads the old
+# container's lock as another computer using the profile and refuses to start,
+# which also stops it opening Claude's sign-in links. A lock from this hostname
+# Chrome clears itself.
+# shortcut: two containers sharing one /config would lose each other's live lock; one container per appdata path is the supported setup.
+chrome_dir="${HOME}/.config/google-chrome"
+chrome_lock="$(readlink "${chrome_dir}/SingletonLock" 2>/dev/null || true)"
+if [ -n "${chrome_lock}" ] && [ "${chrome_lock%-*}" != "$(uname -n)" ]; then
+	rm -f "${chrome_dir}/SingletonLock" "${chrome_dir}/SingletonSocket" "${chrome_dir}/SingletonCookie"
+	echo "Removed the Chrome profile lock left by container ${chrome_lock%-*}." >&2
+fi
+
+# Claude Code's plugin update button compares the installed version against its
+# local clone of the marketplace, and a third-party marketplace starts with
+# autoUpdate off, so that clone is never refreshed and the button stays grey.
+# Turn it on for every third-party marketplace that has no choice recorded; an
+# explicit false (the user's opt-out) and Anthropic's own marketplaces, which
+# update by default, are left alone. FORCE_AUTOUPDATE_PLUGINS (Dockerfile) then
+# lets those refreshes run although the CLI updater is off. A file this cannot
+# parse is left as it is: a warning, never a rewrite. The rewritten file keeps
+# the original's owner, since this runs as root.
+# shortcut: a marketplace added mid-session gets this at the next container start.
+marketplaces="${HOME}/.claude/plugins/known_marketplaces.json"
+if [ -f "${marketplaces}" ] && ! python3 -I - "${marketplaces}" <<'EOF'
+import json, os, sys
+path = sys.argv[1]
+with open(path) as f:
+    known = json.load(f)
+changed = False
+for entry in known.values():
+    source = entry.get("source", {})
+    first_party = "github.com/anthropics/" in source.get("url", "") or source.get("repo", "").startswith("anthropics/")
+    if not first_party and "autoUpdate" not in entry:
+        entry["autoUpdate"] = True
+        changed = True
+if changed:
+    st = os.stat(path)
+    with open(path + ".tmp", "w") as f:
+        json.dump(known, f, indent=2)
+    os.chmod(path + ".tmp", st.st_mode & 0o7777)
+    if os.geteuid() == 0:
+        os.chown(path + ".tmp", st.st_uid, st.st_gid)
+    os.replace(path + ".tmp", path)
+EOF
+then
+	echo "WARNING: could not turn on marketplace auto-update in ${marketplaces}; plugin updates may stay greyed out until a marketplace is refreshed by hand (claude plugin marketplace update)." >&2
+fi
+
+echo "[init-claude] Claude session ready"

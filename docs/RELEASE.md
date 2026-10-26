@@ -12,7 +12,7 @@ and the base image are tabulated in [`README.md`](../README.md#the-version-this-
 | Tag | Written how | Immutable? |
 |---|---|---|
 | `:<version>` | pushed by the `build` job after its smoke test passes | **No** — re-pointed when the CLI pin or the recipe changes |
-| `:<version>-ubuntu26.04` | same digest, distribution flavor suffix from `BASE_IMAGE` | No, same reason |
+| `:<version>-ubunturesolute` | same digest, distribution flavor suffix from `BASE_IMAGE` | No, same reason |
 | `:latest` | `docker buildx imagetools create --prefer-index=false` from the smoke-tested digest | No — it moves on purpose |
 
 `:latest` is **never rebuilt**: it is written through as the same manifest bytes as `:<version>` (that
@@ -55,12 +55,11 @@ gh workflow run build.yml
 What must be true when it finishes:
 
 - the `build` job's smoke test passed (health `healthy`, `dpkg-query` equals the planned version,
-  `claude --version` equals the CLI pin as uid 1000, pid 1 root, `/api/health` 200, the streamed session
-  up — Xvfb, `lxqt-session` and `openbox` running as uid 1000 on the display the base's own environment
-  file names — `google-chrome --version` executing as uid 1000 and matching the version dpkg recorded
-  for the single installed `google-chrome*` package with a headless `--dump-dom` run producing DOM, and
-  `PUID=99` exiting 78);
-- `:<version>` and `:<version>-ubuntu26.04` exist;
+  `claude --version` equals the CLI pin as `abc`, `abc` is `99:100` and owns `/config`,
+  `http://localhost:3000/` answers 200 without a login, Xvfb, `openbox` and Claude Desktop run as uid 99,
+  and `google-chrome --version` matches the installed package with a headless `--dump-dom` run
+  producing DOM);
+- `:<version>` and `:<version>-ubunturesolute` exist;
 - `:latest` resolves to the **same digest** as `:<version>`.
 
 A first push may fail once with `denied: permission_denied: write_package` (GHCR creates the package on
@@ -85,8 +84,8 @@ Reproduce that hash locally from the tree, to prove the published image was buil
 
 ```bash
 { printf 'CLAUDE_DESKTOP_VERSION=%s\n' 2.26454.2
-  printf 'RECIPE_SCHEMA=2\n'
-  printf 'BASE_IMAGE=ghcr.io/selkies-project/selkies/desktop:2.0.0-ubuntu26.04\n'
+  printf 'RECIPE_SCHEMA=3\n'
+  printf 'BASE_IMAGE=ghcr.io/linuxserver/baseimage-selkies:ubunturesolute\n'
   printf 'CLAUDE_CODE_VERSION=%s\n' 2.1.294
   for f in $(sh scripts/recipe-inputs.sh); do
     printf '%s=%s\n' "$f" "$(sha256sum "$f" | cut -d' ' -f1)"
@@ -101,27 +100,21 @@ If you have a Docker daemon, run the same assertions CI runs:
 
 ```bash
 docker run -d --name claude-verify --shm-size=2g \
-  -e PUID=1000 -e PGID=1000 -e PASSWD=temp-verify -p 8080:8080 \
-  -v "$PWD/verify-state:/home/ubuntu" "$IMAGE:2.26454.2"
+  -e PUID=99 -e PGID=100 -e UMASK=002 -p 3000:3000 \
+  -v "$PWD/verify-state:/config" "$IMAGE:2.26454.2"
 
 docker inspect --format '{{.State.Health.Status}}' claude-verify                  # healthy
 docker exec claude-verify dpkg-query -W -f='${Version}' claude-desktop            # 2.26454.2
-docker exec -u 1000 claude-verify id -u                                           # 1000
-docker exec -u 1000:1000 -e HOME=/home/ubuntu claude-verify claude --version      # 2.1.294
-curl -k -s -o /dev/null -w '%{http_code}\n' https://localhost:8080/api/health     # 200
+docker exec claude-verify id abc                                                  # uid=99 gid=100
+docker exec -u abc claude-verify claude --version                                 # 2.1.294
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/                   # 200, no login
 
-# The two runtime checks the smoke test adds on top of those: the session really
-# up, and Chrome really executing in it, both as uid 1000.
-docker exec -u 1000:1000 -e HOME=/home/ubuntu claude-verify sh -c \
-  '. "${XDG_RUNTIME_DIR:-/tmp/runtime-ubuntu}/container-env"; xdpyinfo -display "$DISPLAY" >/dev/null && pgrep -f "Xvfb $DISPLAY" >/dev/null && pgrep -x lxqt-session >/dev/null && pgrep -x openbox >/dev/null' \
+# The session really up, and Chrome really executing in it, as the session user.
+docker exec -u abc claude-verify sh -c \
+  'xdpyinfo -display "$DISPLAY" >/dev/null && pgrep -x openbox >/dev/null && pgrep -f /usr/lib/claude-desktop/claude-desktop >/dev/null' \
   && echo "session up"
-docker exec -u 1000:1000 -e HOME=/home/ubuntu claude-verify \
+docker exec -u abc claude-verify \
   google-chrome --headless --disable-gpu --no-first-run --dump-dom about:blank | grep -c '<html'
-
-# The PUID/PGID guard must refuse anything else, loudly. It exits 78; the last
-# line names the only supported values.
-docker run --rm --shm-size=2g -e PUID=99 -e PGID=100 -e PASSWD=x "$IMAGE:2.26454.2"
-echo "exit=$?   # 78"
 
 docker rm -f claude-verify && rm -rf verify-state
 ```

@@ -84,7 +84,6 @@ unraid_files=$(find unraid -type f | LC_ALL=C sort)
 printf '%s\n' \
   Dockerfile \
   .dockerignore \
-  docker-entrypoint.sh \
   compose.yaml \
   .github/workflows/build.yml \
   $copy_files \

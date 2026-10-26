@@ -1,5 +1,5 @@
-# The build context is only what the Dockerfile copies: docker-entrypoint.sh,
-# scripts/install-claude-desktop.sh and rootfs/. Everything else is excluded so a
+# The build context is only what the Dockerfile copies:
+# scripts/install-claude-desktop.sh, rootfs/ and unraid/icon.png. Everything else is excluded so a
 # rebuild does not resend the research artifacts, the CI and template sources, or
 # a local .env into the daemon.
 #
@@ -26,6 +26,7 @@ docs
 # that consume them, not by the image build
 .github
 unraid
+!unraid/icon.png
 compose.yaml
 
 # Local configuration and secrets
