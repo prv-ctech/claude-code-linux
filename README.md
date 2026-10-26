@@ -194,6 +194,16 @@ The container **never self-updates**. Anthropic's apt repository is not register
 `DISABLE_UPDATES=1`), so the version on screen is exactly the version that was built. **The image
 rebuild is the update path.**
 
+Plugins are the exception: they keep updating without a rebuild. `FORCE_AUTOUPDATE_PLUGINS=1` keeps
+plugin auto-update on, and at every start `docker-entrypoint.sh` sets `autoUpdate: true` on each
+third-party marketplace in `~/.claude/plugins/known_marketplaces.json` that has no setting yet. Without
+that, a third-party marketplace's local clone is never refreshed, so Claude Code never sees a newer
+plugin version and its update button stays grey. A marketplace you turned auto-update off for
+(`autoUpdate: false`) is left alone, and so are Anthropic's own marketplaces, which update by default.
+A marketplace added during a session is picked up at the next container start; until then,
+`claude plugin marketplace update` refreshes it by hand. Auto-update means each session start pulls
+whatever those marketplaces publish, unreviewed.
+
 ### The two version signals
 
 | Tracked upstream | Signal | Why exactly this |

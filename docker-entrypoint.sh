@@ -139,6 +139,37 @@ if [ "${state_locked}" -eq 1 ] && [ -n "${chrome_lock}" ] && [ "${chrome_lock%-*
 	echo "Removed the Chrome profile lock left by container ${chrome_lock%-*}." >&2
 fi
 
+# Claude Code's plugin update button compares the installed version against its
+# local clone of the marketplace, and a third-party marketplace starts with
+# autoUpdate off, so that clone is never refreshed and the button stays grey.
+# Turn it on for every third-party marketplace that has no choice recorded; an
+# explicit false (the user's opt-out) and Anthropic's own marketplaces, which
+# update by default, are left alone. FORCE_AUTOUPDATE_PLUGINS (Dockerfile) then
+# lets those refreshes run although the CLI updater is off. A file this cannot
+# parse is left as it is: a warning, never a rewrite.
+# shortcut: a marketplace added mid-session gets this at the next container start.
+marketplaces="${STATE_DIR}/.claude/plugins/known_marketplaces.json"
+if [ -f "${marketplaces}" ] && ! python3 -I - "${marketplaces}" <<'EOF'
+import json, os, sys
+path = sys.argv[1]
+with open(path) as f:
+    known = json.load(f)
+changed = False
+for entry in known.values():
+    source = entry.get("source", {})
+    first_party = "github.com/anthropics/" in source.get("url", "") or source.get("repo", "").startswith("anthropics/")
+    if not first_party and "autoUpdate" not in entry:
+        entry["autoUpdate"] = True
+        changed = True
+if changed:
+    with open(path + ".tmp", "w") as f:
+        json.dump(known, f, indent=2)
+    os.replace(path + ".tmp", path)
+EOF
+then
+	echo "WARNING: could not turn on marketplace auto-update in ${marketplaces}; plugin updates may stay greyed out until a marketplace is refreshed by hand (claude plugin marketplace update)." >&2
+fi
+
 if [ "$(id -u)" = "0" ]; then
 	# One root step. A failure here is fatal and actionable rather than silent,
 	# because every later symptom looks unrelated to it: a Selkies login that

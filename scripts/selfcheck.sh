@@ -723,6 +723,32 @@ wait "${sibling}" 2>/dev/null || true
 assert_in siblinglock err 'another container is using' "the shared-state warning"
 ok "the entrypoint removes a Chrome profile lock taken under another hostname only when no other container holds the state path, and keeps this hostname's"
 
+# --- 5.4c third-party marketplaces get autoUpdate unless the user chose ------
+plugins_dir="${state}/.claude/plugins"
+mkdir -p "${plugins_dir}"
+cat > "${plugins_dir}/known_marketplaces.json" <<'EOS'
+{
+  "superpowers-dev": {"source": {"source": "git", "url": "https://github.com/obra/superpowers.git"}},
+  "opted-out": {"source": {"source": "git", "url": "https://github.com/x/y.git"}, "autoUpdate": false},
+  "claude-plugins-official": {"source": {"source": "git", "url": "https://github.com/anthropics/claude-plugins-official.git"}},
+  "anthropic-gh": {"source": {"source": "github", "repo": "anthropics/skills"}}
+}
+EOS
+entrypoint autoupdate 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
+	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+got=$(python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print(" ".join("%s=%s" % (k, d[k].get("autoUpdate")) for k in sorted(d)))' \
+	"${plugins_dir}/known_marketplaces.json")
+[ "${got}" = "anthropic-gh=None claude-plugins-official=None opted-out=False superpowers-dev=True" ] ||
+	fail "marketplace autoUpdate: got '${got}'"
+printf '{broken' > "${plugins_dir}/known_marketplaces.json"
+entrypoint autoupdate-broken 0 env -i PATH="${BIN}:${REAL_PATH}" PUID=1000 PGID=1000 \
+	FAKE_EUID=1000 STATE_DIR="${state}" MOUNTINFO="${SCEN}/mountinfo" \
+	DOCKER_ENTRYPOINT_PREFIX="${SCEN}/etc" "$ENTRYPOINT"
+[ "$(cat "${plugins_dir}/known_marketplaces.json")" = "{broken" ] || fail "an unreadable known_marketplaces.json was rewritten"
+assert_in autoupdate-broken err 'could not turn on marketplace auto-update' "the unreadable-file warning"
+ok "third-party marketplaces get autoUpdate: true, an explicit false and Anthropic's are left alone, and a broken file is left untouched"
+
 # --- 5.5 the root path: chown once, setpriv drop, TERM, exit status ----------
 # The base entrypoint is a generated stub that records how it was started, traps
 # TERM, and exits 42 — so "TERM is forwarded" and "the session's status is
