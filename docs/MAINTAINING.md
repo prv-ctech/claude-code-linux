@@ -19,6 +19,7 @@
   - that Xvfb, Openbox and Claude Desktop are running;
   - that Chrome works.
 - `:latest` is moved only to an image that passed the smoke test.
+- Only files that reach the image count. Editing the docs, the Unraid template, `compose.yaml` or `.env.example` starts no build. The icon is the exception: it is also the browser-tab icon, so changing it rebuilds.
 - Bump `RECIPE_SCHEMA` when the way the hash is computed changes.
 
 Force a build: **Actions → build → Run workflow**. Set `rebuild=true` to skip the registry check.

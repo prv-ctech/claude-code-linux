@@ -73,19 +73,16 @@ for src in $sources; do
   fi
 done
 
-unraid_files=$(find unraid -type f | LC_ALL=C sort)
-[ -n "$unraid_files" ] || { echo "recipe-inputs: unraid/ holds no files" >&2; exit 1; }
-
 # Dockerfile and .dockerignore: consumed by the build without being COPYed, and
-# .dockerignore changes the context the COPY lines resolve against. compose.yaml,
-# unraid/** and the workflow file are the packaging inputs the template tests and
-# the sweep read; the workflow also asserts every emitted path exists.
-# shellcheck disable=SC2086  # the file lists are intentional word-split lists
+# .dockerignore changes the context the COPY lines resolve against. The workflow
+# file is in because it holds the smoke test that gates every push; the workflow
+# also asserts every emitted path exists. Files that never reach the image (the
+# Unraid template, compose.yaml, the docs) are deliberately left out, so editing
+# them rebuilds nothing; unraid/icon.png is in through its COPY line.
+# shellcheck disable=SC2086  # the file list is an intentional word-split list
 printf '%s\n' \
   Dockerfile \
   .dockerignore \
-  compose.yaml \
   .github/workflows/build.yml \
-  $copy_files \
-  $unraid_files |
+  $copy_files |
   LC_ALL=C sort -u
