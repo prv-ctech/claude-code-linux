@@ -1,0 +1,8 @@
+description = "Turn caveman ultracave style on or off"
+prompt = """
+If $ARGUMENTS is exactly "on" or "off", run this Bash command and show its output as is:
+
+node "${CLAUDE_PLUGIN_ROOT}/hooks/ultracave.js" $ARGUMENTS
+
+Otherwise run nothing and reply: Usage: /caveman on | off. To check the state use /caveman-status.
+"""
