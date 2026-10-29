@@ -1,6 +1,6 @@
 {
   "name": "authentik-mod",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Manage an authentik 2026.8 instance from Claude Code: an MCP server with tools for users, groups, applications, providers, outposts, flows, events, crypto, policies, sources, RBAC, blueprints, system and branding, a skill, and /authentik. Dependencies install on first use; the URL and token are asked for at install time and the token goes to the keychain.",
   "author": { "name": "prv-ctech" },
   "license": "MIT",

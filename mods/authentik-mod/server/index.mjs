@@ -13,7 +13,7 @@ if (cfg.problems.length) {
   process.exit(1);
 }
 
-const server = new McpServer({ name: 'authentik', version: '0.1.0' });
+const server = new McpServer({ name: 'authentik', version: "0.1.1" });
 const count = buildRegistry(cfg).register(server, cfg, { api: makeClient(cfg), audit: makeAudit(cfg.dataDir), cfg });
 console.error(`authentik-mod: ${count} tools for ${cfg.url}${cfg.readOnly ? ' (read-only)' : ''}`);
 await server.connect(new StdioServerTransport());
