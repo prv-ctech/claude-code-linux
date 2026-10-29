@@ -1,0 +1,34 @@
+#!/bin/sh
+# authentik MCP server, as this plugin runs it. On first use (and whenever server/package-lock.json
+# changes) this wrapper installs the locked dependencies into ${CLAUDE_PLUGIN_DATA} with npm ci, so
+# plugin updates only reinstall when the dependencies changed. The server itself is plain ESM in
+# ../server and needs no build. stdout is the MCP stdio channel, so every message goes to stderr.
+set -eu
+
+here="$(cd "$(dirname "$0")/.." && pwd)"
+data="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/authentik-mod-claude-code-linux}"
+lockhash="$(sha256sum "${here}/server/package-lock.json" | cut -c1-16)"
+deps="${data}/deps-${lockhash}"
+
+if [ ! -d "${deps}/node_modules" ]; then
+	# Sessions starting together wait for one install instead of racing it.
+	mkdir -p "${data}"
+	exec 7> "${data}/install.lock"
+	flock 7
+	if [ ! -d "${deps}/node_modules" ]; then
+		tmp="$(mktemp -d "${data}/install.XXXXXX")"
+		trap 'rm -rf "${tmp}"' EXIT
+		echo "authentik-mod: installing dependencies" >&2
+		cp "${here}/server/package.json" "${here}/server/package-lock.json" "${tmp}/"
+		npm ci --prefix "${tmp}" --no-fund --no-audit --omit=dev --loglevel=error >&2
+		rm -rf "${deps}"
+		mv "${tmp}" "${deps}"
+		trap - EXIT
+	fi
+	exec 7>&-
+fi
+
+# Node resolves packages from the importing file upwards, so the server sees them through this link.
+[ -L "${here}/server/node_modules" ] || rm -rf "${here}/server/node_modules"
+ln -sfn "${deps}/node_modules" "${here}/server/node_modules"
+exec node "${here}/server/index.mjs" "$@"

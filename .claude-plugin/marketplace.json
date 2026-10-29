@@ -21,6 +21,11 @@
       "name": "rea-mod",
       "source": "./mods/rea-mod",
       "description": "REA reverse engineering for Claude Code: MCP server, skill and analysis engines (JDK 21, Ghidra, jadx, Apktool) installed by the mod on first use, kept on rea-agents' latest release."
+    },
+    {
+      "name": "authentik-mod",
+      "source": "./mods/authentik-mod",
+      "description": "authentik 2026.8 management for Claude Code: MCP server with tools for users, groups, SSO apps and providers, flows, policies, RBAC, blueprints, branding and more. URL and token asked at install (token in the keychain), safe by default."
     }
   ]
 }

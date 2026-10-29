@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "authentik": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/authentik",
+      "env": {
+        "AUTHENTIK_URL": "${user_config.authentik_url}",
+        "AUTHENTIK_TOKEN": "${user_config.authentik_token}",
+        "AUTHENTIK_READ_ONLY": "${user_config.read_only}",
+        "AUTHENTIK_DOMAINS": "${user_config.enabled_domains}",
+        "AUTHENTIK_ALLOW_FLOWS_ADMIN": "${user_config.allow_flows_admin}",
+        "AUTHENTIK_MAX_PAGE_ITEMS": "${user_config.max_page_items}",
+        "AUTHENTIK_DEFAULT_AUTH_FLOW": "${user_config.default_authorization_flow}",
+        "AUTHENTIK_DEFAULT_INVALIDATION_FLOW": "${user_config.default_invalidation_flow}",
+        "AUTHENTIK_BRANDING_ALLOWED_HOSTS": "${user_config.css_allowed_hosts}"
+      }
+    }
+  }
+}
