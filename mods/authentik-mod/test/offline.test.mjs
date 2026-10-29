@@ -154,3 +154,12 @@ test('code fields: writing an expression is a dry run until confirm', async () =
   const plain = reg.tools.find((t) => t.name === 'authentik_policies_policy_create');
   assert.equal((await plain.run({ type: 'dummy', data: { name: 'x' } }, ctx)).dry_run, undefined);
 });
+
+test('config: blank settings fall back to defaults', () => {
+  const c = cfg({ AUTHENTIK_BRANDING_ALLOWED_HOSTS: '', AUTHENTIK_DOMAINS: '', AUTHENTIK_MAX_PAGE_ITEMS: '', AUTHENTIK_DEFAULT_AUTH_FLOW: '', AUTHENTIK_READ_ONLY: '' });
+  assert.deepEqual(c.cssAllowedHosts, ['fonts.googleapis.com', 'fonts.gstatic.com']);
+  assert.equal(c.domains.size, 14);
+  assert.equal(c.maxPageItems, 200);
+  assert.equal(c.defaultAuthFlow, 'default-provider-authorization-implicit-consent');
+  assert.equal(c.readOnly, false);
+});

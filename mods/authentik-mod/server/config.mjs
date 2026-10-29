@@ -44,7 +44,7 @@ export function loadConfig(env = process.env) {
     maxPageItems: int(env.AUTHENTIK_MAX_PAGE_ITEMS, 200, 1, 1000),
     maxCssKb: int(env.AUTHENTIK_BRANDING_MAX_CSS_KB, 100, 1, 1024),
     maxImageMb: int(env.AUTHENTIK_BRANDING_MAX_IMAGE_MB, 5, 1, 25),
-    cssAllowedHosts: (env.AUTHENTIK_BRANDING_ALLOWED_HOSTS ?? 'fonts.googleapis.com,fonts.gstatic.com')
+    cssAllowedHosts: (env.AUTHENTIK_BRANDING_ALLOWED_HOSTS || 'fonts.googleapis.com,fonts.gstatic.com')
       .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
     defaultAuthFlow: env.AUTHENTIK_DEFAULT_AUTH_FLOW || 'default-provider-authorization-implicit-consent',
     defaultInvalidationFlow: env.AUTHENTIK_DEFAULT_INVALIDATION_FLOW || 'default-provider-invalidation-flow',
