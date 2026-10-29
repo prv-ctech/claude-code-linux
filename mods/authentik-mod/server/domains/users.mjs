@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { crud, idField, confirmField, listInput, page, UserError } from '../registry.mjs';
+import { crud, idField, confirmField, listInput, page, UserError, seg } from '../registry.mjs';
 import { needConfirm } from '../safety.mjs';
 
 export function register(reg, cfg) {
@@ -31,7 +31,7 @@ export function register(reg, cfg) {
     input: { id: idField, password: z.string().min(1), confirm: confirmField },
     run: async (a, { api }) => {
       if (!a.confirm) return needConfirm(`set the password of user ${a.id}`);
-      await api.post(`/core/users/${a.id}/set_password/`, { password: a.password });
+      await api.post(`/core/users/${seg(a.id)}/set_password/`, { password: a.password });
       return { changed: true };
     },
   });
@@ -41,7 +41,7 @@ export function register(reg, cfg) {
     input: { id: idField, confirm: confirmField },
     run: async (a, { api }) => {
       if (!a.confirm) return needConfirm(`create a recovery link for user ${a.id}`);
-      return api.post(`/core/users/${a.id}/recovery/`);
+      return api.post(`/core/users/${seg(a.id)}/recovery/`);
     },
   });
   reg.add({
@@ -50,7 +50,7 @@ export function register(reg, cfg) {
     input: { id: idField, email_stage: z.string().describe('Slug or uuid of the email stage.'), confirm: confirmField },
     run: async (a, { api }) => {
       if (!a.confirm) return needConfirm(`email a recovery link to user ${a.id}`);
-      await api.post(`/core/users/${a.id}/recovery_email/`, { email_stage: a.email_stage });
+      await api.post(`/core/users/${seg(a.id)}/recovery_email/`, { email_stage: a.email_stage });
       return { sent: true };
     },
   });
@@ -67,7 +67,7 @@ export function register(reg, cfg) {
     input: { uuid: z.string(), confirm: confirmField },
     run: async (a, { api }) => {
       if (!a.confirm) return needConfirm(`revoke session ${a.uuid}`);
-      await api.del(`/core/authenticated_sessions/${a.uuid}/`);
+      await api.del(`/core/authenticated_sessions/${seg(a.uuid)}/`);
       return { revoked: true };
     },
   });
@@ -83,7 +83,7 @@ export function register(reg, cfg) {
     input: { identifier: z.string(), confirm: confirmField },
     run: async (a, { api }) => {
       if (!a.confirm) return needConfirm(`reveal the key of token ${a.identifier}`);
-      return api.get(`/core/tokens/${encodeURIComponent(a.identifier)}/view_key/`);
+      return api.get(`/core/tokens/${seg(a.identifier)}/view_key/`);
     },
   });
 
@@ -99,7 +99,7 @@ export function register(reg, cfg) {
     input: { id: idField, confirm: confirmField },
     run: async (a, { api }) => {
       if (!a.confirm) return needConfirm(`delete consent ${a.id}`);
-      await api.del(`/core/user_consent/${a.id}/`);
+      await api.del(`/core/user_consent/${seg(a.id)}/`);
       return { deleted: true };
     },
   });

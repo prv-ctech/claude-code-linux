@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { crud, idField, confirmField, listInput, page } from '../registry.mjs';
+import { crud, idField, confirmField, listInput, page, seg } from '../registry.mjs';
 import { needConfirm } from '../safety.mjs';
 
 export function register(reg, cfg) {
@@ -14,7 +14,7 @@ export function register(reg, cfg) {
       description: `${act === 'add' ? 'Give a role to' : 'Take a role from'} a user.`,
       input: { role: z.string().describe('Role uuid.'), user: z.number().int().describe('User pk.') },
       run: async (a, { api }) => {
-        await api.post(`/rbac/roles/${a.role}/${act}_user/`, { pk: a.user });
+        await api.post(`/rbac/roles/${seg(a.role)}/${act}_user/`, { pk: a.user });
         return { ok: true, role: a.role, user: a.user, action: act };
       },
     });
@@ -45,7 +45,7 @@ export function register(reg, cfg) {
       run: async (a, { api }) => {
         const { role, confirm, ...body } = a;
         if (!confirm) return needConfirm(`${act} ${a.permissions.length} permission(s) ${act === 'assign' ? 'to' : 'from'} role ${role}`, body);
-        const path = `/rbac/permissions/assigned_by_roles/${role}/${act}/`;
+        const path = `/rbac/permissions/assigned_by_roles/${seg(role)}/${act}/`;
         return act === 'assign' ? api.post(path, body) : api.patch(path, body);
       },
     });

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { confirmField, listInput, page } from '../registry.mjs';
+import { confirmField, listInput, page, seg } from '../registry.mjs';
 import { needConfirm } from '../safety.mjs';
 
 export function register(reg, cfg) {
@@ -54,21 +54,21 @@ export function register(reg, cfg) {
     domain: 'system', name: 'authentik_system_schedule_get',
     description: 'Get one schedule.',
     input: { id: z.string() },
-    run: (a, { api }) => api.get(`/tasks/schedules/${a.id}/`),
+    run: (a, { api }) => api.get(`/tasks/schedules/${seg(a.id)}/`),
   });
   reg.add({
     domain: 'system', name: 'authentik_system_schedule_update', mode: 'write',
     description: 'Change a schedule (crontab, paused...).',
     input: { id: z.string(), data: z.record(z.string(), z.unknown()) },
-    run: (a, { api }) => api.patch(`/tasks/schedules/${a.id}/`, a.data),
+    run: (a, { api }) => api.patch(`/tasks/schedules/${seg(a.id)}/`, a.data),
   });
   reg.add({
     domain: 'system', name: 'authentik_system_schedule_run', mode: 'write',
     description: 'Run a scheduled job now.',
     input: { id: z.string(), confirm: confirmField },
     run: async (a, { api }) => {
-      if (!a.confirm) return needConfirm(`run schedule ${a.id} now`, await api.get(`/tasks/schedules/${a.id}/`));
-      await api.post(`/tasks/schedules/${a.id}/send/`);
+      if (!a.confirm) return needConfirm(`run schedule ${a.id} now`, await api.get(`/tasks/schedules/${seg(a.id)}/`));
+      await api.post(`/tasks/schedules/${seg(a.id)}/send/`);
       return { triggered: true };
     },
   });
@@ -89,7 +89,7 @@ export function register(reg, cfg) {
     input: { id: z.string().describe('Task message id.'), confirm: confirmField },
     run: async (a, { api }) => {
       if (!a.confirm) return needConfirm(`retry task ${a.id}`);
-      await api.post(`/tasks/tasks/${a.id}/retry/`);
+      await api.post(`/tasks/tasks/${seg(a.id)}/retry/`);
       return { retried: true };
     },
   });

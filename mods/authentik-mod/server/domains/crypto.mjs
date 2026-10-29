@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { crud, idField, confirmField } from '../registry.mjs';
+import { crud, idField, confirmField, seg } from '../registry.mjs';
 import { needConfirm } from '../safety.mjs';
 
 export function register(reg, cfg) {
@@ -23,7 +23,7 @@ export function register(reg, cfg) {
     domain: 'crypto', name: 'authentik_crypto_keypair_view_certificate', reveal: true,
     description: 'Get the certificate (PEM, public) of a keypair.',
     input: { id: idField },
-    run: (a, { api }) => api.get(`/crypto/certificatekeypairs/${a.id}/view_certificate/`),
+    run: (a, { api }) => api.get(`/crypto/certificatekeypairs/${seg(a.id)}/view_certificate/`),
   });
   reg.add({
     domain: 'crypto', name: 'authentik_crypto_keypair_view_private_key', mode: 'destructive', reveal: true,
@@ -31,7 +31,7 @@ export function register(reg, cfg) {
     input: { id: idField, confirm: confirmField },
     run: async (a, { api }) => {
       if (!a.confirm) return needConfirm(`reveal the private key of keypair ${a.id}`);
-      return api.get(`/crypto/certificatekeypairs/${a.id}/view_private_key/`);
+      return api.get(`/crypto/certificatekeypairs/${seg(a.id)}/view_private_key/`);
     },
   });
 }

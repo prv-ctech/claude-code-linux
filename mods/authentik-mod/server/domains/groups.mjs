@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { crud, idField, UserError } from '../registry.mjs';
+import { crud, idField, UserError, seg } from '../registry.mjs';
 
 export function register(reg, cfg) {
   crud(reg, cfg, {
@@ -17,7 +17,7 @@ export function register(reg, cfg) {
       description: `${act === 'add' ? 'Add a user to' : 'Remove a user from'} a group.`,
       input: { group: idField.describe('Group uuid.'), user: z.number().int().describe('User pk.') },
       run: async (a, { api }) => {
-        await api.post(`/core/groups/${a.group}/${act}_user/`, { pk: a.user });
+        await api.post(`/core/groups/${seg(a.group)}/${act}_user/`, { pk: a.user });
         return { ok: true, group: a.group, user: a.user, action: act };
       },
     });

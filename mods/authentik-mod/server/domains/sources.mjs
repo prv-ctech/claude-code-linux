@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { crud, listInput, page, confirmField } from '../registry.mjs';
+import { crud, listInput, page, confirmField, seg } from '../registry.mjs';
 import { needConfirm } from '../safety.mjs';
 
 const TYPES = { oauth: 'oauth', saml: 'saml', ldap: 'ldap', plex: 'plex', kerberos: 'kerberos', scim: 'scim', telegram: 'telegram' };
@@ -19,13 +19,13 @@ export function register(reg, cfg) {
     domain: 'sources', name: 'authentik_sources_sync_status',
     description: 'Show the last sync of an LDAP or Kerberos source.',
     input: { type: z.enum(['ldap', 'kerberos']), slug: z.string() },
-    run: (a, { api }) => api.get(`/sources/${a.type}/${encodeURIComponent(a.slug)}/sync/status/`),
+    run: (a, { api }) => api.get(`/sources/${seg(a.type)}/${seg(a.slug)}/sync/status/`),
   });
   reg.add({
     domain: 'sources', name: 'authentik_sources_saml_metadata',
     description: 'Get the service-provider metadata XML of a SAML source.',
     input: { slug: z.string() },
-    run: async (a, { api }) => ({ metadata: await api.text(`/sources/saml/${encodeURIComponent(a.slug)}/metadata/`) }),
+    run: async (a, { api }) => ({ metadata: await api.text(`/sources/saml/${seg(a.slug)}/metadata/`) }),
   });
   for (const kind of ['user', 'group']) {
     reg.add({
@@ -40,7 +40,7 @@ export function register(reg, cfg) {
       input: { id: z.union([z.string(), z.number()]), confirm: confirmField },
       run: async (a, { api }) => {
         if (!a.confirm) return needConfirm(`delete ${kind} connection ${a.id}`);
-        await api.del(`/sources/${kind}_connections/all/${a.id}/`);
+        await api.del(`/sources/${kind}_connections/all/${seg(a.id)}/`);
         return { deleted: true };
       },
     });

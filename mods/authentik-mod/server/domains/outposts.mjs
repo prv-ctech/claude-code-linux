@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { crud } from '../registry.mjs';
+import { crud, seg } from '../registry.mjs';
 
 export function register(reg, cfg) {
   crud(reg, cfg, {
@@ -11,7 +11,7 @@ export function register(reg, cfg) {
     domain: 'outposts', name: 'authentik_outposts_health',
     description: 'Show the connected instances and version of an outpost.',
     input: { id: z.string().describe('Outpost uuid.') },
-    run: (a, { api }) => api.get(`/outposts/instances/${a.id}/health/`),
+    run: (a, { api }) => api.get(`/outposts/instances/${seg(a.id)}/health/`),
   });
   reg.add({
     domain: 'outposts', name: 'authentik_outposts_default_settings',
@@ -28,6 +28,6 @@ export function register(reg, cfg) {
     domain: 'outposts', name: 'authentik_outposts_connection_state',
     description: 'Show whether a service connection works.',
     input: { id: z.string().describe('Connection uuid.') },
-    run: (a, { api }) => api.get(`/outposts/service_connections/all/${a.id}/state/`),
+    run: (a, { api }) => api.get(`/outposts/service_connections/all/${seg(a.id)}/state/`),
   });
 }

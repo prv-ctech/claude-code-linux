@@ -64,12 +64,19 @@ function reply(value) {
 
 export class UserError extends Error { constructor(m) { super(m); this.userFacing = true; } }
 
+// Anything put into a URL path goes through here: one plain segment, never "..", "/", "?" or "#".
+export function seg(v) {
+  const s = String(v);
+  if (!/^[\w.@+:-]+$/.test(s) || /^\.+$/.test(s)) throw new UserError(`"${s.slice(0, 60)}" is not a valid id or slug.`);
+  return s;
+}
+
 // Flow fields accept a slug; the API wants the flow's pk. Resolve slugs once, in one place.
 export async function resolveFlows(api, data) {
   const out = { ...data };
   for (const [k, v] of Object.entries(out)) {
     if (!/(^|_)flow$/.test(k) || typeof v !== 'string' || v === '' || isUuid(v)) continue;
-    const flow = await api.get(`/flows/instances/${encodeURIComponent(v)}/`).catch((e) => {
+    const flow = await api.get(`/flows/instances/${seg(v)}/`).catch((e) => {
       if (e.status === 404) throw new UserError(`${k}: no flow with slug "${v}"`);
       throw e;
     });
@@ -107,7 +114,7 @@ export function crud(reg, cfg, o) {
   const typeField = typeKeys ? { type: z.enum(typeKeys).describe(`Which ${noun} type.`) } : {};
   const optType = typeKeys ? { type: z.enum(typeKeys).optional().describe(`Which ${noun} type. Omit to search all types.`) } : {};
   const collection = (type) => (types ? `${base}/${types[type]}/` : `${base}/`);
-  const item = (type, id) => `${collection(type)}${encodeURIComponent(id)}/`;
+  const item = (type, id) => `${collection(type)}${seg(id)}/`;
   const all = allPath ?? (types ? `${base}/all/` : null);
   const withType = (args, need) => {
     if (typeKeys && need && !args.type) throw new UserError(`type is required: ${typeKeys.join(', ')}`);
@@ -128,7 +135,7 @@ export function crud(reg, cfg, o) {
     mode: 'read',
     description: `Get one ${noun} with all its fields. Secrets are redacted.`,
     input: { ...optType, id: idField },
-    run: async (a, { api }) => api.get(typeKeys && !a.type ? `${all}${encodeURIComponent(a.id)}/` : item(a.type, a.id)),
+    run: async (a, { api }) => api.get(typeKeys && !a.type ? `${all}${seg(a.id)}/` : item(a.type, a.id)),
   });
   if (!noCreate) {
     tool('create', {
@@ -165,7 +172,7 @@ export function crud(reg, cfg, o) {
       description: `Delete a ${noun}. Permanent. Without confirm it only shows what would go and what uses it.`,
       input: { ...optType, id: idField, confirm: confirmField },
       run: async (a, ctx) => {
-        const path = typeKeys && !a.type ? `${all}${encodeURIComponent(a.id)}/` : item(a.type, a.id);
+        const path = typeKeys && !a.type ? `${all}${seg(a.id)}/` : item(a.type, a.id);
         const current = await ctx.api.get(path);
         if (!a.confirm) {
           const used = usedBy ? await ctx.api.get(`${path}used_by/`).catch(() => null) : null;
@@ -182,7 +189,7 @@ export function crud(reg, cfg, o) {
       mode: 'read',
       description: `List the objects that reference a ${noun}. Check before deleting.`,
       input: { ...optType, id: idField },
-      run: async (a, { api }) => api.get(`${typeKeys && !a.type ? all + encodeURIComponent(a.id) + '/' : item(a.type, a.id)}used_by/`),
+      run: async (a, { api }) => api.get(`${typeKeys && !a.type ? all + seg(a.id) + '/' : item(a.type, a.id)}used_by/`),
     });
   }
 }

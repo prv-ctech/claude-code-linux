@@ -17,6 +17,8 @@ const HINTS = {
 
 export function makeClient(cfg) {
   async function request(method, apiPath, { query, body, form, raw } = {}) {
+    // Last line of defence behind seg(): a path must stay inside /api/v3.
+    if (/(^|\/)(\.|\.\.|%2e|%2e%2e)(\/|$)|[?#\\]/i.test(apiPath)) throw new AuthentikError(`Refusing path ${apiPath.slice(0, 80)}`);
     const url = new URL(`${cfg.url}/api/v3${apiPath}`);
     for (const [k, v] of Object.entries(query || {})) {
       if (v === undefined || v === null || v === '') continue;

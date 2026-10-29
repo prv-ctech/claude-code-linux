@@ -94,3 +94,31 @@ test('role script: picks permissions by domain and read-only', () => {
   assert.deepEqual(select(all, { domains: ['users'], readOnly: false }).users, ['authentik_core.delete_user', 'authentik_core.view_user']);
   assert.deepEqual(select(all, { domains: ['users', 'events'], readOnly: true }), { users: ['authentik_core.view_user'], events: ['authentik_events.view_event'] });
 });
+
+test('ids: path-like values are refused before any request', async () => {
+  const c = cfg();
+  const reg = buildRegistry(c);
+  const calls = [];
+  const api = new Proxy({}, { get: () => async (...a) => { calls.push(a[0]); return {}; } });
+  for (const [name, args] of [
+    ['authentik_consent_delete', { id: '../users/5', confirm: true }],
+    ['authentik_users_set_password', { id: '5/../6', password: 'x', confirm: true }],
+    ['authentik_users_user_delete', { id: '..', confirm: true }],
+    ['authentik_system_task_retry', { id: 'a?b', confirm: true }],
+    ['authentik_rbac_permissions_assign', { role: 'a/b', permissions: ['x.y'], confirm: true }],
+  ]) {
+    const t = reg.tools.find((t) => t.name === name);
+    await assert.rejects(() => t.run(args, { api, cfg: c, audit() {} }), /not a valid id/, name);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('blueprints: instances are saved disabled', async () => {
+  const reg = buildRegistry(cfg());
+  const sent = [];
+  const api = { post: async (p, b) => { sent.push(b); return {}; }, patch: async (p, b) => { sent.push(b); return {}; } };
+  for (const name of ['authentik_blueprints_blueprint_create', 'authentik_blueprints_blueprint_update']) {
+    await reg.tools.find((t) => t.name === name).run({ id: 'abc', data: { name: 'x', content: 'y', enabled: true } }, { api, cfg: cfg(), audit() {} });
+  }
+  assert.ok(sent.every((b) => b.enabled === false));
+});

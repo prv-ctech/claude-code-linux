@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { crud, UserError, confirmField, listInput } from '../registry.mjs';
+import { crud, UserError, confirmField, listInput, seg } from '../registry.mjs';
 import { needConfirm } from '../safety.mjs';
 
 const FORBIDDEN_CSS = [/<\/?style/i, /<script/i, /expression\s*\(/i, /javascript:/i, /vbscript:/i, /-moz-binding/i, /behavior\s*:/i];
@@ -51,7 +51,7 @@ export function register(reg, cfg) {
         return data;
       }
       if (typeof data.branding_custom_css === 'string') validateCss(data.branding_custom_css, cfg);
-      if (kind === 'update') snapshot(cfg, await api.get(`/core/brands/${a.id}/`));
+      if (kind === 'update') snapshot(cfg, await api.get(`/core/brands/${seg(a.id)}/`));
       return data;
     },
   });
@@ -66,10 +66,10 @@ export function register(reg, cfg) {
     input: { id: z.string().describe('Brand uuid.'), css: z.string(), confirm: confirmField },
     run: async (a, { api }) => {
       validateCss(a.css, cfg);
-      const current = await api.get(`/core/brands/${a.id}/`);
+      const current = await api.get(`/core/brands/${seg(a.id)}/`);
       if (!a.confirm) return needConfirm(`replace the custom CSS of brand ${current.domain} (${Buffer.byteLength(a.css)} bytes)`, { old_css_bytes: Buffer.byteLength(current.branding_custom_css || '') });
       const saved = snapshot(cfg, current);
-      const res = await api.patch(`/core/brands/${a.id}/`, { branding_custom_css: a.css });
+      const res = await api.patch(`/core/brands/${seg(a.id)}/`, { branding_custom_css: a.css });
       return { ok: true, snapshot: saved, brand: res.brand_uuid };
     },
   });
@@ -93,8 +93,8 @@ export function register(reg, cfg) {
       const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
       const { brand_uuid, ...body } = saved;
       if (!a.confirm) return needConfirm(`restore brand ${saved.domain} from ${a.snapshot}`, { domain: saved.domain, title: saved.branding_title });
-      const exists = await api.get(`/core/brands/${brand_uuid}/`).then(() => true, (e) => { if (e.status === 404) return false; throw e; });
-      return exists ? api.patch(`/core/brands/${brand_uuid}/`, body) : api.post('/core/brands/', body);
+      const exists = await api.get(`/core/brands/${seg(brand_uuid)}/`).then(() => true, (e) => { if (e.status === 404) return false; throw e; });
+      return exists ? api.patch(`/core/brands/${seg(brand_uuid)}/`, body) : api.post('/core/brands/', body);
     },
   });
 

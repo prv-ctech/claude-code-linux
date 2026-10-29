@@ -210,6 +210,9 @@ await step('rbac role create/add_user/permissions/assign gated/delete', async ()
 await step('blueprint instance create/apply gated/delete + import', async () => {
   const y = 'version: 1\nmetadata:\n  name: mcp-test-bp\nentries:\n  - model: authentik_core.group\n    state: present\n    identifiers:\n      name: mcp-test-bp-group\n';
   const b = await call('authentik_blueprints_blueprint_create', { data: { name: 'mcp-test-bp', content: y, enabled: true } });
+  must(b.enabled === false, 'saved disabled even when enabled was asked');
+  must((await call('authentik_blueprints_set_enabled', { id: b.pk, enabled: true })).dry_run, 'enable dry');
+  await call('authentik_blueprints_set_enabled', { id: b.pk, enabled: true, confirm: true });
   must((await call('authentik_blueprints_apply', { id: b.pk })).dry_run, 'dry');
   await call('authentik_blueprints_apply', { id: b.pk, confirm: true });
   // Apply is queued for the worker; a busy worker can take longer than the test waits.
@@ -254,6 +257,13 @@ await step('branding file upload/list/delete + svg script rejected', async () =>
   must(JSON.stringify(await call('authentik_branding_files_list', { search: 'mcp-test-logo' })).includes('mcp-test-logo'), 'listed');
   await rejects(() => call('authentik_branding_file_upload', { path: '/tmp/mcp-test-evil.svg' }), /script/);
   await call('authentik_branding_file_delete', { name: 'branding/mcp-test-logo.svg', confirm: true });
+});
+
+// --- ids cannot climb out of their path
+await step('path-like ids are refused', async () => {
+  await rejects(() => call('authentik_consent_delete', { id: '../users/5', confirm: true }), /not a valid id/);
+  await rejects(() => call('authentik_users_user_get', { id: '..' }), /not a valid id/);
+  await rejects(() => call('authentik_system_schedule_get', { id: 'a/b' }), /not a valid id/);
 });
 
 // --- service account, cleanup

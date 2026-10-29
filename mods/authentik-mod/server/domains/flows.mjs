@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { crud } from '../registry.mjs';
+import { crud, seg } from '../registry.mjs';
 
 const STAGES = {
   account_lockdown: 'account_lockdown', captcha: 'captcha', consent: 'consent', deny: 'deny', dummy: 'dummy',
@@ -23,13 +23,13 @@ export function register(reg, cfg) {
     domain: 'flows', name: 'authentik_flows_export',
     description: 'Export a flow with its stages and bindings as blueprint YAML.',
     input: { slug: z.string() },
-    run: async (a, { api }) => ({ yaml: await api.text(`/flows/instances/${encodeURIComponent(a.slug)}/export/`) }),
+    run: async (a, { api }) => ({ yaml: await api.text(`/flows/instances/${seg(a.slug)}/export/`) }),
   });
   reg.add({
     domain: 'flows', name: 'authentik_flows_diagram',
     description: 'Get a Mermaid diagram of a flow.',
     input: { slug: z.string() },
-    run: (a, { api }) => api.get(`/flows/instances/${encodeURIComponent(a.slug)}/diagram/`),
+    run: (a, { api }) => api.get(`/flows/instances/${seg(a.slug)}/diagram/`),
   });
   crud(reg, cfg, {
     domain: 'flows', writeDomain: 'flows_admin', noun: 'binding', base: '/flows/bindings',

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { crud, listInput, page, confirmField } from '../registry.mjs';
+import { crud, listInput, page, confirmField, seg } from '../registry.mjs';
 import { needConfirm } from '../safety.mjs';
 
 export function register(reg, cfg) {
@@ -17,7 +17,7 @@ export function register(reg, cfg) {
     domain: 'events', name: 'authentik_events_get',
     description: 'Get one audit event.',
     input: { id: z.string().describe('Event uuid.') },
-    run: (a, { api }) => api.get(`/events/events/${a.id}/`),
+    run: (a, { api }) => api.get(`/events/events/${seg(a.id)}/`),
   });
   reg.add({
     domain: 'events', name: 'authentik_events_actions',
@@ -53,7 +53,7 @@ export function register(reg, cfg) {
     input: { id: z.string().describe('Transport uuid.'), confirm: confirmField },
     run: async (a, { api }) => {
       if (!a.confirm) return needConfirm(`send a test message through transport ${a.id}`);
-      return api.post(`/events/transports/${a.id}/test/`);
+      return api.post(`/events/transports/${seg(a.id)}/test/`);
     },
   });
   reg.add({

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { crud, idField, resolveFlows } from '../registry.mjs';
+import { crud, idField, resolveFlows, seg } from '../registry.mjs';
 
 export const PROVIDER_MODELS = [
   'authentik_providers_oauth2.oauth2provider', 'authentik_providers_saml.samlprovider',
@@ -41,7 +41,7 @@ export function register(reg, cfg) {
     domain: 'applications', name: 'authentik_applications_check_access',
     description: 'Check whether a user may open an application, and why not.',
     input: { slug: z.string(), user: z.number().int().optional().describe('User pk; defaults to the token user.') },
-    run: (a, { api }) => api.get(`/core/applications/${encodeURIComponent(a.slug)}/check_access/`, { for_user: a.user }),
+    run: (a, { api }) => api.get(`/core/applications/${seg(a.slug)}/check_access/`, { for_user: a.user }),
   });
 
   crud(reg, cfg, {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { crud, idField, confirmField, listInput, page } from '../registry.mjs';
+import { crud, idField, confirmField, listInput, page, seg } from '../registry.mjs';
 import { needConfirm } from '../safety.mjs';
 
 const TYPES = {
@@ -34,7 +34,7 @@ export function register(reg, cfg) {
     input: { id: z.number().int().describe('OAuth2 provider pk.'), confirm: confirmField },
     run: async (a, { api }) => {
       if (!a.confirm) return needConfirm(`reveal the client secret of OAuth2 provider ${a.id}`);
-      const p = await api.get(`/providers/oauth2/${a.id}/`);
+      const p = await api.get(`/providers/oauth2/${seg(a.id)}/`);
       return { client_id: p.client_id, client_secret: p.client_secret };
     },
   });
@@ -42,19 +42,19 @@ export function register(reg, cfg) {
     domain: 'providers', name: 'authentik_providers_oauth2_setup_urls',
     description: 'Show the issuer, authorize, token, userinfo and JWKS URLs of an OAuth2 provider.',
     input: { id: z.number().int() },
-    run: (a, { api }) => api.get(`/providers/oauth2/${a.id}/setup_urls/`),
+    run: (a, { api }) => api.get(`/providers/oauth2/${seg(a.id)}/setup_urls/`),
   });
   reg.add({
     domain: 'providers', name: 'authentik_providers_saml_metadata',
     description: 'Get the SAML metadata XML of a provider.',
     input: { id: z.number().int() },
-    run: async (a, { api }) => ({ metadata: await api.text(`/providers/saml/${a.id}/metadata/`) }),
+    run: async (a, { api }) => ({ metadata: await api.text(`/providers/saml/${seg(a.id)}/metadata/`) }),
   });
   reg.add({
     domain: 'providers', name: 'authentik_providers_sync_status',
     description: 'Show the sync status of a SCIM, Google Workspace or Microsoft Entra provider.',
     input: { type: z.enum(['scim', 'google_workspace', 'microsoft_entra']), id: z.number().int() },
-    run: (a, { api }) => api.get(`/providers/${a.type}/${a.id}/sync/status/`),
+    run: (a, { api }) => api.get(`/providers/${seg(a.type)}/${seg(a.id)}/sync/status/`),
   });
 
   crud(reg, cfg, {
