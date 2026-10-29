@@ -108,7 +108,7 @@ await step('create_with_provider (transaction) then cleanup', async () => {
   await call('authentik_providers_provider_delete', { id: a.provider, confirm: true });
 });
 await step('scope mapping create/delete', async () => {
-  const m = await call('authentik_providers_mapping_create', { type: 'scope', data: { name: 'mcp-test-scope', scope_name: 'mcptest', expression: 'return {}' } });
+  const m = await call('authentik_providers_mapping_create', { type: 'scope', data: { name: 'mcp-test-scope', scope_name: 'mcptest', expression: 'return {}' }, confirm: true });
   must((await call('authentik_providers_mapping_list', { type: 'scope', search: 'mcp-test' })).results.length === 1, 'list');
   await call('authentik_providers_mapping_delete', { type: 'scope', id: m.pk, confirm: true });
 });
@@ -171,7 +171,7 @@ await step('keypair generate/list/view_certificate/private key gated/delete', as
 // --- policies
 await step('expression policy + binding create/delete', async () => {
   const a = await call('authentik_applications_application_create', { data: { name: 'mcp-test-app3', slug: 'mcp-test-app3' } });
-  const p = await call('authentik_policies_policy_create', { type: 'expression', data: { name: 'mcp-test-policy', expression: 'return True' } });
+  const p = await call('authentik_policies_policy_create', { type: 'expression', data: { name: 'mcp-test-policy', expression: 'return True' }, confirm: true });
   const b = await call('authentik_policies_binding_create', { data: { target: a.pk, policy: p.pk, order: 0 } });
   await call('authentik_policies_policy_list', { type: 'expression', search: 'mcp-test' });
   await call('authentik_policies_binding_delete', { id: b.pk, confirm: true });

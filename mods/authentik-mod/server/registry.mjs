@@ -87,7 +87,8 @@ export async function resolveFlows(api, data) {
 
 export function page(cfg, args) {
   const size = Math.min(args.page_size ?? 50, cfg.maxPageItems);
-  return { page: args.page, page_size: size, search: args.search, ordering: args.ordering, ...(args.filters || {}) };
+  // Reserved keys come last so filters cannot raise the page size cap or replace search/paging.
+  return { ...(args.filters || {}), page: args.page, page_size: size, search: args.search, ordering: args.ordering };
 }
 
 export function slim(list, fields) {
@@ -109,7 +110,7 @@ export const listInput = {
 // Standard list/get/create/update/delete set for one family of resources.
 //   types: { typeName: 'path under base' }; without types the family is a single resource.
 export function crud(reg, cfg, o) {
-  const { domain, noun, base, idName = 'id', summary, types, allPath, writeDomain = domain, noCreate, noUpdate, noDelete, usedBy = true, guard, hint = '' } = o;
+  const { domain, noun, base, idName = 'id', summary, types, allPath, writeDomain = domain, noCreate, noUpdate, noDelete, usedBy = true, guard, hint = '', codeFields = [] } = o;
   const typeKeys = types ? Object.keys(types) : null;
   const typeField = typeKeys ? { type: z.enum(typeKeys).describe(`Which ${noun} type.`) } : {};
   const optType = typeKeys ? { type: z.enum(typeKeys).optional().describe(`Which ${noun} type. Omit to search all types.`) } : {};
@@ -118,6 +119,13 @@ export function crud(reg, cfg, o) {
   const all = allPath ?? (types ? `${base}/all/` : null);
   const withType = (args, need) => {
     if (typeKeys && need && !args.type) throw new UserError(`type is required: ${typeKeys.join(', ')}`);
+  };
+  // Fields that hold code authentik runs. Writing one needs confirm, like apply/import of a blueprint.
+  const confirmInput = codeFields.length ? { confirm: confirmField } : {};
+  const codeGate = (a, verb) => {
+    const present = codeFields.filter((f) => a.data && f in a.data);
+    if (!present.length || a.confirm) return null;
+    return needConfirm(`${verb} a ${noun} with code that authentik will run (${present.join(', ')})`, Object.fromEntries(present.map((f) => [f, a.data[f]])));
   };
   const tool = (suffix, spec) => reg.add({ domain: spec.mode === 'read' ? domain : writeDomain, name: `authentik_${domain}_${noun}_${suffix}`, ...spec });
 
@@ -140,11 +148,13 @@ export function crud(reg, cfg, o) {
   if (!noCreate) {
     tool('create', {
       mode: 'write',
-      description: `Create a ${noun}. data holds the fields; flow fields accept a flow slug. ${hint}`,
-      input: { ...typeField, data: dataField },
+      description: `Create a ${noun}. data holds the fields; flow fields accept a flow slug.${codeFields.length ? ` Setting ${codeFields.join('/')} runs code in authentik, so it is a dry run until confirm: true.` : ''} ${hint}`,
+      input: { ...typeField, data: dataField, ...confirmInput },
       reveal: true,
       run: async (a, ctx) => {
         withType(a, true);
+        const gated = codeGate(a, 'create');
+        if (gated) return gated;
         let data = a.data;
         if (guard) data = await guard('create', data, ctx, a);
         data = await resolveFlows(ctx.api, data);
@@ -155,10 +165,12 @@ export function crud(reg, cfg, o) {
   if (!noUpdate) {
     tool('update', {
       mode: 'write',
-      description: `Change fields of a ${noun} (PATCH: only the fields in data change).`,
-      input: { ...typeField, id: idField, data: dataField },
+      description: `Change fields of a ${noun} (PATCH: only the fields in data change).${codeFields.length ? ` Changing ${codeFields.join('/')} runs code in authentik, so it is a dry run until confirm: true.` : ''}`,
+      input: { ...typeField, id: idField, data: dataField, ...confirmInput },
       run: async (a, ctx) => {
         withType(a, true);
+        const gated = codeGate(a, 'change');
+        if (gated) return gated;
         let data = a.data;
         if (guard) data = await guard('update', data, ctx, a);
         data = await resolveFlows(ctx.api, data);

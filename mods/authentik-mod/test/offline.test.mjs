@@ -6,6 +6,7 @@ import { redact } from '../server/safety.mjs';
 import { buildRegistry } from '../server/tools.mjs';
 import { validateCss, checkSvg } from '../server/domains/branding.mjs';
 import { select, DOMAINS } from '../scripts/role.mjs';
+import { page } from '../server/registry.mjs';
 
 const env = { AUTHENTIK_URL: 'https://auth.example.com/', AUTHENTIK_TOKEN: 't' };
 const cfg = (extra = {}) => loadConfig({ ...env, ...extra });
@@ -74,7 +75,7 @@ test('css: allows plain styling and allowed font hosts, rejects the rest', () =>
   validateCss('body{color:red;background:url(/static/x.png)}', c);
   validateCss('@import url("https://fonts.googleapis.com/css2?family=Inter");', c);
   validateCss('a{background:url(data:image/png;base64,AAAA)}', c);
-  for (const bad of ['@import url(https://evil.example/a.css);', 'a{background:url(//evil.example/x.png)}', 'a{width:expression(alert(1))}', 'a{background:url(javascript:alert(1))}', '</style><script>x</script>', 'a{background:url(data:text/html;base64,AAAA)}']) {
+  for (const bad of ['@import url(https://evil.example/a.css);', 'a{background:url(//evil.example/x.png)}', 'a{width:expression(alert(1))}', 'a{background:url(javascript:alert(1))}', '</style><script>x</script>', 'a{background:url(data:text/html;base64,AAAA)}', 'a{background:image-set("https://evil.example/x.png" 1x)}', 'a{content:"//evil.example/x"}', 'a{background:u\\72l(https://evil.example/x)}', '@import "http://evil.example/a.css";', 'a{background:url(ftp://fonts.googleapis.com/x)}']) {
     assert.throws(() => validateCss(bad, c), undefined, bad);
   }
   assert.throws(() => validateCss('a{}'.repeat(60000), c), /larger/);
@@ -121,4 +122,35 @@ test('blueprints: instances are saved disabled', async () => {
     await reg.tools.find((t) => t.name === name).run({ id: 'abc', data: { name: 'x', content: 'y', enabled: true } }, { api, cfg: cfg(), audit() {} });
   }
   assert.ok(sent.every((b) => b.enabled === false));
+});
+
+test('list: filters cannot override the page size cap', () => {
+  const out = page(cfg({ AUTHENTIK_MAX_PAGE_ITEMS: '50' }), { page_size: 40, filters: { page_size: 100000, is_active: true, search: 'x' } });
+  assert.equal(out.page_size, 40);
+  assert.equal(out.is_active, true);
+  assert.equal(out.search, undefined);
+  assert.equal(page(cfg({ AUTHENTIK_MAX_PAGE_ITEMS: '50' }), { page_size: 500 }).page_size, 50);
+});
+
+test('code fields: writing an expression is a dry run until confirm', async () => {
+  const c = cfg();
+  const reg = buildRegistry(c);
+  const sent = [];
+  const api = { post: async (p, b) => { sent.push(b); return {}; }, patch: async (p, b) => { sent.push(b); return {}; }, get: async () => ({}) };
+  const ctx = { api, cfg: c, audit() {} };
+  for (const [name, args] of [
+    ['authentik_providers_mapping_create', { type: 'scope', data: { name: 'x', expression: 'return {}' } }],
+    ['authentik_providers_mapping_update', { type: 'scope', id: 'a', data: { expression: 'return {}' } }],
+    ['authentik_policies_policy_create', { type: 'expression', data: { name: 'x', expression: 'return True' } }],
+    ['authentik_policies_policy_update', { type: 'expression', id: 'a', data: { expression: 'return True' } }],
+  ]) {
+    const t = reg.tools.find((t) => t.name === name);
+    assert.ok('confirm' in t.input, name);
+    assert.equal((await t.run(args, ctx)).dry_run, true, name);
+    await t.run({ ...args, confirm: true }, ctx);
+  }
+  assert.equal(sent.length, 4);
+  // A policy without code needs no confirm.
+  const plain = reg.tools.find((t) => t.name === 'authentik_policies_policy_create');
+  assert.equal((await plain.run({ type: 'dummy', data: { name: 'x' } }, ctx)).dry_run, undefined);
 });

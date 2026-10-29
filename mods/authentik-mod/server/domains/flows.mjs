@@ -43,6 +43,7 @@ export function register(reg, cfg) {
   crud(reg, cfg, {
     domain: 'flows', writeDomain: 'flows_admin', noun: 'prompt', base: '/stages/prompt/prompts',
     summary: ['pk', 'name', 'field_key', 'type', 'label', 'required', 'order'],
+    codeFields: ['placeholder', 'initial_value'],
     hint: 'A prompt is one field shown by a prompt stage.',
   });
 }

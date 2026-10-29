@@ -59,7 +59,7 @@ export function register(reg, cfg) {
 
   crud(reg, cfg, {
     domain: 'providers', noun: 'mapping', base: '/propertymappings', types: MAPPING_TYPES, allPath: '/propertymappings/all/',
-    summary: ['pk', 'name', 'managed', 'verbose_name'],
+    summary: ['pk', 'name', 'managed', 'verbose_name'], codeFields: ['expression'],
     hint: 'Property mappings hold Python expressions that run in authentik; treat the expression field as code.',
   });
 }

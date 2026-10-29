@@ -8,7 +8,7 @@ const TYPES = {
 export function register(reg, cfg) {
   crud(reg, cfg, {
     domain: 'policies', noun: 'policy', base: '/policies', types: TYPES, allPath: '/policies/all/',
-    summary: ['pk', 'name', 'component', 'verbose_name', 'bound_to'],
+    summary: ['pk', 'name', 'component', 'verbose_name', 'bound_to'], codeFields: ['expression'],
     hint: 'An expression policy runs Python inside authentik: treat its expression as code and show it to the user before creating or changing it.',
   });
   crud(reg, cfg, {

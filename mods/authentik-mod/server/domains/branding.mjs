@@ -12,15 +12,19 @@ const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image
 export function validateCss(css, cfg) {
   if (Buffer.byteLength(css) > cfg.maxCssKb * 1024) throw new UserError(`CSS is larger than ${cfg.maxCssKb} KB.`);
   const bare = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Escapes (u\72l(, \68ttp) can spell any keyword past the checks below, so none are accepted.
+  if (bare.includes('\\')) throw new UserError('CSS contains a backslash escape; write the characters out.');
   for (const re of FORBIDDEN_CSS) if (re.test(bare)) throw new UserError(`CSS contains a forbidden construct (${re.source}).`);
-  const refs = [...bare.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/gi)].map((m) => m[1]);
-  refs.push(...[...bare.matchAll(/@import\s+(?:url\(\s*)?['"]?([^'")\s;]+)/gi)].map((m) => m[1]));
-  for (const ref of refs) {
-    if (/^data:image\/(png|jpe?g|gif|webp);base64,/i.test(ref) || !/^(https?:)?\/\//i.test(ref) && !/^data:/i.test(ref)) continue;
-    let host;
-    try { host = new URL(ref.startsWith('//') ? `https:${ref}` : ref).hostname.toLowerCase(); } catch { host = ''; }
-    if (!cfg.cssAllowedHosts.includes(host)) throw new UserError(`CSS loads "${ref}", host "${host}" is not in AUTHENTIK_BRANDING_ALLOWED_HOSTS (${cfg.cssAllowedHosts.join(', ') || 'none'}).`);
-    if (/^data:/i.test(ref)) throw new UserError('CSS contains a data: URL that is not a plain image.');
+  const clean = bare.replace(/data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]*/gi, '');
+  if (/data:/i.test(clean)) throw new UserError('CSS contains a data: URL that is not a plain image.');
+  // Every remote reference, in whatever form (url(), @import, image-set(), a bare string), must be on an allowed host.
+  for (const m of clean.matchAll(/(?:([a-z][a-z0-9+.-]*):)?\/\/([^\s'"()\\;,}]*)/gi)) {
+    const scheme = (m[1] || 'https').toLowerCase();
+    let host = '';
+    try { host = new URL(`https://${m[2]}`).hostname.toLowerCase(); } catch { /* empty host is refused below */ }
+    if (!['http', 'https'].includes(scheme) || !cfg.cssAllowedHosts.includes(host)) {
+      throw new UserError(`CSS loads "${m[0]}", host "${host}" is not in AUTHENTIK_BRANDING_ALLOWED_HOSTS (${cfg.cssAllowedHosts.join(', ') || 'none'}).`);
+    }
   }
   return css;
 }
