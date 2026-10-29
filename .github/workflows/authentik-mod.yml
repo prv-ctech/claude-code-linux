@@ -1,0 +1,26 @@
+name: authentik-mod
+
+# Offline tests of mods/authentik-mod. The live test (test/live.mjs) needs a real authentik and is run by hand.
+on:
+  pull_request:
+    paths:
+      - 'mods/authentik-mod/**'
+      - '.github/workflows/authentik-mod.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mods/authentik-mod/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install and test
+        working-directory: mods/authentik-mod/server
+        run: |
+          npm ci --no-fund --no-audit
+          node --test ../test/offline.test.mjs

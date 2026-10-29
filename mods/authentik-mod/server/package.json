@@ -1,0 +1,15 @@
+{
+  "name": "authentik-mod-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server for authentik 2026.8, run over stdio by the authentik-mod plugin.",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
+  },
+  "scripts": {
+    "test": "node --test ../test/"
+  }
+}

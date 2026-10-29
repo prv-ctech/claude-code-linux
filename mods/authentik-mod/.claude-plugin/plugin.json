@@ -1,0 +1,66 @@
+{
+  "name": "authentik-mod",
+  "version": "0.1.0",
+  "description": "Manage an authentik 2026.8 instance from Claude Code: an MCP server with tools for users, groups, applications, providers, outposts, flows, events, crypto, policies, sources, RBAC, blueprints, system and branding, a skill, and /authentik. Dependencies install on first use; the URL and token are asked for at install time and the token goes to the keychain.",
+  "author": { "name": "prv-ctech" },
+  "license": "MIT",
+  "userConfig": {
+    "authentik_url": {
+      "type": "string",
+      "title": "authentik URL",
+      "description": "Base URL of your authentik, for example https://auth.example.com (https required).",
+      "required": true
+    },
+    "authentik_token": {
+      "type": "string",
+      "title": "authentik API token",
+      "description": "API token (intent: API, not app password) of a service account whose role holds only the permissions you want Claude to have. See the plugin README.",
+      "sensitive": true,
+      "required": true
+    },
+    "read_only": {
+      "type": "boolean",
+      "title": "Read-only",
+      "description": "Only register tools that read. Nothing can be created, changed or deleted.",
+      "default": false
+    },
+    "enabled_domains": {
+      "type": "string",
+      "title": "Enabled domains",
+      "description": "Comma-separated tool domains to turn on.",
+      "default": "users,groups,applications,providers,outposts,flows,events,crypto,policies,sources,rbac,blueprints,system,branding"
+    },
+    "allow_flows_admin": {
+      "type": "boolean",
+      "title": "Allow editing flows and stages",
+      "description": "Turn on the tools that create, change or delete flows, stages and stage bindings. A broken authentication flow can lock everyone out, so this is off by default.",
+      "default": false
+    },
+    "max_page_items": {
+      "type": "number",
+      "title": "Max items per list",
+      "description": "Upper limit of items one list call returns.",
+      "default": 200,
+      "min": 1,
+      "max": 1000
+    },
+    "default_authorization_flow": {
+      "type": "string",
+      "title": "Default authorization flow",
+      "description": "Slug used for new OAuth2, SAML and proxy providers when none is given.",
+      "default": "default-provider-authorization-implicit-consent"
+    },
+    "default_invalidation_flow": {
+      "type": "string",
+      "title": "Default invalidation flow",
+      "description": "Slug used for new providers when none is given.",
+      "default": "default-provider-invalidation-flow"
+    },
+    "css_allowed_hosts": {
+      "type": "string",
+      "title": "Allowed hosts in custom CSS",
+      "description": "Comma-separated hosts that custom brand CSS may load fonts or images from.",
+      "default": "fonts.googleapis.com,fonts.gstatic.com"
+    }
+  }
+}
