@@ -4,7 +4,7 @@ A mod is a Claude Code plugin in `mods/<name>-mod/`, installed from this repo's 
 
 - **Manifest:** `.claude-plugin/plugin.json` with `name` (the folder name), `version` (semver), `description`, `author`, `license`. Run `claude plugin validate mods/<name>-mod` before committing.
 - **Version bump:** an installed copy is keyed by `version`. Any change that should reach users needs a bump in the same PR, or installed copies never update.
-- **Marketplace:** an entry in `/.claude-plugin/marketplace.json` (`name`, `source: ./mods/<name>`, `description`). Users update from `main`, so nothing reaches them until it is merged there.
+- **Marketplace:** an entry in `/.claude-plugin/marketplace.json` (`name`, `source: ./mods/<name>-mod`, `description`). Users update from `main`, so nothing reaches them until it is merged there.
 - **Layout:** `commands/*.md`, `skills/<name>/SKILL.md`, `hooks/hooks.json` and `.mcp.json` sit at the plugin root, not inside `.claude-plugin/`. Commands are Markdown with frontmatter, not `.toml`.
 - **Paths:** reference files with `${CLAUDE_PLUGIN_ROOT}`. Write state, caches and installed dependencies to `${CLAUDE_PLUGIN_DATA}`, never into the plugin folder: updates replace it.
 - **Config and secrets:** user settings go in `userConfig` in `plugin.json`, tokens with `"sensitive": true` (keychain). Never hardcode or commit a secret. Every setting must work left blank: the settings form leaves unset fields empty.
