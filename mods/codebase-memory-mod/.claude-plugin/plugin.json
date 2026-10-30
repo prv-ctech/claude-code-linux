@@ -1,6 +1,6 @@
 {
   "name": "codebase-memory-mod",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "codebase-memory-mcp for Claude Code: installs the pinned binary on first use, the MCP server, a skill, and hooks that put the graph first in every chat and subagent.",
   "author": {
     "name": "prv-ctech"
