@@ -36,8 +36,6 @@ function paths(home = os.homedir(), env = process.env) {
     // Claude's file credential store (Linux); sensitive plugin options sit under pluginSecrets[<plugin id>].
     credentials: path.join(env.CLAUDE_SECURESTORAGE_CONFIG_DIR || claude, '.credentials.json'),
     gateway: env.OMC_CONFIG_FILE || path.join(mhome, 'config.json'),
-    // mcptoon-mod 0.1.0's gateway config (upstream mcptoon's default), undone on migration.
-    legacy: path.join(home, '.mcptoon', 'config.json'),
     state: path.join(claude, ME),
     // Claude Code's managed settings dir per platform. MDM, registry and server-managed sources are not read.
     managedDir: { darwin: '/Library/Application Support/ClaudeCode', win32: 'C:\\Program Files\\ClaudeCode' }[process.platform] || '/etc/claude-code',

@@ -58,14 +58,6 @@ If `bin/oh-my-context` does not run (no Python 3.10+), the session-start hook pu
 
 Enabling the mod is all it takes. The first session start sets everything up. Claude Code reads MCP and skill config at launch, so what a start changes counts from the next session. Each project gets its server switches at its first session there.
 
-### Coming from mcptoon-mod 0.1.0
-
-This mod was published as `mcptoon-mod` up to 0.1.0, which is no longer in the marketplace. Install `oh-my-context-mod`, disable the old one (`/plugin disable mcptoon-mod@claude-code-linux`) and start a new session:
-
-- While `mcptoon-mod` is installed for this project and not disabled (an installed plugin with no `enabledPlugins` entry counts as enabled), `oh-my-context-mod` applies nothing, puts back anything it had set up, and its session-start line says to disable `mcptoon-mod`: both would route the same servers and skills.
-- Once it is disabled, the next session start undoes 0.1.0's setup exactly as 0.1.0's own `off` did (its entries in `~/.mcptoon/config.json`, its `disabledMcpServers` entries, the `disable-model-invocation` lines in plugin skills, its `user-invocable-only` overrides), renames its `<plugins>/data/mcptoon-mod-claude-code-linux/state.json` to `state.v1-migrated.json`, carries an `off` switch over, then applies. A step that fails is retried at the next start.
-- Uninstall `mcptoon-mod` after that, not before: uninstalling 0.1.0 deletes its data folder, and with it the record of what it changed.
-
 ## Disable or uninstall
 
 Claude Code has no disable or uninstall event for plugins, so the mod installs a guard in your own `~/.claude/settings.json`:
