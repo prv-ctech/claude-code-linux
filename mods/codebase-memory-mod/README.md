@@ -1,6 +1,6 @@
 # codebase-memory-mod
 
-Installs codebase-memory-mcp 0.12.0 on first use, registers its MCP server, and puts its graph first in every chat and subagent.
+Installs codebase-memory-mcp 0.12.1 on first use, registers its MCP server, and puts its graph first in every chat and subagent.
 
 ## What the hooks do
 

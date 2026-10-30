@@ -7,9 +7,9 @@
 # stdout is the MCP stdio channel, so every message here goes to stderr.
 set -eu
 
-VERSION=0.12.0
-SHA256_AMD64=2c0a3f3314874e2315ed169165f1fdf74d9628c7f8b301579b900fcc6d7bcd9c
-SHA256_ARM64=8a0882c443efabcac4f7eb9ff01da9e4b7fc65ccf6f49b5b08f53d654db6a196
+VERSION=0.12.1
+SHA256_AMD64=8453015145f072c1b9b019cbdd02cea8cc6f18cc5e116036dd20992631c638c7
+SHA256_ARM64=8575f126092660b93b170bdc2e06f3ef2dd28d3cc49ad6d0895dc3e4767219cd
 
 if [ "$(uname -s)" != Linux ]; then
 	echo "codebase-memory-mcp: this plugin installs the Linux build only" >&2
