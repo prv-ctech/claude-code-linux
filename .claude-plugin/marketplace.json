@@ -28,11 +28,6 @@
       "description": "authentik 2026.8 management for Claude Code: MCP server with tools for users, groups, SSO apps and providers, flows, policies, RBAC, blueprints, branding and more. URL and token asked at install (token in the keychain), safe by default."
     },
     {
-      "name": "mcptoon-mod",
-      "source": "./mods/mcptoon-mod",
-      "description": "Deprecated: replaced by oh-my-context-mod. Version 0.1.1 only puts back what 0.1.0 changed; install oh-my-context-mod, then uninstall this."
-    },
-    {
       "name": "oh-my-context-mod",
       "source": "./mods/oh-my-context-mod",
       "description": "Routes every plugin and user MCP server through one oh-my-context gateway (bundled, nothing downloaded) and lists skills by name only, so they stop filling the context while everything still works. Sets itself up on enable and puts everything back on disable or uninstall. /oh-my-context-mod shows what moved and turns it off."
