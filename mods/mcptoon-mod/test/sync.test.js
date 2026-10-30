@@ -127,3 +127,19 @@ test('a server moved to direct_servers comes back on the next start', () => {
   assert.deepStrictEqual(r(p.claudeJson).projects['/w'].disabledMcpServers, ['by-hand', 'ctx']);
   restore(p, env);
 });
+
+test('a config that does not parse stops the mod before it writes anything', () => {
+  const good = fs.readFileSync(p.claudeJson, 'utf8');
+  const broken = good.slice(0, 20);
+  fs.writeFileSync(p.claudeJson, broken);
+  const before = [p.settings, p.mcptoon].map(f => fs.readFileSync(f, 'utf8'));
+  try {
+    assert.throws(() => apply(p, '/w', env, ok), /\.claude\.json is not valid JSON/);
+    assert.throws(() => restore(p, env), /not valid JSON/);
+    assert.strictEqual(fs.readFileSync(p.claudeJson, 'utf8'), broken);
+    assert.deepStrictEqual([p.settings, p.mcptoon].map(f => fs.readFileSync(f, 'utf8')), before);
+    assert.doesNotMatch(fs.readFileSync(skillA, 'utf8'), /disable-model-invocation/);
+  } finally {
+    fs.writeFileSync(p.claudeJson, good);
+  }
+});

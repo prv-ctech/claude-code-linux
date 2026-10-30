@@ -43,6 +43,23 @@ function readJson(file, fallback) {
   }
 }
 
+// For a file the mod rewrites: a missing file is `fallback`, but one that does not parse throws, so
+// a half-written or hand-broken config is never replaced by the fallback plus the mod's keys.
+function readConfig(file, fallback) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return fallback;
+    throw e;
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(`${file} is not valid JSON (${e.message}); the mod changed nothing`);
+  }
+}
+
 // Write to a temp file and rename, so Claude never reads a half-written config. Keeps the file's mode.
 function writeJson(file, data, mode) {
   let keep = mode;
@@ -220,7 +237,7 @@ function stateFile(p, id, env) {
 }
 
 function loadState(file) {
-  return { off: false, servers: [], projects: {}, skills: [], overrides: [], ...readJson(file, {}) };
+  return { off: false, servers: [], projects: {}, skills: [], overrides: [], ...readConfig(file, {}) };
 }
 
 function runMcptoon(args) {
@@ -236,16 +253,18 @@ function swap(current, mine, want) {
 }
 
 function apply(p, cwd, env, run) {
-  const settings = readJson(p.settings, {});
+  // Every file it rewrites is read first, so a parse error stops it before any write.
+  const settings = readConfig(p.settings, {});
   const opts = options(settings);
   const file = stateFile(p, opts.id, env);
   const state = loadState(file);
+  const mc = readConfig(p.mcptoon, {});
+  const cj = readConfig(p.claudeJson, {});
   const before = JSON.stringify(state);
   const plugins = enabledPlugins(p, settings);
 
   // 1. mcptoon config: replace the entries the mod wrote last time.
   const servers = plan(collectServers(p, plugins, env), list(opts.direct_servers));
-  const mc = readJson(p.mcptoon, {});
   mc.servers = mc.servers || {};
   for (const n of state.servers) delete mc.servers[n];
   state.servers = [];
@@ -262,7 +281,6 @@ function apply(p, cwd, env, run) {
   fs.chmodSync(p.mcptoon, 0o600);
 
   // 2. Turn the forwarded originals off in this project.
-  const cj = readJson(p.claudeJson, {});
   cj.projects = cj.projects || {};
   const proj = cj.projects[cwd] = cj.projects[cwd] || {};
   const want = servers.filter(s => s.forward).map(s => s.key);
@@ -291,10 +309,9 @@ function apply(p, cwd, env, run) {
   state.overrides = sk.userSkills.filter(n => !userSet.includes(n));
   for (const n of state.overrides) overrides[n] = OVERRIDE;
   if (JSON.stringify(overrides) !== JSON.stringify(settings.skillOverrides || {})) {
-    const fresh = readJson(p.settings, {});
-    if (Object.keys(overrides).length) fresh.skillOverrides = overrides;
-    else delete fresh.skillOverrides;
-    writeJson(p.settings, fresh, 0o644);
+    if (Object.keys(overrides).length) settings.skillOverrides = overrides;
+    else delete settings.skillOverrides;
+    writeJson(p.settings, settings, 0o644);
   }
 
   // 4. mcptoon's skill index over every skill, hidden or not.
@@ -306,15 +323,15 @@ function apply(p, cwd, env, run) {
 
 // Removes everything the mod added, in every project it touched.
 function restore(p, env) {
-  const settings = readJson(p.settings, {});
+  const settings = readConfig(p.settings, {});
   const file = stateFile(p, options(settings).id, env);
   const state = loadState(file);
-  const mc = readJson(p.mcptoon, null);
+  const mc = readConfig(p.mcptoon, null);
+  const cj = readConfig(p.claudeJson, null);
   if (mc && mc.servers) {
     for (const n of state.servers) delete mc.servers[n];
     writeJson(p.mcptoon, mc, 0o600);
   }
-  const cj = readJson(p.claudeJson, null);
   if (cj && cj.projects) {
     for (const [dir, mine] of Object.entries(state.projects)) {
       const proj = cj.projects[dir];
@@ -333,7 +350,7 @@ function restore(p, env) {
 }
 
 function setOff(p, env, off) {
-  const file = stateFile(p, options(readJson(p.settings, {})).id, env);
+  const file = stateFile(p, options(readConfig(p.settings, {})).id, env);
   writeJson(file, { ...loadState(file), off }, 0o600);
 }
 
@@ -383,14 +400,18 @@ function main() {
     } catch (e) {
       /* no payload */
     }
-    if (loadState(stateFile(p, options(readJson(p.settings, {})).id, env)).off) return;
     let text;
-    if (runMcptoon(['--version']).status !== 0) {
-      // No gateway means no way to reach a hidden server, so nothing stays hidden.
-      restore(p, env);
-      text = 'mcptoon-mod: the mcptoon CLI did not run, so every MCP server and skill is direct again.';
-    } else {
-      text = sessionContext(apply(p, payload.cwd || process.cwd(), env, runMcptoon));
+    try {
+      if (loadState(stateFile(p, options(readConfig(p.settings, {})).id, env)).off) return;
+      if (runMcptoon(['--version']).status !== 0) {
+        // No gateway means no way to reach a hidden server, so nothing stays hidden.
+        restore(p, env);
+        text = 'mcptoon-mod: the mcptoon CLI did not run, so every MCP server and skill is direct again.';
+      } else {
+        text = sessionContext(apply(p, payload.cwd || process.cwd(), env, runMcptoon));
+      }
+    } catch (e) {
+      text = `mcptoon-mod: ${e.message}`;
     }
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } }));
     return;
@@ -415,6 +436,13 @@ function main() {
   process.exitCode = 1;
 }
 
-if (require.main === module) main();
+if (require.main === module) {
+  try {
+    main();
+  } catch (e) {
+    console.error(`mcptoon-mod: ${e.message}`);
+    process.exitCode = 1;
+  }
+}
 
 module.exports = { paths, resolve, plan, patchSkill, unpatchSkill, swap, apply, restore, status, collectServers, enabledPlugins };
