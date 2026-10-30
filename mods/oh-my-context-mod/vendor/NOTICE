@@ -1,0 +1,146 @@
+mcptoon — Token-efficient MCP CLI client
+Copyright 2025 activeing123
+
+This product includes software developed by activeing123
+(https://github.com/activeing123/mcptoon).
+
+=== TOON Format ===
+mcptoon supports standard TOON (Token-Oriented Object Notation) as defined
+by the toon-format/toon open spec (https://github.com/toon-format/toon).
+The SLIM format (name|param:type*) is an mcptoon-specific innovation.
+
+TOON encoder/decoder is vendored from python-toon v0.1.1
+(https://github.com/xaviviro/python-toon), Copyright (c) Xavi Vinaixa,
+licensed under the MIT License. See src/mcptoon/toon_vendored.py for
+the full copyright notice and license terms.
+
+If you implement TOON encoding in a derivative work, please reference
+the standard TOON spec. If you implement SLIM format, please:
+  1. Attribute the original design to mcptoon
+  2. Include a reference to https://github.com/activeing123/mcptoon
+  3. Include this NOTICE file
+
+=== Third-Party Acknowledgments ===
+This project is inspired by the Model Context Protocol (MCP) specification
+by Anthropic (https://modelcontextprotocol.io/). mcptoon is an independent
+implementation and is not affiliated with or endorsed by Anthropic.
+
+=== OpenAPI adapter — design inspiration ===
+The `mcptoon openapi` adapter (src/mcptoon/openapi.py) is an independent,
+stdlib-only implementation. Its design conventions — operation naming from
+operationId, path-item parameter inheritance, Optional[T] union collapsing,
+and request-body content negotiation — follow the approach popularised by
+knowsuchagency/mcp2cli (https://github.com/knowsuchagency/mcp2cli),
+Copyright (c) 2026 Stephan Fitzpatrick, licensed under the MIT License.
+No mcp2cli source code is included; this notice records the design lineage.
+
+=== oh-my-context (derived work) ===
+oh-my-context is derived from mcptoon 0.8.33 by activeing123
+(https://github.com/activeing123/mcptoon), licensed under the Apache License
+2.0. It ships in oh-my-context-mod (https://github.com/prv-ctech/claude-code-linux,
+mods/oh-my-context-mod). The text above is mcptoon's own NOTICE, kept verbatim;
+its "src/mcptoon/..." paths are upstream's. Modifications made by
+oh-my-context-mod (Apache License 2.0, section 4), 2026-10-30, are listed
+below. Each changed file has a "Modified by oh-my-context-mod" header and each
+functional change an "oh-my-context-mod:" comment.
+
+Renamed in every file of oh_my_context/:
+  the package mcptoon -> oh_my_context; the program and CLI name mcptoon ->
+  oh-my-context; the gateway's own tools mcptoon_<name> -> <name> (call,
+  inspect, manifest, resolve_skills, servers, health, usage, skills, retrieve,
+  kb_search, kb_index, session); environment variables MCPTOON_* -> OMC_*;
+  default folders and files ~/.mcptoon -> the plugin's data folder (OMC_HOME);
+  internal identifiers containing mcptoon -> omc; links to the upstream
+  repository -> this repository.
+
+Only what the plugin runs is kept: the CLI commands `--version`, `serve`
+(stdio), `hint` and `skills index <dir>`, the gateway's MCP tools and what they
+reach. Not included (removed, or never vendored): mcptoon's own agent skill
+(skill/SKILL.md), python-toon (_toon/, toon_vendored.py) and the TOON/SLIM output
+formats, and the modules bake.py, bench.py, demo.py, demo_server.py, discover.py,
+docs.py, errors.py, exec_sandbox.py, footer.py, graphql.py, health.py,
+installer.py, manifest.py, mcp_extras.py, mode.py, oauth.py, openapi.py,
+output.py, packs.py, packs.json, bench_tokens.py, report.py, savings.py,
+sync.py, update.py, upgrade.py, watch.py and welcome.py. Every other CLI command
+(sync, quickstart, init, restore, off, install, uninstall, add, remove, list,
+manifest, inspect, search, select, call, exec, usage, status, stats, activity,
+report, savings, mode, credit, statusline, docs, kb, openapi, graphql, auth,
+resources, prompts, complete, bake, session, retrieve, footer-facts, toggle,
+policy, discover, import, doctor, update, upgrade, completion, health, plugin,
+skills <other actions>, bench, config, help, demo, demo-server and the
+natural-language fallback) is removed with its handler; an unknown command
+prints a usage line and exits 2. Removed with them: the footer, presence line,
+welcome, star hint and self-heal; serve's HTTP, background and autostart modes;
+the per-tool compression policies, toggles and all settings except `exposure`
+and `compress`; the skills LLM route, skills.sh search, sync, doctor, version
+gate, gloss and usage counts; the kb URL fetch; the activity ledger; tiktoken
+token counting; and the OMC_* environment overrides other than OMC_HOME,
+OMC_CONFIG_FILE and OMC_MOD_PYTHONPATH. Nothing left reaches the network except
+the HTTP MCP servers the gateway routes.
+
+  oh_my_context/cli.py           only --version, serve, hint and skills index
+                                 <dir> (see above).
+  oh_my_context/hint.py          added: `oh-my-context hint`, read-only skill and
+                                 tool hints for a prompt.
+  oh_my_context/config.py        reads only OMC_CONFIG_FILE (written by
+                                 hooks/sync.js; no project-local, TOML or
+                                 OMC_SERVERS config); servers with "cwd_only"
+                                 load only in that project, and servers with
+                                 "cwd_except" not in the projects it lists; an
+                                 unreadable config's backup is created owner-only
+                                 (0600) and never overwritten; settings are
+                                 `exposure` and `compress` (off by default) in
+                                 OMC_HOME/settings.json; the self-entry check
+                                 knows the module name too.
+  oh_my_context/serve.py         stdio only; its own initialize instructions;
+                                 tools/list marks call/inspect/manifest/
+                                 resolve_skills with _meta "anthropic/alwaysLoad";
+                                 `call` takes only an original Claude tool name
+                                 (mcp__...) or server plus tool; a server's own
+                                 instructions come with its first call; a
+                                 server's "timeout" is honoured for calls; the
+                                 destructive-tool block is skipped only for a
+                                 `call` that resolved to an exact route; upstream
+                                 isError results and content blocks pass through;
+                                 stdio requests run on their own threads and
+                                 honour notifications/cancelled; the cold index
+                                 reads the cache and fetches missing servers in
+                                 parallel through the pool; routed servers'
+                                 prompts and resources pass through; results are
+                                 compressed only with `compress` set to smart.
+  oh_my_context/native_tools.py  `call` and `inspect` accept original Claude
+                                 tool names (resolve_claude_name); the `call`
+                                 schema offers only the two call forms; inspect
+                                 shows the instructions of a server that is
+                                 already running and never starts one for them;
+                                 kb_index takes a local path only; notices point
+                                 to /oh-my-context-mod.
+  oh_my_context/client.py        keeps a server's initialize instructions;
+                                 upstream servers start without the launcher's
+                                 PYTHONPATH/PYTHONPYCACHEPREFIX/OMC_* variables
+                                 and remote HTTP servers use the proxy
+                                 environment (loopback stays direct); an expired
+                                 HTTP session (404 with Mcp-Session-Id) is
+                                 re-initialized and the request retried once; an
+                                 HTTP error body that is not a JSON-RPC error
+                                 object (an OAuth {"error": "..."}) raises
+                                 HTTP_ERROR, and a 401 says to keep the server in
+                                 direct_servers; a server that exited before the
+                                 response deadline is reported as PROCESS_DIED,
+                                 not RESPONSE_TIMEOUT (ported from upstream
+                                 mcptoon commit 27dd0ddac).
+  oh_my_context/skills.py        only the index the plugin builds and the BM25
+                                 resolve over it; skills are indexed by their
+                                 frontmatter name (the Skill tool's id).
+  oh_my_context/cache.py         per-server files under OMC_HOME/cache only.
+  oh_my_context/ccr.py           the store lives in OMC_HOME/ccr, never expires
+                                 and keeps one session per gateway process.
+  oh_my_context/compressor.py    used only by the gateway.
+  oh_my_context/floodguard.py    blocks only (no soft cap), fixed limits.
+  oh_my_context/headers.py       documentation only.
+  oh_my_context/kb.py            local files only (no URL fetch).
+  oh_my_context/plugin.py        only the SKILL.md frontmatter reader.
+  oh_my_context/router.py        only the safety screens.
+  oh_my_context/session_log.py   the log lives in OMC_HOME/sessions.
+  oh_my_context/usage.py         only the call counter the `usage` tool reads;
+                                 tokens are estimated as characters / 4.

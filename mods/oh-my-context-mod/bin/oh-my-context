@@ -1,0 +1,42 @@
+#!/bin/sh
+# oh-my-context, as this plugin runs it: always the fork vendored in vendor/oh_my_context, never a copy on
+# PATH, so the gateway and the hooks agree on one version and one config. No pip, no venv, no
+# network: the fork has no dependencies beyond Python 3.10+.
+#
+# The fork runs only the commands the plugin uses (--version, serve, hint, skills index).
+# Its home is the plugin's data folder; OMC_HOME and OMC_CONFIG_FILE are only defaulted,
+# so tests can point them at a temp folder.
+#
+# stdout is the MCP stdio channel, so every message here goes to stderr.
+set -eu
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+# Claude sets CLAUDE_PLUGIN_DATA only for hooks and MCP servers, not for the Bash tool. The
+# default is the path Claude would set, as hooks/restore.js paths() derives it:
+# <CLAUDE_CODE_PLUGIN_CACHE_DIR or <CLAUDE_CONFIG_DIR or ~/.claude>/plugins>/data/<plugin id>.
+claude="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+plugins="${CLAUDE_CODE_PLUGIN_CACHE_DIR:-${claude}/plugins}"
+data="${CLAUDE_PLUGIN_DATA:-${plugins}/data/oh-my-context-mod-claude-code-linux}"
+
+if ! command -v python3 >/dev/null 2>&1 ||
+	! python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+	echo "oh-my-context-mod: needs python3 3.10 or newer on PATH" >&2
+	exit 3
+fi
+
+# The upstream servers the gateway starts get the person's own PYTHONPATH back (see client.py).
+if [ -n "${PYTHONPATH:-}" ]; then
+	export OMC_MOD_PYTHONPATH="${PYTHONPATH}"
+fi
+export PYTHONPATH="${root}/vendor"
+export OMC_HOME="${OMC_HOME:-${data}/home}"
+export OMC_CONFIG_FILE="${OMC_CONFIG_FILE:-${OMC_HOME}/config.json}"
+# Bytecode goes to the data folder: the plugin folder is replaced on every update.
+export PYTHONPYCACHEPREFIX="${data}/pycache"
+
+# Same as `python3 -s -m oh_my_context`, except the working directory is not put first on sys.path:
+# a project folder holding its own oh_my_context/ must not run in place of the fork. -s ignores
+# the user's site-packages, so a pip-installed oh_my_context can never shadow it either.
+exec python3 -s -c 'import runpy, sys
+sys.path[0] = sys.argv.pop(1)
+runpy.run_module("oh_my_context", run_name="__main__", alter_sys=True)' "${root}/vendor" "$@"

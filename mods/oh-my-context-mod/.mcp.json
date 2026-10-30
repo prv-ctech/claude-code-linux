@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "oh-my-context": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/oh-my-context",
+      "args": ["serve"]
+    }
+  }
+}
