@@ -266,6 +266,7 @@ class GatewayTest(unittest.TestCase):
         call = next(t for t in tools if t["name"] == "call")
         self.assertIn("tool", call["inputSchema"]["properties"])
         self.assertIn("server", call["inputSchema"]["properties"])
+        self.assertNotIn("outputSchema", call)
 
     def test_calls_instructions_once_and_aliases(self):
         first = self.gw.call("call", {"server": "fake", "tool": "echo",
@@ -273,8 +274,8 @@ class GatewayTest(unittest.TestCase):
         self.assertFalse(first["isError"], first)
         self.assertIn("FAKE-INSTRUCTIONS", first["content"][0]["text"])
         self.assertIn("echo:one", _text(first))
-        self.assertEqual(first["structuredContent"]["server"], "fake")
-        self.assertEqual(first["structuredContent"]["tool"], "echo")
+        # Claude Code shows structuredContent over content; a stub there would hide the result.
+        self.assertNotIn("structuredContent", first)
 
         second = self.gw.call("call", {"tool": "mcp__fake__echo",
                                                "arguments": {"text": "two"}})
@@ -529,7 +530,7 @@ class ResultFidelityTest(unittest.TestCase):
                 {"type": "text", "text": "# done"},
                 {"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"},
                 {"type": "resource_link", "uri": "fake://doc", "name": "doc"}])
-            self.assertEqual(res["structuredContent"], {"tool": "blocks", "server": "fake"})
+            self.assertNotIn("structuredContent", res)
 
             plain = gw.call("call", {"server": "fake", "tool": "echo",
                                              "arguments": {"text": "a\nb"}})

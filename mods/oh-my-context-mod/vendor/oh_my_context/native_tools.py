@@ -430,15 +430,6 @@ def native_tools() -> list[dict]:
                 },
                 "required": ["tool"],
             },
-            "outputSchema": {
-                "type": "object",
-                "properties": {
-                    "tool": {"type": "string"},
-                    "server": {"type": "string"},
-                    "result": {},
-                },
-                "required": ["tool", "server"],
-            },
             "annotations": {
                 "title": "Call any upstream tool",
                 "readOnlyHint": False,
@@ -1024,10 +1015,8 @@ _HANDLERS = {
     "session": _session,
     # "call" is routed by the bridge to the upstream tool; it has no
     # handler here because it must reuse the bridge's pool, validation and
-    # compression rather than duplicate them (see serve._handle_call_tool). The
-    # bridge wraps the routed answer in {tool, server, result} so this tool's
-    # declared outputSchema is satisfied even when the upstream returns its own
-    # structuredContent (issue #33).
+    # compression rather than duplicate them (see serve._handle_call_tool). It
+    # declares no outputSchema: it returns whatever the upstream tool returned.
 }
 
 
