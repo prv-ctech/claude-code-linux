@@ -26,6 +26,11 @@
       "name": "authentik-mod",
       "source": "./mods/authentik-mod",
       "description": "authentik 2026.8 management for Claude Code: MCP server with tools for users, groups, SSO apps and providers, flows, policies, RBAC, blueprints, branding and more. URL and token asked at install (token in the keychain), safe by default."
+    },
+    {
+      "name": "mcptoon-mod",
+      "source": "./mods/mcptoon-mod",
+      "description": "Runs plugin and user MCP servers behind one mcptoon gateway and takes skills out of Claude's skill listing, with a filter for servers and skills that stay direct. /mcptoon-mod shows what moved and turns it off."
     }
   ]
 }

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mcptoon": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/mcptoon",
+      "args": ["serve"]
+    }
+  }
+}

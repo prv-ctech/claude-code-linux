@@ -1,0 +1,33 @@
+#!/bin/sh
+# mcptoon, as this plugin runs it. If the person already has mcptoon on PATH, that copy runs, so
+# the gateway and their own `mcptoon` commands share one config and one version. Otherwise this
+# wrapper installs the pinned version from requirements.txt into a venv in ${CLAUDE_PLUGIN_DATA}
+# on first use. The venv is built in a temp folder and moved into place, so two starts at once
+# never run a half-built copy.
+#
+# stdout is the MCP stdio channel, so every message here goes to stderr.
+set -eu
+
+if command -v mcptoon >/dev/null 2>&1; then
+	exec mcptoon "$@"
+fi
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+version="$(sed -n 's/^mcptoon==//p' "${root}/requirements.txt")"
+# Claude sets CLAUDE_PLUGIN_DATA to <plugin id> under ~/.claude/plugins/data; the default is the same path.
+data="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/mcptoon-mod-claude-code-linux}"
+venv="${data}/mcptoon-${version}"
+
+if [ ! -x "${venv}/bin/python" ]; then
+	mkdir -p "${data}"
+	tmp="$(mktemp -d "${data}/install.XXXXXX")"
+	trap 'rm -rf "${tmp}"' EXIT
+	echo "mcptoon-mod: installing mcptoon ${version} into ${venv}" >&2
+	python3 -m venv "${tmp}/venv" >&2
+	"${tmp}/venv/bin/python" -m pip install --quiet --disable-pip-version-check -r "${root}/requirements.txt" >&2
+	# The loser of two concurrent installs finds the folder taken and uses the winner's copy.
+	mv "${tmp}/venv" "${venv}" 2>/dev/null || true
+fi
+
+# `python -m` and not bin/mcptoon: console scripts carry the temp path the venv was built at.
+exec "${venv}/bin/python" -m mcptoon "$@"
