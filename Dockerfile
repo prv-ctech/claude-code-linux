@@ -138,6 +138,8 @@ RUN set -eu; \
 #                              registers; the CLI's `engines` requires 22+
 #   google-chrome-stable       the browser Claude Desktop hands its sign-in to,
 #                              from Google's repository, key checked by fingerprint
+#   pcmanfm                    the file manager "show in folder" opens; made the
+#                              inode/directory default by rootfs/etc/xdg/mimeapps.list
 # ---------------------------------------------------------------------------
 # DL3008: no package version pins — the base does not pin either, and the image is
 #   rebuilt on every upstream move.
@@ -167,6 +169,7 @@ RUN set -eu; \
         gpgv \
         nodejs \
         python3-pip \
+        pcmanfm \
         google-chrome-stable; \
     command -v npm > /dev/null || DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y npm; \
     if [ "${CLAUDE_DESKTOP_COWORK}" = "true" ]; then \
@@ -237,6 +240,9 @@ RUN set -eu; \
     command -v gnome-keyring-daemon > /dev/null; \
     command -v secret-tool > /dev/null; \
     command -v gh > /dev/null; \
+    command -v pcmanfm > /dev/null; \
+    test -e /usr/share/applications/pcmanfm.desktop; \
+    grep -qx 'inode/directory=pcmanfm.desktop' /etc/xdg/mimeapps.list; \
     test "$(readlink -f /usr/bin/google-chrome)" = /usr/local/bin/google-chrome; \
     test -e /usr/share/applications/google-chrome.desktop; \
     test -e /usr/share/applications/com.anthropic.Claude.desktop; \

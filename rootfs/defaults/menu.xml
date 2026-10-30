@@ -3,6 +3,7 @@
 <menu id="root-menu" label="MENU">
 <item label="Claude"><action name="Execute"><command>/usr/local/bin/claude-desktop</command></action></item>
 <item label="Google Chrome"><action name="Execute"><command>/usr/local/bin/google-chrome</command></action></item>
+<item label="Files"><action name="Execute"><command>/usr/bin/pcmanfm</command></action></item>
 <item label="Terminal" icon="/usr/share/pixmaps/xterm-color_48x48.xpm"><action name="Execute"><command>/usr/bin/xterm</command></action></item>
 </menu>
 </openbox_menu>
