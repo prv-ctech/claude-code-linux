@@ -1,8 +1,0 @@
-{
-  "name": "mcptoon-mod",
-  "version": "0.1.1",
-  "description": "Deprecated: replaced by oh-my-context-mod; this version only undoes 0.1.0's changes",
-  "author": { "name": "prv-ctech" },
-  "license": "MIT",
-  "repository": "https://github.com/prv-ctech/claude-code-linux"
-}
