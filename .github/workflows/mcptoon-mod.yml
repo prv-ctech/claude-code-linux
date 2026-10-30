@@ -1,6 +1,6 @@
 name: mcptoon-mod
 
-# Offline tests of mods/mcptoon-mod. They run against a temp home and never call mcptoon.
+# Offline tests of mods/mcptoon-mod. The 0.1.1 restore-only stub, run against a temp home.
 on:
   pull_request:
     paths:

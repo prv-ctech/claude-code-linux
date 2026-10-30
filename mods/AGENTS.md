@@ -10,4 +10,4 @@ A mod is a Claude Code plugin in `mods/<name>-mod/`, installed from this repo's 
 - **Config and secrets:** user settings go in `userConfig` in `plugin.json`, tokens with `"sensitive": true` (keychain). Never hardcode or commit a secret. Every setting must work left blank: the settings form leaves unset fields empty.
 - **Dependencies:** pinned, with a lockfile, installed on first use by a wrapper in `bin/`. Never commit `node_modules` or binaries. Hooks and MCP servers keep stdout clean (it is the protocol) and log to stderr.
 - **Docs and tests:** a `README.md` in the mod (what it is, settings, safety), and tests that run without network in CI (`.github/workflows/<name>.yml`, path-filtered to the mod).
-- **Do not rename** a published mod or its MCP server name: users' settings and tool names depend on it.
+- **Do not rename** a published mod or its MCP server name: users' settings and tool names depend on it. The one exception: `mcptoon-mod` became `oh-my-context-mod`, and `mcptoon-mod` stays listed as a restore-only stub (0.1.1) so 0.1.0 installs are put back instead of being uninstalled with their record.

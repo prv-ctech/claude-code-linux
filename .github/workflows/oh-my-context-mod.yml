@@ -1,0 +1,47 @@
+name: oh-my-context-mod
+
+# Offline tests of mods/oh-my-context-mod: the Node hooks and the vendored oh-my-context fork, run against
+# temp homes with no network.
+on:
+  pull_request:
+    paths:
+      - 'mods/oh-my-context-mod/**'
+      - '.github/workflows/oh-my-context-mod.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mods/oh-my-context-mod/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test hooks
+        run: node --test mods/oh-my-context-mod/test/*.test.js
+      - name: Test gateway
+        run: PYTHONPATH=mods/oh-my-context-mod/vendor python3 -m unittest discover -s mods/oh-my-context-mod/test -p 'test_*.py'
+      # Apache-2.0 section 4: mcptoon's NOTICE and copyright lines stay; every vendored file we
+      # changed says so in a header, and every file with a functional change is named in
+      # vendor/NOTICE. The mod's own code ships its MIT text.
+      - name: Check licenses
+        working-directory: mods/oh-my-context-mod
+        run: |
+          test -f LICENSE && test -f vendor/LICENSE
+          python3 - <<'EOF'
+          import pathlib, sys
+          notice = pathlib.Path('vendor/NOTICE').read_text()
+          errors = [] if 'Copyright 2025 activeing123' in notice and 'derived from mcptoon 0.8.33' in notice \
+              else ['vendor/NOTICE lost the upstream notice or the derivation line']
+          for p in sorted(pathlib.Path('vendor/oh_my_context').rglob('*.py')):
+              text, name = p.read_text(), p.relative_to('vendor').as_posix()
+              ours = 'Modified by oh-my-context-mod' in text or 'Added by oh-my-context-mod' in text
+              if not ours:
+                  errors.append(f'{name} has no "Modified by oh-my-context-mod" header')
+              if '# oh-my-context-mod:' in text and f'{name} ' not in notice:
+                  errors.append(f'vendor/NOTICE does not list {name}')
+          sys.exit('\n'.join(errors) or 0)
+          EOF

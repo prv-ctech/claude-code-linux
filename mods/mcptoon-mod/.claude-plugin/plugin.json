@@ -1,22 +1,8 @@
 {
   "name": "mcptoon-mod",
-  "version": "0.1.0",
-  "description": "Runs every plugin and user MCP server behind one mcptoon gateway and takes plugin and user skills out of Claude's skill listing, so their tool names and skill descriptions stop filling the context. Skills are found with mcptoon skills resolve instead. /mcptoon-mod shows what moved and turns it off.",
+  "version": "0.1.1",
+  "description": "Deprecated: replaced by oh-my-context-mod; this version only undoes 0.1.0's changes",
   "author": { "name": "prv-ctech" },
   "license": "MIT",
-  "repository": "https://github.com/activeing123/mcptoon",
-  "userConfig": {
-    "direct_servers": {
-      "type": "string",
-      "title": "MCP servers kept direct",
-      "description": "Comma-separated MCP servers that stay connected to Claude directly and are not moved behind mcptoon: a server name, a plugin name or plugin:<plugin>:<server>. Run /mcptoon-mod to list every server the mod found. Blank moves them all.",
-      "default": "codebase-memory-mcp"
-    },
-    "direct_skills": {
-      "type": "string",
-      "title": "Skills kept in Claude's listing",
-      "description": "Comma-separated skills that stay in Claude's skill listing: a skill name keeps that one skill, a plugin name keeps the plugin's whole skill set (superpowers, whose skills call each other through the Skill tool, is kept by default). Blank hides them all except mcptoon's own skill.",
-      "default": "superpowers"
-    }
-  }
+  "repository": "https://github.com/prv-ctech/claude-code-linux"
 }

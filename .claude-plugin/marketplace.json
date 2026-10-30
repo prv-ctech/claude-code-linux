@@ -30,7 +30,12 @@
     {
       "name": "mcptoon-mod",
       "source": "./mods/mcptoon-mod",
-      "description": "Runs plugin and user MCP servers behind one mcptoon gateway and takes skills out of Claude's skill listing, with a filter for servers and skills that stay direct. /mcptoon-mod shows what moved and turns it off."
+      "description": "Deprecated: replaced by oh-my-context-mod. Version 0.1.1 only puts back what 0.1.0 changed; install oh-my-context-mod, then uninstall this."
+    },
+    {
+      "name": "oh-my-context-mod",
+      "source": "./mods/oh-my-context-mod",
+      "description": "Routes every plugin and user MCP server through one oh-my-context gateway (bundled, nothing downloaded) and lists skills by name only, so they stop filling the context while everything still works. Sets itself up on enable and puts everything back on disable or uninstall. /oh-my-context-mod shows what moved and turns it off."
     }
   ]
 }

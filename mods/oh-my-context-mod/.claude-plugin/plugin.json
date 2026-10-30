@@ -1,0 +1,22 @@
+{
+  "name": "oh-my-context-mod",
+  "version": "0.2.0",
+  "description": "Routes every plugin and user MCP server through one oh-my-context gateway (bundled, nothing downloaded) and lists skills by name only, so tool names and skill descriptions stop filling the context while every tool and skill still works. Sets itself up at session start and puts everything back when it is disabled or uninstalled. /oh-my-context-mod shows what moved and turns it off.",
+  "author": { "name": "prv-ctech" },
+  "license": "MIT AND Apache-2.0",
+  "repository": "https://github.com/prv-ctech/claude-code-linux",
+  "userConfig": {
+    "direct_servers": {
+      "type": "string",
+      "title": "MCP servers kept direct",
+      "description": "Comma-separated MCP servers that stay connected to Claude directly instead of going through oh-my-context: a server name, a plugin name or plugin:<plugin>:<server>. Blank routes them all. Run /oh-my-context-mod to list every server the mod found.",
+      "default": ""
+    },
+    "direct_skills": {
+      "type": "string",
+      "title": "Skills kept fully listed",
+      "description": "Comma-separated skills that keep their full description in Claude's skill listing: a skill name, <plugin>:<skill>, or a plugin name for its whole skill set. Blank routes them all; routed skills stay listed by name and invocable.",
+      "default": ""
+    }
+  }
+}
