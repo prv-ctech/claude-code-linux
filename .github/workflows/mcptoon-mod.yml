@@ -1,0 +1,23 @@
+name: mcptoon-mod
+
+# Offline tests of mods/mcptoon-mod. They run against a temp home and never call mcptoon.
+on:
+  pull_request:
+    paths:
+      - 'mods/mcptoon-mod/**'
+      - '.github/workflows/mcptoon-mod.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mods/mcptoon-mod/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test
+        run: node --test mods/mcptoon-mod/test/*.test.js
