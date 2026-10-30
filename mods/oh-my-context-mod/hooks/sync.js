@@ -22,11 +22,6 @@ const R = require('./restore.js');
 
 const { ME, paths, sha, readText, readConfig, writeFileAtomic, writeJson, withLock, loadState, saveState } = R;
 const root = path.resolve(__dirname, '..');
-// This mod's name up to 0.1.0. Its 0.1.0 setup is undone on migration (migrateV1), and while it
-// is still enabled this mod stands down, since both would route the same servers and skills.
-const OLD_ME = 'mcptoon-mod';
-// 0.1.0's patch, undone on migration.
-const FLAG = 'disable-model-invocation: true';
 const ROUTED = 'description: routed';
 const NAME_ONLY = 'name-only';
 const GATEWAY = 'the gateway itself';
@@ -128,12 +123,6 @@ function routeSkill(text) {
   }
   if (!done) out.push(ROUTED);
   return bom + ['---', ...out, front.rest].join(eol);
-}
-
-// 0.1.0's patch, kept to undo it on migration.
-function unpatchSkill(text) {
-  if (text.startsWith(`---\n${FLAG}\n---\n`)) return text.slice(FLAG.length + 9);
-  return text.replace(`\n${FLAG}\n---`, '\n---');
 }
 
 // The original text with `name` set to the id the Skill tool takes, for the catalog. No BOM: the
@@ -712,78 +701,6 @@ function apply(p, cwd, env, run) {
   return withLock(p.state, () => applyLocked(p, cwd, env, run));
 }
 
-// 0.1.0's state, in mcptoon-mod's plugin data folder (Claude deletes it when that plugin is uninstalled).
-const v1File = p => path.join(p.data, `${OLD_ME}-claude-code-linux`, 'state.json');
-
-// The mcptoon-mod plugin id installed for this project and on here (local over project over user
-// settings; an installed plugin with no enabledPlugins entry is on, as Claude treats it), or undefined.
-function oldModOn(settings, cwd, p) {
-  const installed = readJson(p.installed, {}).plugins || {};
-  const user = settings.enabledPlugins || {};
-  const project = readJson(path.join(cwd, '.claude', 'settings.json'), {}).enabledPlugins || {};
-  const local = readJson(path.join(cwd, '.claude', 'settings.local.json'), {}).enabledPlugins || {};
-  const forHere = id => (Array.isArray(installed[id]) ? installed[id] : [])
-    .some(e => !e.scope || e.scope === 'user' || e.projectPath === cwd);
-  return Object.keys(installed).filter(id => id.startsWith(`${OLD_ME}@`) && forHere(id))
-    .find(id => (id in local ? local[id] : id in project ? project[id] : user[id]) !== false);
-}
-
-const oldModLine = id => `oh-my-context-mod: not applied, because ${id} (this mod's earlier name) is still enabled and `
-  + `both would route the same MCP servers and skills. Disable it (/plugin disable ${id}) and start a new session: `
-  + 'oh-my-context-mod then undoes its setup and takes over. Uninstall it after that; uninstalling it first deletes '
-  + 'its record of what it changed.';
-
-// Undoes mcptoon-mod 0.1.0's state exactly as 0.1.0's restore did, then sets it aside. Each step stands
-// alone; the old state stays (and is retried next start) until every step went through.
-function migrateV1(p) {
-  const file = v1File(p);
-  if (!fs.existsSync(file)) return null;
-  const old = readConfig(file, null);
-  if (!old || old.version) return null;
-  const failed = [];
-  const step = (what, fn) => {
-    try {
-      fn();
-    } catch (e) {
-      failed.push(`${what}: ${e.message}`);
-    }
-  };
-  step('0.1.0 gateway config', () => {
-    const mc = readConfig(p.legacy, null);
-    if (!mc || !mc.servers || !(old.servers || []).some(n => n in mc.servers)) return;
-    for (const n of old.servers) delete mc.servers[n];
-    writeJson(p.legacy, mc, 0o600);
-  });
-  step('MCP server switches', () => {
-    const cj = readConfig(p.claudeJson, null);
-    if (!cj || !cj.projects) return;
-    let changed = false;
-    for (const [dir, mine] of Object.entries(old.projects || {})) {
-      const proj = cj.projects[dir];
-      if (!proj || !Array.isArray(proj.disabledMcpServers)) continue;
-      const next = proj.disabledMcpServers.filter(k => !mine.includes(k));
-      if (next.length !== proj.disabledMcpServers.length) changed = true;
-      proj.disabledMcpServers = next;
-    }
-    if (changed) writeJson(p.claudeJson, cj, 0o600);
-  });
-  for (const f of old.skills || []) step(f, () => {
-    const t = readText(f);
-    if (t === null) return;
-    const u = unpatchSkill(t);
-    if (u !== t) writeFileAtomic(f, u);
-  });
-  step('skillOverrides', () => {
-    const s = readConfig(p.settings, null);
-    if (!s || !s.skillOverrides || !(old.overrides || []).length) return;
-    for (const n of old.overrides) if (s.skillOverrides[n] === 'user-invocable-only') delete s.skillOverrides[n];
-    if (!Object.keys(s.skillOverrides).length) delete s.skillOverrides;
-    writeJson(p.settings, s, 0o644);
-  });
-  if (!failed.length) fs.renameSync(file, path.join(path.dirname(file), 'state.v1-migrated.json'));
-  return { off: !!old.off, failed };
-}
-
 // The lock creates the state dir; with nothing journaled it would stay behind empty.
 function dropEmptyState(p) {
   try {
@@ -853,23 +770,14 @@ function status(p, cwd, env, run) {
   return out.join('\n');
 }
 
-// The SessionStart hook: migrate, then apply (or put everything back when the CLI cannot run).
+// The SessionStart hook: apply (or put everything back when the CLI cannot run).
 const OFF_LINE = 'oh-my-context-mod: off; every MCP server and skill loads directly. /oh-my-context-mod on routes them again.';
 
 function session(p, cwd, env, run) {
-  const old = oldModOn(readJson(p.settings, {}), cwd, p);
-  if (old) {
-    // mcptoon-mod's own hook would route this mod's gateway too, so nothing of this mod's stays applied.
-    const r = fs.existsSync(path.join(p.state, 'state.json')) ? fullRestore(p) : null;
-    return { additionalContext: oldModLine(old) + (r && r.failed.length ? ` Not restored yet: ${R.describe(r)}` : '') };
-  }
-  // Off, with no 0.1.0 or 0.2 state to undo: return before the lock creates the state dir.
-  if (fs.existsSync(offFile(p)) && !fs.existsSync(v1File(p))
-    && !fs.existsSync(path.join(p.state, 'state.json'))) return { additionalContext: OFF_LINE };
+  // Off, with no state to undo: return before the lock creates the state dir.
+  if (fs.existsSync(offFile(p)) && !fs.existsSync(path.join(p.state, 'state.json'))) return { additionalContext: OFF_LINE };
   const out = withLock(p.state, () => {
-    const v1 = migrateV1(p);
-    const legacyOff = !!loadState(p.state).off;
-    if ((v1 && v1.off) || legacyOff) writeFileAtomic(offFile(p), '', 0o600, false);
+    if (loadState(p.state).off) writeFileAtomic(offFile(p), '', 0o600, false);
     if (fs.existsSync(offFile(p))) {
       // Off means everything is back: retries what `off` could not restore, and drops an older off flag.
       const r = R.restoreAll(p.state);
@@ -881,9 +789,7 @@ function session(p, cwd, env, run) {
       return { additionalContext: `oh-my-context-mod: the oh-my-context CLI did not run, so every MCP server and skill is direct again (${R.describe(r)}); this shows fully from the next session.` };
     }
     const r = applyLocked(p, cwd, env, run);
-    let text = sessionContext(r);
-    if (v1 && v1.failed.length) text += ` The 0.1.0 setup was not fully undone yet: ${v1.failed.join('; ')}.`;
-    return { additionalContext: text, ...(r.filesChanged && { reloadSkills: true }) };
+    return { additionalContext: sessionContext(r), ...(r.filesChanged && { reloadSkills: true }) };
   });
   dropEmptyState(p);
   return out;
@@ -937,12 +843,6 @@ function main() {
     return console.log(`oh-my-context-mod: off; ${R.describe(r)}. Claude Code shows every MCP server and skill fully from the next session.`);
   }
   if (mode === 'on') {
-    const old = oldModOn(readJson(p.settings, {}), process.cwd(), p);
-    if (old) {
-      console.error(oldModLine(old));
-      process.exitCode = 1;
-      return;
-    }
     if (runGateway(['--version']).status !== 0) {
       console.error('oh-my-context-mod: the oh-my-context CLI did not run, so nothing was routed.');
       process.exitCode = 1;
@@ -966,6 +866,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  paths, resolve, plan, routeSkill, unpatchSkill, withName, swap, apply, session, migrateV1,
-  fullRestore, status, collectServers, enabledPlugins, skillPlan, isGateway, touchEpoch, oldModOn, oauthServers,
+  paths, resolve, plan, routeSkill, withName, swap, apply, session,
+  fullRestore, status, collectServers, enabledPlugins, skillPlan, isGateway, touchEpoch, oauthServers,
 };

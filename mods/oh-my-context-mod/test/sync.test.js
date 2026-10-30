@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const {
-  paths, resolve, plan, routeSkill, unpatchSkill, withName, swap, apply, session, fullRestore, status,
+  paths, resolve, plan, routeSkill, withName, swap, apply, session, fullRestore, status,
 } = require('../hooks/sync.js');
 const R = require('../hooks/restore.js');
 
@@ -24,8 +24,6 @@ const w = (f, data) => {
   fs.writeFileSync(f, typeof data === 'string' ? data : JSON.stringify(data));
 };
 const r = f => JSON.parse(fs.readFileSync(f, 'utf8'));
-// mcptoon-mod 0.1.0 (this mod's earlier name) kept its state in its own plugin data folder.
-const v1Dir = m => path.join(m.p.data, 'mcptoon-mod-claude-code-linux');
 const t = f => fs.readFileSync(f, 'utf8');
 
 // A machine with plugins: alpha (stdio server and a skill), beta (needs a keychain token),
@@ -145,12 +143,10 @@ test('a BOM before the frontmatter is kept for Claude and left out of the catalo
   assert.strictEqual(routeSkill('---\nopen\n'), null);
 });
 
-test('withName sets the catalog name; unpatchSkill undoes the 0.1.0 patch', () => {
+test('withName sets the catalog name', () => {
   assert.strictEqual(withName('---\nname: b\ndescription: d\n---\nx', 'p:b'), '---\nname: p:b\ndescription: d\n---\nx');
   // No frontmatter: Claude describes it by its first body line, so the catalog does too.
   assert.strictEqual(withName('\n# Kube helper\nmore', 'p:b'), '---\nname: p:b\ndescription: "Kube helper"\n---\n\n# Kube helper\nmore');
-  assert.strictEqual(unpatchSkill('---\nname: a\ndisable-model-invocation: true\n---\nbody\n'), '---\nname: a\n---\nbody\n');
-  assert.strictEqual(unpatchSkill('---\ndisable-model-invocation: true\n---\nbody\n'), 'body\n');
 });
 
 test('swap keeps the person\'s entries and owns only what it added', () => {
@@ -518,23 +514,9 @@ test('restore skips a file that does not parse and restores the rest, then finis
   assert.deepStrictEqual(snapshot(m), before);
 });
 
-test('session: migrates a 0.1.0 state, applies, asks for a skill reload; off and a broken CLI', () => {
+test('session: applies, asks for a skill reload; off and a broken CLI', () => {
   const m = machine();
-  const legacy = { servers: { alpha: { transport: 'stdio', command: 'a' }, own: { transport: 'stdio', command: 'o' } } };
-  w(m.p.legacy, legacy);
-  fs.writeFileSync(m.skillA, '---\nname: do-a\ndescription: A\ndisable-model-invocation: true\n---\nbody\n');
-  const cj = r(m.p.claudeJson);
-  cj.projects['/w'].disabledMcpServers.push('plugin:alpha:alpha');
-  w(m.p.claudeJson, cj);
-  const s = r(m.p.settings);
-  s.skillOverrides['user-skill'] = 'user-invocable-only';
-  w(m.p.settings, s);
-  w(path.join(v1Dir(m), 'state.json'), { off: false, servers: ['alpha'], projects: { '/w': ['plugin:alpha:alpha'] }, skills: [m.skillA], overrides: ['user-skill'] });
-
   const out = session(m.p, '/w', m.env, ok);
-  assert.deepStrictEqual(Object.keys(r(m.p.legacy).servers), ['own']);
-  assert.ok(fs.existsSync(path.join(v1Dir(m), 'state.v1-migrated.json')));
-  assert.ok(!fs.existsSync(path.join(v1Dir(m), 'state.json')));
   assert.strictEqual(t(m.skillA), '---\nname: do-a\ndescription: routed\n---\nbody\n');
   assert.strictEqual(r(m.p.settings).skillOverrides['user-skill'], 'name-only');
   assert.deepStrictEqual(r(m.p.claudeJson).projects['/w'].disabledMcpServers, ['by-hand', 'ctx', 'plugin:alpha:alpha']);
@@ -573,65 +555,6 @@ test('off then uninstall leaves nothing behind, and a reinstall starts on', () =
   fs.rmSync(m.p.pluginData, { recursive: true, force: true });
   session(m.p, '/w', m.env, ok);
   assert.match(t(m.skillA), /description: routed/);
-});
-
-test('a 0.1.0 install that was off migrates to the off switch and leaves no state dir', () => {
-  const m = machine();
-  w(path.join(v1Dir(m), 'state.json'), { off: true, servers: [], projects: {}, skills: [], overrides: [] });
-  assert.match(session(m.p, '/w', m.env, ok).additionalContext, /^oh-my-context-mod: off;/);
-  assert.ok(fs.existsSync(path.join(m.p.pluginData, 'off')));
-  assert.ok(!fs.existsSync(m.p.state));
-  assert.deepStrictEqual(fullRestore(m.p).failed, []);
-  assert.ok(!fs.existsSync(m.p.state), 'off with nothing journaled creates no state dir');
-});
-
-test('mcptoon-mod still enabled: nothing applies until it is disabled, then its 0.1.0 setup is undone', () => {
-  const m = machine();
-  const before = snapshot(m);
-  // 0.1.0 installed and on, with its setup in place.
-  const inst = r(m.p.installed);
-  inst.plugins['mcptoon-mod@m'] = [{ scope: 'user', installPath: m.plug('mcptoon-mod') }];
-  w(m.p.installed, inst);
-  const s = r(m.p.settings);
-  s.enabledPlugins['mcptoon-mod@m'] = true;
-  s.skillOverrides['user-skill'] = 'user-invocable-only';
-  w(m.p.settings, s);
-  fs.writeFileSync(m.skillA, '---\nname: do-a\ndescription: A\ndisable-model-invocation: true\n---\nbody\n');
-  w(path.join(v1Dir(m), 'state.json'), { off: false, servers: [], projects: {}, skills: [m.skillA], overrides: ['user-skill'] });
-  const v1Before = [t(m.skillA), r(m.p.settings)];
-
-  // This mod's earlier setup goes back too, so the two never route at once.
-  apply(m.p, '/w', m.env, ok);
-  const out = session(m.p, '/w', m.env, ok);
-  assert.match(out.additionalContext, /^oh-my-context-mod: not applied, because mcptoon-mod@m .*\/plugin disable mcptoon-mod@m/);
-  assert.strictEqual(out.reloadSkills, undefined);
-  assert.deepStrictEqual([t(m.skillA), r(m.p.settings)], v1Before, '0.1.0 setup untouched, this mod\'s gone');
-  assert.ok(!fs.existsSync(m.p.state));
-  assert.ok(fs.existsSync(path.join(v1Dir(m), 'state.json')));
-  const on = spawnSync(process.execPath, [path.join(__dirname, '..', 'hooks', 'sync.js'), 'on'], {
-    encoding: 'utf8', env: { PATH: process.env.PATH, HOME: m.home }, cwd: m.home,
-  });
-  assert.strictEqual(on.status, 1);
-  assert.match(on.stderr, /not applied, because mcptoon-mod@m/);
-
-  // Off at user scope but on in this project's local settings: still stands down.
-  const off = r(m.p.settings);
-  off.enabledPlugins['mcptoon-mod@m'] = false;
-  w(m.p.settings, off);
-  const proj = fs.mkdtempSync(path.join(m.home, 'proj-'));
-  w(path.join(proj, '.claude', 'settings.local.json'), { enabledPlugins: { 'mcptoon-mod@m': true } });
-  assert.match(session(m.p, proj, m.env, ok).additionalContext, /not applied/);
-
-  // Disabled everywhere (still installed): 0.1.0 is undone exactly, then this mod applies.
-  const res = session(m.p, '/w', m.env, ok);
-  assert.match(res.additionalContext, /^oh-my-context-mod: \d+ MCP server\(s\) routed/);
-  assert.ok(fs.existsSync(path.join(v1Dir(m), 'state.v1-migrated.json')));
-  assert.strictEqual(r(m.p.settings).skillOverrides['user-skill'], 'name-only');
-  assert.strictEqual(t(m.skillA), '---\nname: do-a\ndescription: routed\n---\nbody\n');
-  fullRestore(m.p);
-  const after = snapshot(m);
-  delete after[0].enabledPlugins['mcptoon-mod@m'];
-  assert.deepStrictEqual(after, before);
 });
 
 test('a project entry or list the mod created goes again once it is empty', () => {
@@ -811,14 +734,3 @@ test('cwd_except: a global server is not served where a project-local one or a d
   assert.strictEqual(gw['ctx@local'].cwd_only, real);
 });
 
-test('mcptoon-mod installed with no enabledPlugins entry counts as on', () => {
-  const m = machine();
-  const inst = r(m.p.installed);
-  inst.plugins['mcptoon-mod@m'] = [{ scope: 'user', installPath: m.plug('mcptoon-mod') }];
-  w(m.p.installed, inst);
-  assert.match(session(m.p, '/w', m.env, ok).additionalContext, /not applied, because mcptoon-mod@m/);
-  // Installed for another project only: not on here.
-  inst.plugins['mcptoon-mod@m'] = [{ scope: 'project', projectPath: '/elsewhere', installPath: m.plug('mcptoon-mod') }];
-  w(m.p.installed, inst);
-  assert.match(session(m.p, '/w', m.env, ok).additionalContext, /MCP server\(s\) routed/);
-});
