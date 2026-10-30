@@ -58,6 +58,8 @@ If `bin/oh-my-context` does not run (no Python 3.10+), the session-start hook pu
 
 Enabling the mod is all it takes. The first session start sets everything up. Claude Code reads MCP and skill config at launch, so what a start changes counts from the next session. Each project gets its server switches at its first session there.
 
+Still on the deprecated `mcptoon-mod` 0.1.0? Undo it first: run `/mcptoon-mod off` (its own restore puts back its moved servers, `disabledMcpServers` entries, skill patches and `skillOverrides`), uninstall it, then install this mod. oh-my-context-mod does not undo 0.1.0's changes, and the two must not run together.
+
 ## Disable or uninstall
 
 Claude Code has no disable or uninstall event for plugins, so the mod installs a guard in your own `~/.claude/settings.json`:
