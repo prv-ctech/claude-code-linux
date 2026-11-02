@@ -113,8 +113,9 @@ for line in sys.stdin:
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "no such method"}})
 '''
 
-NATIVE_ALWAYS = {"call", "inspect", "manifest", "resolve_skills"}
-NATIVE_NAMES = {"manifest", "servers", "health", "usage", "skills", "resolve_skills", "inspect",
+NATIVE_ALWAYS = {"call", "inspect", "manifest", "resolve_skills", "load_skill"}
+NATIVE_NAMES = {"manifest", "servers", "health", "usage", "skills", "resolve_skills", "load_skill",
+                "inspect",
                 "call", "retrieve", "kb_search", "kb_index", "session"}
 
 
@@ -505,6 +506,165 @@ def _fake_config(sbx: Sandbox, name="fake", **extra) -> dict:
     env = {"FAKE_SPAWN_LOG": str(sbx.spawn_log), "FAKE_INSTRUCTIONS": f"{name.upper()}-INSTRUCTIONS"}
     env.update(extra.pop("env", {}))
     return sbx.server(claude_key=name, claude_prefix=f"mcp__{name}", env=env, **extra)
+
+
+class LoadSkillTest(unittest.TestCase):
+    """load_skill: original SKILL.md from the `source` folder, filled variables, path boundary."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sbx = sbx = Sandbox()
+        sbx.write_config({})
+        real = sbx.root / "real"
+        cls.plugin = real / "ecc-plugin"
+        (cls.plugin / ".claude-plugin").mkdir(parents=True)
+        (cls.plugin / ".claude-plugin" / "plugin.json").write_text("{}")
+        cls.outside = sbx.root / "outside.txt"
+        cls.outside.write_text("SECRET")
+        (sbx.root / "outside-dir").mkdir()
+        (sbx.root / "outside-dir" / "x.md").write_text("SECRET2")
+        cls.folders = {}
+        for sid, base in (("ecc:deep-research", cls.plugin / "skills"),
+                          ("anthropic-skills:deep-research", real / "anthropic")):
+            folder = base / "deep-research"
+            (folder / "references").mkdir(parents=True)
+            (folder / "SKILL.md").write_text(
+                f"---\nname: deep-research\ndescription: Research things for {sid}.\n---\n"
+                f"# Body of {sid}\nRun ${{CLAUDE_SKILL_DIR}}/run.sh from ${{CLAUDE_PLUGIN_ROOT}}.\n"
+                "Then use the Skill tool for ecc:other.\n")
+            (folder / "references" / "a.md").write_text(f"ref of {sid}")
+            cls.folders[sid] = folder
+        eccf = cls.folders["ecc:deep-research"]
+        (eccf / "references" / "link.md").symlink_to(cls.outside)
+        (eccf / "dirlink").symlink_to(sbx.root / "outside-dir")
+        (eccf / "big.txt").write_text("x" * (600 * 1024))
+        catalog = sbx.root / "catalog"
+        for sid, folder in cls.folders.items():
+            d = catalog / sid.replace(":", "_")
+            d.mkdir(parents=True)
+            (d / "SKILL.md").write_text(
+                f"---\nname: {sid}\ndescription: Research things for {sid}.\n"
+                f"source: {folder}\n---\nCATALOG COPY of {sid}\n")
+        d = catalog / "nosource"
+        d.mkdir()
+        (d / "SKILL.md").write_text("---\nname: x:nosource\ndescription: Has no source.\n---\nFALLBACK BODY ${CLAUDE_SKILL_DIR}\n")
+        d = catalog / "gone"
+        d.mkdir()
+        (d / "SKILL.md").write_text(f"---\nname: x:gone\ndescription: Folder removed.\nsource: {sbx.root}/nope\n---\nGONE COPY\n")
+        res = sbx.run(["skills", "index", str(catalog)])
+        assert res.returncode == 0, res.stderr
+        cls.gw = Gateway(sbx)
+        cls.gw.request("initialize", {"protocolVersion": "2024-11-05", "clientInfo": {"name": "t"}})
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.gw.close()
+
+    def load(self, sid, file=None):
+        args = {"id": sid}
+        if file is not None:
+            args["file"] = file
+        res = self.gw.call("load_skill", args)
+        return _text(res), res["isError"]
+
+    def test_happy_path_variables_and_footer(self):
+        folder = self.folders["ecc:deep-research"]
+        text, err = self.load("ecc:deep-research")
+        self.assertFalse(err)
+        self.assertTrue(text.startswith(f"Base directory for this skill: {folder}\n"), text)
+        self.assertIn("# Body of ecc:deep-research", text)
+        self.assertIn(f"Run {folder}/run.sh from {self.plugin}.", text)
+        self.assertNotIn("CATALOG COPY", text)
+        self.assertNotIn("description:", text)  # frontmatter stripped
+        self.assertIn("call `load_skill`", text.strip().splitlines()[-1])
+
+    def test_slug_collision_resolves_full_id(self):
+        a, _ = self.load("ecc:deep-research")
+        b, _ = self.load("anthropic-skills:deep-research")
+        self.assertIn("Body of ecc:deep-research", a)
+        self.assertIn("Body of anthropic-skills:deep-research", b)
+        self.assertIn("${CLAUDE_PLUGIN_ROOT}", b)  # no plugin root derivable: left as written
+
+    def test_missing_id_and_bare_name(self):
+        text, err = self.load("nope:nothing")
+        self.assertTrue(err)
+        self.assertIn("resolve_skills", text)
+        text, err = self.load("deep-research")
+        self.assertTrue(err)
+        self.assertIn("ecc:deep-research", text)
+        self.assertIn("anthropic-skills:deep-research", text)
+        self.assertTrue(self.load("")[1])
+
+    def test_bundled_file(self):
+        text, err = self.load("ecc:deep-research", "references/a.md")
+        self.assertEqual((text, err), ("ref of ecc:deep-research", False))
+
+    def test_file_escapes_rejected(self):
+        for bad in ("../outside.txt", "references/../../x", str(self.outside), "/etc/passwd",
+                    "references/link.md", "dirlink/x.md", "C:\\x", "..", "references\\..\\..\\y"):
+            text, err = self.load("ecc:deep-research", bad)
+            self.assertTrue(err, bad)
+            self.assertNotIn("SECRET", text, bad)
+            self.assertNotIn("Traceback", text)
+
+    def test_footer_routes_bundled_files_through_load_skill(self):
+        text, _ = self.load("ecc:deep-research")
+        self.assertIn('file="references/x.md"', text)
+        self.assertIn("instead of Read", text)
+
+    def test_wrong_file_lists_available_files(self):
+        text, err = self.load("ecc:deep-research", "references/none.md")
+        self.assertTrue(err)
+        self.assertIn("references/a.md", text)
+        self.assertNotIn("link.md", text)  # symlink out of the folder is not offered
+        self.assertNotIn("dirlink", text)
+        self.assertNotIn("SKILL.md", text)
+        folder = self.folders["ecc:deep-research"]
+        for i in range(50):
+            (folder / "scripts").mkdir(exist_ok=True)
+            (folder / "scripts" / f"s{i:02d}.sh").write_text("x")
+        try:
+            text, _ = self.load("ecc:deep-research", "nope.md")
+            self.assertIn("more)", text)
+            self.assertLess(len(text), 2000)
+        finally:
+            shutil.rmtree(folder / "scripts")
+
+    def test_file_missing_and_too_big(self):
+        self.assertTrue(self.load("ecc:deep-research", "references/none.md")[1])
+        text, err = self.load("ecc:deep-research", "big.txt")
+        self.assertTrue(err)
+        self.assertIn("larger", text)
+
+    def test_fallback_to_catalog_copy(self):
+        text, err = self.load("x:nosource")
+        self.assertFalse(err)
+        self.assertIn("FALLBACK BODY", text)
+        text, err = self.load("x:gone")  # source folder missing
+        self.assertFalse(err)
+        self.assertIn("GONE COPY", text)
+
+    def test_resolve_and_skills_expose_path(self):
+        out = self.gw.call("resolve_skills", {"task": "deep research"})["structuredContent"]
+        paths = {r["slug"]: r.get("path") for r in out["shortlist"]}
+        self.assertEqual(paths["ecc:deep-research"], str(self.folders["ecc:deep-research"]))
+        rows = self.gw.call("skills", {})["structuredContent"]["skills"]
+        self.assertEqual({r["slug"]: r.get("path") for r in rows}["x:nosource"], None)
+        self.assertIn("path", {r["slug"]: r for r in rows}["ecc:deep-research"])
+
+    def test_resolve_skills_budget_exceeds_kb_search(self):
+        for i in range(12):  # past the old limit of 8
+            res = self.gw.call("resolve_skills", {"task": f"deep research {i}"})
+            self.assertFalse(res["isError"], i)
+        for i in range(30):  # load_skill is never throttled
+            self.assertFalse(self.gw.call("load_skill", {"id": "ecc:deep-research"})["isError"])
+
+    def test_floodguard_still_blocks(self):
+        from oh_my_context.floodguard import FloodGuard
+        g = FloodGuard()
+        self.assertFalse(any(g.record("k", 0, 24).blocked for _ in range(24)))
+        self.assertTrue(g.record("k", 0, 24).blocked)
+        self.assertFalse(g.record("k", 61_000, 24).blocked)
 
 
 class ResultFidelityTest(unittest.TestCase):

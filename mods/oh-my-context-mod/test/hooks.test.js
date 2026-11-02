@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { decide, ruleMatches, ruleFiles } = require('../hooks/permit.js');
-const { hint } = require('../hooks/prompt.js');
+const { hint, SUBAGENT_HINT } = require('../hooks/prompt.js');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oh-my-context-hooks-'));
 after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -153,4 +153,44 @@ test('prompt.js exits 0 silently on bad input', () => {
   });
   assert.strictEqual(run.status, 0);
   assert.strictEqual(run.stdout, '');
+});
+
+test('prompt hint: in hide mode ids are followed by the load_skill instruction, and only when skills match', () => {
+  const stateDir = path.join(dir, 'state-hide');
+  const out = { skills: [{ id: 'ecc:docker-patterns', name: 'ecc:docker-patterns', desc: 'x', score: 3 }, { name: 'plain' }], tools: [] };
+  const ask = (prompt, hide = true) => hint({ prompt, session_id: 'h' }, { run: () => ({ status: 0, stdout: JSON.stringify(out) }), stateDir, hide });
+  assert.strictEqual(ask('write a Dockerfile for the service'),
+    'Routed matches for this prompt: skills ecc:docker-patterns, plain\n'
+    + 'Skills are hidden from the native list: load one with load_skill(<id>) (resolve_skills searches); never Read a path or use the Skill tool.');
+  assert.strictEqual(ask('write a Dockerfile for the other service', false), 'Routed matches for this prompt: skills ecc:docker-patterns, plain');
+  out.skills = [];
+  out.tools = [{ claude_name: 'mcp__x__y' }];
+  assert.strictEqual(ask('only a tool matches this long prompt'), 'Routed matches for this prompt: tools mcp__x__y');
+  out.tools = [];
+  assert.strictEqual(ask('nothing matches at all, quiet'), null);
+});
+
+// A fake <claude>/oh-my-context-mod with a state file, run through the real hook scripts.
+const home = path.join(dir, 'hide-home');
+const modState = path.join(home, '.claude', 'oh-my-context-mod');
+const hook = (file, input, args = []) => spawnSync(process.execPath, [path.join(__dirname, '..', 'hooks', file), ...args], {
+  input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8',
+  env: { PATH: process.env.PATH, HOME: home },
+});
+test('SubagentStart hook: additionalContext only in hide mode', () => {
+  assert.strictEqual(hook('prompt.js', { agent_id: 'a', agent_type: 'Explore' }, ['subagent']).stdout, '', 'no state: off');
+  w(path.join(modState, 'state.json'), { hide: false });
+  assert.strictEqual(hook('prompt.js', {}, ['subagent']).stdout, '');
+  w(path.join(modState, 'state.json'), { hide: true });
+  const r = hook('prompt.js', { agent_id: 'a', agent_type: 'Explore' }, ['subagent']);
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.deepStrictEqual(JSON.parse(r.stdout), { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: SUBAGENT_HINT } });
+  assert.match(SUBAGENT_HINT, /resolve_skills.*load_skill.*never Read a path or use the Skill tool/);
+});
+
+test('hooks.json wires SubagentStart and no Skill gate', () => {
+  const h = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'hooks', 'hooks.json'), 'utf8')).hooks;
+  const cmds = h.SubagentStart.flatMap(g => g.hooks.map(x => x.command));
+  assert.ok(cmds.some(c => /prompt\.js" subagent$/.test(c)));
+  assert.ok(!h.PreToolUse.some(g => g.matcher === 'Skill'));
 });

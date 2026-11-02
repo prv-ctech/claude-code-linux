@@ -19,8 +19,11 @@
 
 Prints one JSON object and exits 0, also when nothing matches or nothing is built:
 
-    {"skills": [{"name", "score"}],
+    {"skills": [{"id", "name", "desc", "score"}],
      "tools":  [{"server", "tool", "claude_name", "score"}]}
+
+A skill's ``id`` is the full slug (``ecc:docker-patterns``), the one ``load_skill``
+takes; ``name`` repeats it for older callers and ``desc`` is a one-line summary.
 
 Meant for a UserPromptSubmit hook, so it is read-only and fast: skills come from
 the skills index, tools from the gateway's cached manifests (any age). It never
@@ -107,6 +110,18 @@ def _rank(bm25, prompt: str, k: int, names: dict) -> list:
     return [(slug, round(score, 3)) for score, slug in scored[:k] if score >= _REL_CUT * best]
 
 
+_DESC_MAX = 100
+
+
+def _one_line(desc) -> str:
+    """First sentence of a description, on one line, cut at _DESC_MAX."""
+    from .skills import _clean_desc
+
+    text = " ".join(_clean_desc(desc).split("触发词")[0].split())
+    text = re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0]
+    return text if len(text) <= _DESC_MAX else text[:_DESC_MAX - 1].rstrip() + "…"
+
+
 def _skill_hints(prompt: str, k: int) -> list:
     from .skills import _BM25, load_index
 
@@ -116,7 +131,9 @@ def _skill_hints(prompt: str, k: int) -> list:
     original = {s["slug"].lower(): s["slug"] for s in index.get("skills", []) if s.get("slug")}
     # The name a person types is the part after "plugin:" (superpowers:brainstorming).
     names = {low: slug.rsplit(":", 1)[-1] for low, slug in original.items()}
-    return [{"name": original.get(slug, slug), "score": score}
+    descs = {s["slug"].lower(): s.get("desc") for s in index.get("skills", []) if s.get("slug")}
+    return [{"id": original.get(slug, slug), "name": original.get(slug, slug),
+             "desc": _one_line(descs.get(slug)), "score": score}
             for slug, score in _rank(_BM25(index), prompt, k, names)]
 
 
