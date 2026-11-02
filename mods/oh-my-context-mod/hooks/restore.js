@@ -14,6 +14,8 @@ const path = require('path');
 const crypto = require('crypto');
 
 const ME = 'oh-my-context-mod';
+// skillOverrides value for a user skill the mod hid from Claude (hide_skills); name-only is the routed one.
+const HIDDEN = 'user-invocable-only';
 const PLUGIN_ID_DIR = 'oh-my-context-mod-claude-code-linux';
 // Longer than any locked run (session() makes two 90 s gateway CLI calls under the lock), so only a hung
 // holder or one whose pid was reused waits this long; a holder that died is taken over at once.
@@ -219,7 +221,9 @@ function restore(dir, state, { full = true, cwd } = {}) {
     if (changed) writeJson(p.claudeJson, cj, 0o600);
     for (const d of projects) delete state.projects[d];
   });
-  const files = full ? [...state.files] : state.files.filter(r => cwd && r.cwd === cwd);
+  // Not full: this project's own files, and every hidden global one, since without the mod here nothing
+  // would find them (the next start in a project that has the mod hides them again).
+  const files = full ? [...state.files] : state.files.filter(r => cwd && (r.cwd === cwd || (r.hidden && !r.cwd)));
   for (const rec of files) {
     step(rec.path, () => {
       const cur = readText(rec.path);
@@ -236,15 +240,15 @@ function restore(dir, state, { full = true, cwd } = {}) {
       state.files = state.files.filter(r => r !== rec);
     });
   }
-  if (!full) return { done, failed, left };
-
-  if (Object.keys(state.overrides).length) step('skillOverrides', () => {
+  // A recorded value is a string, or a list while a switch between name-only and hidden is in flight.
+  const ovr = Object.entries(state.overrides).filter(([, v]) => full || [].concat(v).includes(HIDDEN));
+  if (ovr.length) step('skillOverrides', () => {
     const s = p.settings ? readConfig(p.settings, null) : null;
     const o = s && s.skillOverrides;
     let changed = false;
     // Only a value the mod set and nobody changed since.
-    for (const [n, v] of Object.entries(state.overrides)) {
-      if (o && o[n] === v) {
+    for (const [n, v] of ovr) {
+      if (o && [].concat(v).includes(o[n])) {
         delete o[n];
         done.overrides++;
         changed = true;
@@ -254,8 +258,9 @@ function restore(dir, state, { full = true, cwd } = {}) {
       if (!Object.keys(o).length) delete s.skillOverrides;
       writeJson(p.settings, s, 0o644);
     }
-    state.overrides = {};
+    for (const [n] of ovr) delete state.overrides[n];
   });
+  if (!full) return { done, failed, left };
 
   if (Object.keys(state.servers).length) step('gateway config', () => {
     const g = p.gateway ? readConfig(p.gateway, null) : null;
@@ -354,9 +359,10 @@ function guard(input, dir = __dirname) {
         return `oh-my-context-mod is disabled: ${describe(r)}. Every MCP server and skill shows fully from the next session.`;
       }
     }
-    if (!cwd || !(state.projects[cwd] || state.files.some(r => r.cwd === cwd))) return null;
+    const hidden = state.files.some(r => r.hidden && !r.cwd) || Object.values(state.overrides).some(v => [].concat(v).includes(HIDDEN));
+    if (!cwd || !(state.projects[cwd] || hidden || state.files.some(r => r.cwd === cwd))) return null;
     const r = restore(dir, state, { full: false, cwd });
-    return `oh-my-context-mod is disabled in this project: ${describe(r)}. Its MCP servers show directly from the next session.`;
+    return `oh-my-context-mod is disabled in this project: ${describe(r)}. Its MCP servers show directly from the next session.${hidden ? ' Skills it hid are listed again.' : ''}`;
   });
 }
 
