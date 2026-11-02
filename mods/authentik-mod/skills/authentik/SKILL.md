@@ -5,7 +5,9 @@ description: Manage an authentik 2026.8 identity provider (users, groups, SSO ap
 
 # authentik
 
-Tools: `mcp__plugin_authentik-mod_authentik__authentik_<domain>_<action>`. Schemas are deferred, so load the ones you need with one ToolSearch call. Run `authentik_status` first.
+Tools: `mcp__plugin_authentik-mod_authentik__authentik_<domain>_<action>`. Run `authentik_status` first.
+
+How to call them depends on the setup. If they are direct MCP tools, their schemas are deferred: load the ones you need with one ToolSearch call. If oh-my-context routes the server (they are missing from your tool list), the gateway server is named `authentik`: list tools with `manifest` (`server: "authentik"`), read parameters with `inspect`, and run them with `call`, passing the full tool name above as `tool` and the parameters as `arguments`.
 
 ## How the tools are shaped
 
