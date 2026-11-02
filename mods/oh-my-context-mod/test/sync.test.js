@@ -745,6 +745,6 @@ test('skills from the desktop app, the project and other agents are found', () =
   w(path.join(m.home, '.agents', 'skills', 'ag-skill', 'SKILL.md'), '---\nname: ag-skill\n---\n');
   const sk = require('../hooks/sync.js').skillPlan(m.p, [], [], { files: [] }, cwd);
   assert.ok(sk.items.some(i => i.id === 'anthropic-skills:pino' && i.route));
-  assert.ok(sk.users.some(u => u.name === 'mine-proj'));
-  assert.deepStrictEqual(sk.others.map(o => o.name).sort(), ['ag-skill', 'gh-skill']);
+  assert.ok(!sk.users.some(u => u.name === 'mine-proj'));
+  assert.deepStrictEqual(sk.others.map(o => o.name).sort(), ['ag-skill', 'gh-skill', 'mine-proj']);
 });

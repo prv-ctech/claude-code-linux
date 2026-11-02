@@ -460,9 +460,11 @@ function skillPlan(p, plugins, direct, state, cwd) {
     const m = text === null ? { name: path.basename(path.dirname(file)) } : meta(text, path.basename(path.dirname(file)));
     return { file, text, name: m.name, dmi: m.dmi, route: !direct.includes(m.name) };
   };
-  // ~/.claude/skills and the project's .claude/skills: both listed by Claude, so both get name-only.
-  const users = [...new Set([p.skills, path.join(cwd, '.claude', 'skills')].flatMap(d => findSkills(d, 3)))].map(read);
-  const others = [...new Set([cwd, p.home].flatMap(b => OTHER_SKILL_DIRS.map(d => path.join(b, d))).flatMap(d => findSkills(d, 3)))].map(read);
+  const users = findSkills(p.skills, 3).map(read);
+  // Project-local folders (the project's .claude/skills included) stay out of the user-level skillOverrides,
+  // which every project shares; they only join this session's catalog.
+  const others = [...new Set([path.join(cwd, '.claude', 'skills'), ...[cwd, p.home].flatMap(b => OTHER_SKILL_DIRS.map(d => path.join(b, d)))]
+    .flatMap(d => findSkills(d, 3)))].map(read);
   return { items, users, others };
 }
 
