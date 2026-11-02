@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const {
-  paths, resolve, plan, routeSkill, withName, swap, apply, session, fullRestore, status,
+  paths, resolve, plan, routeSkill, withName, hideSpec, swap, apply, session, fullRestore, status,
 } = require('../hooks/sync.js');
 const R = require('../hooks/restore.js');
 
@@ -192,7 +192,8 @@ test('apply routes servers and skills; a full restore puts back exactly what it 
 
   // The catalog holds the originals under their Skill ids, and the index ran over it.
   const catalog = path.join(p.state, 'catalog');
-  assert.strictEqual(t(path.join(catalog, 'alpha_do-a', 'SKILL.md')), '---\nname: alpha:do-a\ndescription: A\n---\nbody\n');
+  assert.strictEqual(t(path.join(catalog, 'alpha_do-a', 'SKILL.md')),
+    `---\nname: alpha:do-a\nsource: ${fs.realpathSync(path.dirname(m.skillA))}\ndescription: A\n---\nbody\n`);
   assert.ok(fs.existsSync(path.join(catalog, 'user-skill', 'SKILL.md')));
   assert.deepStrictEqual(calls.at(-1), ['skills', 'index', catalog]);
 
@@ -747,4 +748,188 @@ test('skills from the desktop app, the project and other agents are found', () =
   assert.ok(sk.items.some(i => i.id === 'anthropic-skills:pino' && i.route));
   assert.ok(!sk.users.some(u => u.name === 'mine-proj'));
   assert.deepStrictEqual(sk.others.map(o => o.name).sort(), ['ag-skill', 'gh-skill', 'mine-proj']);
+});
+
+// --- hide_skills ----------------------------------------------------------------------------------
+
+// The snapshot without the plugin option these tests set themselves.
+const bare = m => { const x = snapshot(m); delete x[0].pluginConfigs; return x; };
+const withHide = (m, hide) => {
+  const s = r(m.p.settings);
+  s.pluginConfigs = { 'oh-my-context-mod@m': { options: { ...(((s.pluginConfigs || {})['oh-my-context-mod@m'] || {}).options), hide_skills: hide } } };
+  w(m.p.settings, s);
+};
+
+test('hideSpec: blank and false-like are off, true-like is everything, else a list', () => {
+  for (const v of [undefined, null, '', ' ', 'false', 'OFF', 'no', '0']) assert.strictEqual(hideSpec(v), null);
+  for (const v of ['true', 'True', 'yes', 'all', true]) assert.strictEqual(hideSpec(v), true);
+  assert.deepStrictEqual(hideSpec('alpha, d1'), ['alpha', 'd1']);
+});
+
+test('routeSkill hide adds disable-model-invocation and keeps the description', () => {
+  assert.strictEqual(routeSkill('---\nname: a\ndescription: D\nwhen_to_use: x\n---\nb\n', true), '---\nname: a\ndescription: D\nwhen_to_use: x\ndisable-model-invocation: true\n---\nb\n');
+  assert.strictEqual(routeSkill('plain\n', true), '---\ndisable-model-invocation: true\n---\nplain\n');
+  assert.strictEqual(routeSkill('\ufeff---\r\nname: a\r\n---\r\nx', true), '\ufeff---\r\nname: a\r\ndisable-model-invocation: true\r\n---\r\nx');
+  assert.strictEqual(routeSkill('---\nname: a\nnot yaml\n---\n', true), null);
+});
+
+test('withName writes source, replacing one the skill already has', () => {
+  assert.strictEqual(withName('---\nname: b\ndescription: d\n---\nx', 'p:b', '/s/b'), '---\nname: p:b\nsource: /s/b\ndescription: d\n---\nx');
+  assert.strictEqual(withName('---\ndescription: d\nsource: old\n---\nx', 'p:b', '/s/b'), '---\nname: p:b\nsource: /s/b\ndescription: d\n---\nx');
+  assert.strictEqual(withName('# T\n', 'p:b', '/s a/b'), '---\nname: p:b\nsource: "/s a/b"\ndescription: "T"\n---\n# T\n');
+});
+
+test('hide_skills on: plugin skills get disable-model-invocation, user skills user-invocable-only, direct_skills stay routed', () => {
+  const m = machine();
+  const before = bare(m);
+  withHide(m, 'true');
+  const res = apply(m.p, '/w', m.env, ok);
+  assert.strictEqual(t(m.skillA), '---\nname: do-a\ndescription: A\ndisable-model-invocation: true\n---\nbody\n');
+  // keep-me (a name) and delta (a plugin) are in direct_skills: untouched, never hidden.
+  assert.strictEqual(t(m.skillKeep), before[3]);
+  assert.strictEqual(t(m.skillSet), before[4]);
+  assert.deepStrictEqual(r(m.p.settings).skillOverrides, { mine: 'off', 'user-skill': 'user-invocable-only', helper: 'user-invocable-only' });
+  const st = R.loadState(m.p.state);
+  assert.strictEqual(st.files.find(x => x.path === m.skillA).hidden, true);
+  assert.deepStrictEqual(st.overrides, { 'user-skill': 'user-invocable-only', helper: 'user-invocable-only' });
+
+  // dmi only from the mod's patch: still in the catalog, with the real folder as source.
+  const entry = t(path.join(m.p.state, 'catalog', 'alpha_do-a', 'SKILL.md'));
+  assert.strictEqual(entry, `---\nname: alpha:do-a\nsource: ${fs.realpathSync(path.dirname(m.skillA))}\ndescription: A\n---\nbody\n`);
+  assert.match(t(path.join(m.p.state, 'catalog', 'helper', 'SKILL.md')), new RegExp(`source: ${fs.realpathSync(path.join(m.p.skills, 'helper')).replace(/[/.]/g, '\\$&')}\n`));
+
+  // Wording says hidden, found with resolve_skills then load_skill.
+  const ctx = session(m.p, '/w', m.env, ok).additionalContext;
+  assert.match(ctx, /3 skill\(s\) hidden from Claude's own skill list \(find one with the gateway's resolve_skills tool, then read it with its load_skill tool/);
+  assert.doesNotMatch(ctx, /still invocable; its resolve_skills/);
+  assert.match(status(m.p, '/w', m.env, ok), /Skills: 1 plugin skill\(s\) and 2 user skill\(s\) hidden from Claude .*load_skill/);
+  assert.match(status(m.p, '/w', m.env, ok), /hide_skills = "true"/);
+  assert.ok(res.filesChanged);
+
+  // A second start changes nothing; a full restore puts everything back.
+  const again = apply(m.p, '/w', m.env, ok);
+  assert.ok(!again.changed && !again.filesChanged);
+  assert.deepStrictEqual(fullRestore(m.p).failed, []);
+  assert.deepStrictEqual(bare(m), before);
+});
+
+test('hide_skills as a list hides only the named skills and plugins', () => {
+  const m = machine({ options: { direct_servers: 'gamma' } });
+  withHide(m, 'alpha, gamma:keep-me, helper');
+  apply(m.p, '/w', m.env, ok);
+  assert.match(t(m.skillA), /disable-model-invocation: true/);
+  assert.match(t(m.skillKeep), /disable-model-invocation: true/);
+  assert.match(t(m.skillSet), /description: routed/);
+  assert.deepStrictEqual(r(m.p.settings).skillOverrides, { mine: 'off', 'user-skill': 'name-only', helper: 'user-invocable-only' });
+});
+
+test('hide_skills toggles routed <-> hidden both ways through the journal', () => {
+  const m = machine({ options: null });
+  const before = bare(m);
+  const routed = '---\nname: do-a\ndescription: routed\n---\nbody\n';
+  apply(m.p, '/w', m.env, ok);
+  assert.strictEqual(t(m.skillA), routed);
+  assert.strictEqual(r(m.p.settings).skillOverrides.helper, 'name-only');
+
+  withHide(m, 'true');
+  apply(m.p, '/w', m.env, ok);
+  assert.strictEqual(t(m.skillA), '---\nname: do-a\ndescription: A\ndisable-model-invocation: true\n---\nbody\n');
+  assert.strictEqual(r(m.p.settings).skillOverrides.helper, 'user-invocable-only');
+  assert.strictEqual(R.loadState(m.p.state).files.filter(x => x.path === m.skillA).length, 1);
+  // Still in the catalog although the file now carries the mod's dmi.
+  assert.ok(fs.existsSync(path.join(m.p.state, 'catalog', 'alpha_do-a', 'SKILL.md')));
+
+  withHide(m, '');
+  apply(m.p, '/w', m.env, ok);
+  assert.strictEqual(t(m.skillA), routed);
+  assert.strictEqual(r(m.p.settings).skillOverrides.helper, 'name-only');
+  assert.ok(!R.loadState(m.p.state).files.some(x => x.hidden));
+
+  withHide(m, 'true');
+  apply(m.p, '/w', m.env, ok);
+  fullRestore(m.p);
+  assert.deepStrictEqual(bare(m), before);
+});
+
+test('a skill the author set disable-model-invocation on stays out of the catalog and unpatched', () => {
+  const m = machine({ options: null });
+  const own = '---\nname: quiet\ndisable-model-invocation: true\n---\nq\n';
+  addPlugin(m, 'quiet', { 'skills/quiet/SKILL.md': own });
+  withHide(m, 'true');
+  apply(m.p, '/w', m.env, ok);
+  assert.strictEqual(t(path.join(m.plug('quiet'), 'skills', 'quiet', 'SKILL.md')), own);
+  assert.ok(!fs.existsSync(path.join(m.p.state, 'catalog', 'quiet_quiet')));
+});
+
+test('a migration cut off between the settings write and the journal is still undone by restore', () => {
+  const m = machine({ options: null });
+  apply(m.p, '/w', m.env, ok);
+  // Recorded mid-switch: both values are the mod's, whichever one reached the settings.
+  const st = R.loadState(m.p.state);
+  st.overrides.helper = ['name-only', 'user-invocable-only'];
+  R.saveState(m.p.state, st);
+  const s = r(m.p.settings);
+  s.skillOverrides.helper = 'user-invocable-only';
+  w(m.p.settings, s);
+  fullRestore(m.p);
+  assert.ok(!('helper' in r(m.p.settings).skillOverrides));
+
+  // A value the person set since is theirs.
+  apply(m.p, '/w', m.env, ok);
+  const s2 = r(m.p.settings);
+  s2.skillOverrides.helper = 'off';
+  w(m.p.settings, s2);
+  fullRestore(m.p);
+  assert.strictEqual(r(m.p.settings).skillOverrides.helper, 'off');
+});
+
+test('a user override of the same value as an entry that is not the mod\'s is left alone when hiding toggles', () => {
+  const m = machine({ options: null });
+  withHide(m, 'true');
+  const s = r(m.p.settings);
+  s.skillOverrides.helper = 'name-only';
+  w(m.p.settings, s);
+  apply(m.p, '/w', m.env, ok);
+  assert.strictEqual(r(m.p.settings).skillOverrides.helper, 'name-only');
+  assert.ok(!('helper' in R.loadState(m.p.state).overrides));
+});
+
+test('guard: disabled in one project lists hidden global skills again, other projects hide them at their next start', () => {
+  const m = machine({ options: null });
+  const proj = fs.mkdtempSync(path.join(m.home, 'proj-'));
+  withHide(m, 'true');
+  apply(m.p, '/w', m.env, ok);
+  apply(m.p, proj, m.env, ok);
+  w(path.join(proj, '.claude', 'settings.local.json'), { enabledPlugins: { 'oh-my-context-mod@m': false } });
+  assert.match(R.guard({ cwd: proj }, m.p.state), /disabled in this project.*Skills it hid are listed again/);
+  assert.strictEqual(t(m.skillA), '---\nname: do-a\ndescription: A\n---\nbody\n');
+  assert.deepStrictEqual(r(m.p.settings).skillOverrides, { mine: 'off' });
+  assert.ok(!R.loadState(m.p.state).files.some(x => x.hidden));
+  // The project that still has the mod hides them again.
+  apply(m.p, '/w', m.env, ok);
+  assert.match(t(m.skillA), /disable-model-invocation: true/);
+  assert.strictEqual(r(m.p.settings).skillOverrides.helper, 'user-invocable-only');
+  // Name-only entries (hiding off) are not touched by that guard, as before.
+  withHide(m, '');
+  apply(m.p, '/w', m.env, ok);
+  assert.strictEqual(R.guard({ cwd: proj }, m.p.state), null);
+  assert.match(t(m.skillA), /description: routed/);
+});
+
+test('uninstall and off undo hidden skills too', () => {
+  const m = machine();
+  const before = bare(m);
+  withHide(m, 'true');
+  apply(m.p, '/w', m.env, ok);
+  const inst = r(m.p.installed);
+  delete inst.plugins['oh-my-context-mod@m'];
+  w(m.p.installed, inst);
+  assert.match(R.guard({ cwd: '/w' }, m.p.state), /uninstalled/);
+  assert.deepStrictEqual(bare(m), before);
+  assert.ok(!fs.existsSync(m.p.state));
+});
+
+test('every plugin option sync.js reads is declared in plugin.json userConfig', () => {
+  const declared = Object.keys(JSON.parse(fs.readFileSync(path.join(__dirname, '..', '.claude-plugin', 'plugin.json'), 'utf8')).userConfig);
+  for (const k of ['direct_servers', 'direct_skills', 'hide_skills']) assert.ok(declared.includes(k), k);
 });

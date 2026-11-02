@@ -42,6 +42,7 @@ NATIVE_NAMES = (
     "usage",
     "skills",
     "resolve_skills",
+    "load_skill",
     "inspect",
     "call",
     "retrieve",
@@ -253,7 +254,7 @@ def native_tools() -> list[dict]:
             "description": (
                 "List the skills oh-my-context indexes on this machine: slug and one-line "
                 "description per skill. Read it once to learn what skills exist, then "
-                "resolve the one you need with resolve_skills. Offline and "
+                "resolve the one you need with resolve_skills, load it with load_skill. Offline and "
                 "read-only; pass include_aliases to also see alias cards."
             ),
             "inputSchema": {
@@ -279,6 +280,8 @@ def native_tools() -> list[dict]:
                             "properties": {
                                 "slug": {"type": "string"},
                                 "desc": {"type": "string"},
+                                "path": {"type": "string",
+                                         "description": "The skill's real folder, when known."},
                             },
                             "required": ["slug", "desc"],
                         },
@@ -299,9 +302,11 @@ def native_tools() -> list[dict]:
             "name": "resolve_skills",
             "title": "Resolve skills for a task",
             "description": (
-                "Return the skills that best match a task description, best first. "
-                "Call this with the user's request before acting, then read the chosen "
-                "skill's SKILL.md. Offline BM25 ranking, no LLM."
+                "Find skills: return the ones that best match a task description, best "
+                "first. Call this with the user's request before acting, then load the "
+                "chosen one with load_skill. Skills are hidden from Claude's native "
+                "listing, so do not use the Skill tool for them. Offline BM25 ranking, "
+                "no LLM."
             ),
             "inputSchema": {
                 "type": "object",
@@ -337,6 +342,8 @@ def native_tools() -> list[dict]:
                                 "slug": {"type": "string"},
                                 "score": {"type": "number"},
                                 "desc": {"type": "string"},
+                                "path": {"type": "string",
+                                         "description": "The skill's real folder, when known."},
                             },
                             "required": ["slug", "score"],
                         },
@@ -346,6 +353,42 @@ def native_tools() -> list[dict]:
             },
             "annotations": {
                 "title": "Resolve skills for a task",
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        },
+        {
+            "name": "load_skill",
+            "title": "Load a skill",
+            "description": (
+                "Load a skill found with resolve_skills: returns its SKILL.md instructions "
+                "to follow. Skills are hidden from Claude's native listing, so use this "
+                "instead of the Skill tool. Pass the full id (e.g. ecc:docker-patterns); "
+                "a bare name can match several plugins. With `file`, returns one bundled "
+                "file from the skill's folder instead."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Full skill id as resolve_skills returns it, e.g. ecc:docker-patterns.",
+                    },
+                    "file": {
+                        "type": "string",
+                        "description": (
+                            "Optional path of a bundled file, relative to the skill's "
+                            "folder (e.g. references/api.md). Absolute paths and '..' "
+                            "are refused."
+                        ),
+                    },
+                },
+                "required": ["id"],
+            },
+            "annotations": {
+                "title": "Load a skill",
                 "readOnlyHint": True,
                 "destructiveHint": False,
                 "idempotentHint": True,
@@ -827,6 +870,19 @@ def _resolve_skills(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uni
     return payload
 
 
+def _load_skill(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform signature
+    """A skill's instructions as plain text (a JSON-wrapped body would be escaped noise)."""
+    from . import skills as skills_mod
+
+    try:
+        text = skills_mod.load_skill(_as_str(arguments.get("id")), _as_str(arguments.get("file")))
+    except skills_mod.LoadError as exc:
+        return {"_text": str(exc), "_error": True}
+    except Exception as exc:  # never a traceback to the model
+        return {"_text": f"load_skill failed: {type(exc).__name__}", "_error": True}
+    return {"_text": text, "_error": False}
+
+
 def resolve_claude_name(name: str, servers: dict, index: dict) -> tuple[str, str, str]:
     """oh-my-context-mod: map an original Claude tool name to ``(server, tool, error)``.
 
@@ -1008,6 +1064,7 @@ _HANDLERS = {
     "usage": _usage,
     "skills": _skills,
     "resolve_skills": _resolve_skills,
+    "load_skill": _load_skill,
     "inspect": _inspect,
     "retrieve": _retrieve,
     "kb_search": _kb_search,
@@ -1028,6 +1085,9 @@ def call_native(name: str, arguments: dict, state: dict) -> dict:
     """
     arguments = arguments if isinstance(arguments, dict) else {}
     payload = _HANDLERS[name](arguments, state)
+    if "_text" in payload:  # plain-text tools (load_skill): no JSON wrapper, no structuredContent
+        return {"content": [{"type": "text", "text": payload["_text"]}],
+                "isError": bool(payload.get("_error")), "resultType": "complete"}
     text = json.dumps(payload, ensure_ascii=False, indent=None)
     return {
         "content": [{"type": "text", "text": text}],

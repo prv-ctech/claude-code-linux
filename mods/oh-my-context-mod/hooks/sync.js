@@ -7,7 +7,9 @@
 // project with disabledMcpServers (the key /mcp writes), so Claude sees only the gateway's tools.
 // Skills stay invocable but cost almost nothing: user skills get skillOverrides "name-only", plugin
 // SKILL.md files and plugin commands get the one-line description "routed" (both still invocable by
-// Claude and as /name). Global plugins and user skills are changed only while the mod is enabled at
+// Claude and as /name). With hide_skills on, skills leave Claude's own list altogether: plugin SKILL.md
+// files get disable-model-invocation: true instead (still /name), user skills "user-invocable-only";
+// the gateway's resolve_skills and load_skill are then the way to find and read them. Global plugins and user skills are changed only while the mod is enabled at
 // user scope, since every project sees them. oh-my-context's skill index is rebuilt over the original
 // files, so the gateway's resolve_skills tool finds them by what they do.
 // Claude Code reads MCP and skill config at launch, so what a start changes counts from the next session.
@@ -24,6 +26,8 @@ const { ME, paths, sha, readText, readConfig, writeFileAtomic, writeJson, withLo
 const root = path.resolve(__dirname, '..');
 const ROUTED = 'description: routed';
 const NAME_ONLY = 'name-only';
+const HIDDEN = 'user-invocable-only';
+const DMI = 'disable-model-invocation: true';
 const GATEWAY = 'the gateway itself';
 const CONFIG_CHANGE = 'user_settings|project_settings|local_settings';
 
@@ -103,13 +107,14 @@ function meta(text, fallbackName) {
 }
 
 // A SKILL.md or command text with a one-line description and no when_to_use; null when it cannot be
-// done safely.
-function routeSkill(text) {
+// done safely. hide: instead only `disable-model-invocation: true` is added (hidden from Claude, kept as /name).
+function routeSkill(text, hide = false) {
   const { bom, eol, front } = splitFront(text);
   if (front === false) return null;
-  if (front === null) return `${bom}---${eol}${ROUTED}${eol}---${eol}${text.slice(bom.length)}`;
+  if (front === null) return `${bom}---${eol}${hide ? DMI : ROUTED}${eol}---${eol}${text.slice(bom.length)}`;
   const b = blocks(front.head);
   if (!b) return null;
+  if (hide) return bom + ['---', ...front.head, DMI, front.rest].join(eol);
   const out = [];
   let done = false;
   for (const x of b) {
@@ -127,8 +132,11 @@ function routeSkill(text) {
 
 // The original text with `name` set to the id the Skill tool takes, for the catalog. No BOM: the
 // indexer reads plain utf-8 and wants `---` first.
-function withName(text, id) {
-  const line = /^[A-Za-z0-9:._-]+$/.test(id) ? `name: ${id}` : `name: ${JSON.stringify(id)}`;
+// source: the folder the skill really lives in, which the gateway's load_skill reads supporting files from.
+function withName(text, id, source) {
+  const scalar = v => (/^[A-Za-z0-9:._\/@+~-]+$/.test(v) ? v : JSON.stringify(v));
+  const line = `name: ${scalar(id)}`;
+  const extra = source ? [`source: ${scalar(source)}`] : [];
   const { bom, eol, front } = splitFront(text);
   const body = text.slice(bom.length);
   const b = front ? blocks(front.head) : null;
@@ -136,11 +144,12 @@ function withName(text, id) {
     // Claude describes a skill without frontmatter by its first body line, so the index does too.
     const first = front === null && body.split(/\r?\n/).map(l => l.replace(/^#+\s*/, '').trim()).find(Boolean);
     const desc = first ? `${eol}description: ${JSON.stringify(first.slice(0, 300))}` : '';
-    return `---${eol}${line}${desc}${eol}---${eol}${body}`;
+    return `---${eol}${[line, ...extra].join(eol)}${desc}${eol}---${eol}${body}`;
   }
-  const head = b.some(x => x.key === 'name')
-    ? b.flatMap(x => (x.key === 'name' ? [line] : x.lines))
-    : [line, ...front.head];
+  const rest = b.filter(x => !(source && x.key === 'source'));
+  const head = rest.some(x => x.key === 'name')
+    ? rest.flatMap(x => (x.key === 'name' ? [line, ...extra] : x.lines))
+    : [line, ...extra, ...rest.flatMap(x => x.lines)];
   return ['---', ...head, front.rest].join(eol);
 }
 
@@ -377,8 +386,8 @@ function plan(servers, direct, oauth = new Set()) {
   });
 }
 
-// direct_servers and direct_skills: what Claude passes the hook, else the saved plugin options.
-// Blank (the default) keeps nothing direct.
+// direct_servers, direct_skills and hide_skills: what Claude passes the hook, else the saved plugin options.
+// Blank (the default) keeps nothing direct and hides nothing.
 function options(settings, env) {
   const id = Object.keys(settings.enabledPlugins || {}).find(k => k.startsWith(`${ME}@`));
   const saved = ((settings.pluginConfigs || {})[id] || {}).options || {};
@@ -386,8 +395,16 @@ function options(settings, env) {
     const v = env[`CLAUDE_PLUGIN_OPTION_${k.toUpperCase()}`];
     return v !== undefined ? v : saved[k] !== undefined ? saved[k] : '';
   };
-  return { id, direct_servers: pick('direct_servers'), direct_skills: pick('direct_skills') };
+  return { id, direct_servers: pick('direct_servers'), direct_skills: pick('direct_skills'), hide_skills: pick('hide_skills') };
 }
+
+// hide_skills: null (off), true (every routed skill) or the names/plugins/<plugin>:<skill> ids to hide.
+function hideSpec(v) {
+  const s = String(v === undefined || v === null ? '' : v).trim().toLowerCase();
+  if (!s || ['false', 'off', 'no', '0', 'none'].includes(s)) return null;
+  return ['true', 'on', 'yes', '1', 'all'].includes(s) ? true : list(v);
+}
+const hides = (spec, plugin, n) => spec === true || (!!spec && [plugin, n, plugin && `${plugin}:${n}`].some(x => x && spec.includes(x)));
 
 // Whether the mod is enabled at user scope. Global plugin skills and commands and the user's
 // skillOverrides reach every project, so only then does it change them; a mod enabled only in a
@@ -418,7 +435,7 @@ function desktopPlugins(p) {
     .map(r => ({ id: 'anthropic-skills', name: 'anthropic-skills', root: path.resolve(r), manifest: {}, scope: null, here: true }));
 }
 
-function skillPlan(p, plugins, direct, state, cwd) {
+function skillPlan(p, plugins, direct, state, cwd, hide = null) {
   const recs = new Map(state.files.map(r => [r.path, r]));
   const original = (file, text) => {
     const rec = recs.get(file);
@@ -442,8 +459,9 @@ function skillPlan(p, plugins, direct, state, cwd) {
       const text = readText(file);
       const orig = original(file, text);
       const m = orig === null ? {} : meta(orig, path.basename(path.dirname(file)));
+      const route = orig !== null && !m.dmi && !kept(pl, m.name) && plain(pl, file);
       items.push({ kind: 'skill', file, text, orig, id: m.name && `${pl.name}:${m.name}`, scope: pl.scope, plugin: pl.name,
-        route: orig !== null && !m.dmi && !kept(pl, m.name) && plain(pl, file), dmi: m.dmi, parsed: m.parsed });
+        route, hide: route && hides(hide, pl.name, m.name), dmi: m.dmi, parsed: m.parsed });
     }
     for (const file of pluginCommandFiles(pl)) {
       const text = readText(file);
@@ -458,7 +476,8 @@ function skillPlan(p, plugins, direct, state, cwd) {
   const read = file => {
     const text = readText(file);
     const m = text === null ? { name: path.basename(path.dirname(file)) } : meta(text, path.basename(path.dirname(file)));
-    return { file, text, name: m.name, dmi: m.dmi, route: !direct.includes(m.name) };
+    const route = !direct.includes(m.name);
+    return { file, text, name: m.name, dmi: m.dmi, route, hide: route && hides(hide, null, m.name) };
   };
   const users = findSkills(p.skills, 3).map(read);
   // Project-local folders (the project's .claude/skills included) stay out of the user-level skillOverrides,
@@ -617,7 +636,7 @@ function applyLocked(p, cwd, env, run) {
   save();
 
   // 4. Plugin skills and commands.
-  const sk = skillPlan(p, plugins, list(opts.direct_skills), state, cwd);
+  const sk = skillPlan(p, plugins, list(opts.direct_skills), state, cwd, hideSpec(opts.hide_skills));
   let filesChanged = false;
   const routedPaths = new Set();
   for (const it of sk.items) {
@@ -636,7 +655,7 @@ function applyLocked(p, cwd, env, run) {
     // Ours: re-derived from the backed-up original (an older build flagged commands instead). Not ours
     // any more (or never): the file on disk is the original, from a plugin update or first sight.
     const base = ours ? it.orig : it.text;
-    const patched = routeSkill(base);
+    const patched = routeSkill(base, it.hide);
     if (ours && patched === it.text) continue;
     if (patched === null || patched === base) {
       if (patched === null) problems.push(`${it.file}: frontmatter not understood; left as is`);
@@ -648,7 +667,10 @@ function applyLocked(p, cwd, env, run) {
     const origSha = sha(base);
     const backup = path.join(p.state, 'originals', `${origSha}.md`);
     if (readText(backup) !== base) writeFileAtomic(backup, base, 0o600, false);
-    const next = { kind: it.kind, path: it.file, origSha, patchedSha: sha(patched), plugin: it.plugin, cwd: it.scope || null };
+    // Re-patching our own patch (routed <-> hidden): the original goes back first, so a stop before the
+    // new write never leaves a file the journal's new sha no longer matches.
+    if (ours) writeFileAtomic(it.file, base);
+    const next = { kind: it.kind, path: it.file, origSha, patchedSha: sha(patched), plugin: it.plugin, cwd: it.scope || null, ...(it.hide && { hidden: true }) };
     state.files = [...state.files.filter(r => r !== old), next];
     save();
     writeFileAtomic(it.file, patched);
@@ -670,22 +692,29 @@ function applyLocked(p, cwd, env, run) {
     save();
   }
 
-  // 5. User skills: name only in Claude's listing, unless the person set an override themselves.
+  // 5. User skills: name only in Claude's listing (hidden from it with hide_skills), unless the person set an override themselves.
   const overrides = { ...(settings.skillOverrides || {}) };
   const mine = state.overrides;
+  // A recorded value is a string, or a list while a switch between name-only and hidden is in flight.
+  const owns = (n, v) => arr(mine[n]).includes(v);
   // skillOverrides in the user settings reach every project, so only a mod enabled at user scope sets them.
-  const want = [...new Set(sk.users.filter(u => all && u.route && !u.dmi).map(u => u.name))]
-    .filter(n => !(n in overrides) || mine[n] === overrides[n]);
-  for (const n of want) mine[n] = mine[n] || NAME_ONLY;
-  const drop = Object.keys(mine).filter(n => !want.includes(n));
+  const want = new Map();
+  if (all) {
+    for (const u of sk.users) {
+      if (u.route && !u.dmi && !want.has(u.name) && (!(u.name in overrides) || owns(u.name, overrides[u.name]))) want.set(u.name, u.hide ? HIDDEN : NAME_ONLY);
+    }
+  }
+  for (const [n, v] of want) if (!owns(n, v)) mine[n] = [...arr(mine[n]), v];
+  const drop = Object.keys(mine).filter(n => !want.has(n));
   save();
-  for (const n of want) overrides[n] = mine[n];
-  for (const n of drop) if (overrides[n] === mine[n]) delete overrides[n];
+  for (const [n, v] of want) overrides[n] = v;
+  for (const n of drop) if (owns(n, overrides[n])) delete overrides[n];
   if (JSON.stringify(overrides) !== JSON.stringify(settings.skillOverrides || {})) {
     if (Object.keys(overrides).length) settings.skillOverrides = overrides;
     else delete settings.skillOverrides;
     writeJson(p.settings, settings, 0o644);
   }
+  for (const [n, v] of want) mine[n] = v;
   for (const n of drop) delete mine[n];
   save();
 
@@ -693,15 +722,23 @@ function applyLocked(p, cwd, env, run) {
   const catalog = path.join(p.state, 'catalog');
   fs.mkdirSync(catalog, { recursive: true });
   const entries = new Map();
-  for (const it of sk.items.filter(x => x.orig !== null && !x.dmi && x.id)) entries.set(it.id, it.orig);
-  for (const u of sk.users.filter(x => x.text !== null && !x.dmi)) entries.set(u.name, u.text);
-  for (const o of sk.others.filter(x => x.text !== null && !x.dmi && x.route)) if (!entries.has(o.name)) entries.set(o.name, o.text);
+  // source: the real skill folder (commands are single files and carry none).
+  const folder = file => {
+    try {
+      return fs.realpathSync(path.dirname(file));
+    } catch (e) {
+      return path.dirname(file);
+    }
+  };
+  for (const it of sk.items.filter(x => x.orig !== null && !x.dmi && x.id)) entries.set(it.id, { text: it.orig, source: it.kind === 'skill' ? folder(it.file) : undefined });
+  for (const u of sk.users.filter(x => x.text !== null && !x.dmi)) entries.set(u.name, { text: u.text, source: folder(u.file) });
+  for (const o of sk.others.filter(x => x.text !== null && !x.dmi && x.route)) if (!entries.has(o.name)) entries.set(o.name, { text: o.text, source: folder(o.file) });
   const safe = id => id.replace(/[^A-Za-z0-9._-]/g, '_');
   const keep = new Set();
-  for (const [id, text] of entries) {
+  for (const [id, { text, source }] of entries) {
     const file = path.join(catalog, safe(id), 'SKILL.md');
     keep.add(safe(id));
-    const body = withName(text, id);
+    const body = withName(text, id, source);
     if (readText(file) !== body) writeFileAtomic(file, body, 0o644, false);
   }
   let names = [];
@@ -744,15 +781,26 @@ function fullRestore(p) {
 
 // --- output -------------------------------------------------------------------------------------
 
+// Skills the mod hid from Claude's own list: plugin SKILL.md files and user skillOverrides.
+function hiddenCounts(state, cwd) {
+  const plugin = state.files.filter(f => f.kind === 'skill' && f.hidden && inScope(f.cwd, cwd)).length;
+  const user = Object.values(state.overrides).filter(v => arr(v).includes(HIDDEN)).length;
+  return { plugin, user, all: plugin + user };
+}
+
 function sessionContext(r) {
   const fwd = r.servers.filter(s => s.forward && s.here).length;
   const direct = r.servers.filter(s => !s.forward && s.here && s.reason !== GATEWAY).map(s => `${s.key} (${s.reason})`);
   const files = r.state.files.filter(f => inScope(f.cwd, r.cwd));
   const skills = files.filter(f => f.kind === 'skill').length + Object.keys(r.state.overrides).length;
   const cmds = files.filter(f => f.kind === 'command').length;
+  const hid = hiddenCounts(r.state, r.cwd).all;
+  const skillText = hid
+    ? `${hid} skill(s) hidden from Claude's own skill list (find one with the gateway's resolve_skills tool, then read it with its load_skill tool; the Skill tool does not list them), `
+      + `${Math.max(skills - hid, 0)} other skill(s) and ${cmds} plugin command(s) listed by name only (still invocable); `
+    : `${skills} skill(s) and ${cmds} plugin command(s) listed by name only (still invocable; its resolve_skills tool finds them); `;
   let line = `oh-my-context-mod: ${fwd} MCP server(s) routed through oh-my-context (its manifest and call tools), `
-    + `${skills} skill(s) and ${cmds} plugin command(s) listed by name only (still invocable; its resolve_skills tool finds them); `
-    + `direct: ${direct.join(', ') || 'none'}.`;
+    + `${skillText}direct: ${direct.join(', ') || 'none'}.`;
   if (r.changed) line += ' Changes made at this start count from the next session.';
   if (!r.indexed) line += ' The skill index did not rebuild.';
   if (r.problems.length) line += ` ${r.problems.length} file(s) left as is (/oh-my-context-mod status).`;
@@ -775,9 +823,10 @@ function status(p, cwd, env, run) {
   const servers = plan(collectServers(p, cwd, plugins, cj, env), list(opts.direct_servers), oauthServers(p));
   const off = new Set((state.projects[cwd] || {}).keys || []);
   const files = state.files.filter(f => inScope(f.cwd, cwd));
-  const sk = skillPlan(p, plugins, list(opts.direct_skills), state, cwd);
+  const sk = skillPlan(p, plugins, list(opts.direct_skills), state, cwd, hideSpec(opts.hide_skills));
   const guardOn = state.hooks.length > 0 && state.hooks.every(h => (((settings.hooks || {})[h.event]) || []).some(e => JSON.stringify(e) === JSON.stringify(h.entry)));
   const all = everywhere(settings);
+  const hid = hiddenCounts(state, cwd);
   const out = [
     `oh-my-context-mod: ${fs.existsSync(offFile(p)) || state.off ? 'off' : 'on'} · oh-my-context CLI: ${v.status === 0 ? String(v.stdout).trim() : 'not runnable'}`,
     '',
@@ -785,12 +834,15 @@ function status(p, cwd, env, run) {
     ...servers.filter(s => s.here).map(s => `  ${(s.forward ? (off.has(s.key) ? 'forwarded' : 'forward*') : 'direct').padEnd(9)}  ${s.key}${s.reason ? `  (${s.reason})` : ''}`),
     '  * forward on the next session start in this project',
     '',
-    `Skills: ${files.filter(f => f.kind === 'skill').length} plugin skill(s) and ${Object.keys(state.overrides).length} user skill(s) listed by name only; `
+    (hid.all
+      ? `Skills: ${hid.plugin} plugin skill(s) and ${hid.user} user skill(s) hidden from Claude (find them with resolve_skills, read one with load_skill); `
+        + `${files.filter(f => f.kind === 'skill' && !f.hidden).length + Object.keys(state.overrides).length - hid.user} other skill(s) listed by name only; `
+      : `Skills: ${files.filter(f => f.kind === 'skill').length} plugin skill(s) and ${Object.keys(state.overrides).length} user skill(s) listed by name only; `)
       + `${sk.items.filter(i => i.kind === 'skill' && i.route && (i.scope || all)).length + sk.users.filter(u => all && u.route && !u.dmi).length} would be on the next start; `
       + `${sk.others.filter(o => !o.dmi).length} skill(s) from other agents' folders (.agents, .github, .cursor ...) indexed for resolve_skills.`,
     `Commands: ${files.filter(f => f.kind === 'command').length} plugin command(s) listed by name only, still invocable.`,
     `Guard (puts everything back on uninstall or disable): ${guardOn ? 'installed' : 'not installed'}`,
-    `Filters (plugin settings): direct_servers = "${opts.direct_servers}", direct_skills = "${opts.direct_skills}"`,
+    `Filters (plugin settings): direct_servers = "${opts.direct_servers}", direct_skills = "${opts.direct_skills}", hide_skills = "${opts.hide_skills}"`,
     `Paths: state ${p.state}, gateway config ${state.paths.gateway || p.gateway}, settings ${p.settings}`,
   ];
   return out.join('\n');
@@ -892,6 +944,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  paths, resolve, plan, routeSkill, withName, swap, apply, session,
+  paths, resolve, plan, routeSkill, withName, hideSpec, swap, apply, session,
   fullRestore, status, collectServers, enabledPlugins, skillPlan, isGateway, touchEpoch, oauthServers,
 };
