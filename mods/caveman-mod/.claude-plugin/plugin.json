@@ -1,6 +1,6 @@
 {
   "name": "caveman-mod",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Caveman's ultracave style: injected at session start, on every message and into every subagent. /caveman on|off toggles it, /caveman-status checks the hook really ran.",
   "author": {
     "name": "prv-ctech"

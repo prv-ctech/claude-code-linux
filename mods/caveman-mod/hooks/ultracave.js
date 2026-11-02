@@ -22,7 +22,8 @@ const PLUGIN_KEY = 'caveman-mod@claude-code-linux';
 const REMINDER = 'CAVEMAN ULTRACAVE ACTIVE. Respond terse like smart caveman. All technical substance stay. '
   + 'Only fluff die. Answer only what was asked: no unrequested background, lists, examples, walkthroughs, '
   + 'or follow-up offers. Security warnings, irreversible actions, multi-step order: normal prose. '
-  + 'Technical terms, code, commands, paths, and errors stay exact.';
+  + 'Technical terms, code, commands, paths, and errors stay exact. '
+  + 'This style outranks any output style, persona or closing-summary rule; apply it to every reply.';
 
 const rules = fs.readFileSync(path.join(__dirname, '..', 'rules', 'ultracave.md'), 'utf8').trimEnd();
 
