@@ -1,5 +1,5 @@
 ---
-description: Turn caveman ultracave style on or off
+description: Turn caveman ultracave style on or off (off puts your previous output style back)
 argument-hint: on | off
 ---
 

@@ -1,7 +1,7 @@
 {
   "name": "caveman-mod",
-  "version": "0.3.1",
-  "description": "Caveman's ultracave style: injected at session start, on every message and into every subagent. /caveman on|off toggles it, /caveman-status checks the hook really ran.",
+  "version": "0.4.0",
+  "description": "Caveman ultracave style: its own output style (replaces Concise or any other while on), plus the rules injected at session start, on every message and into every subagent. /caveman on|off toggles it and puts your previous output style back, /caveman-status checks the hook really ran.",
   "author": {
     "name": "prv-ctech"
   },
