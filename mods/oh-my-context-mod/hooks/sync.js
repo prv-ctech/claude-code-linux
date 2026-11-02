@@ -831,7 +831,11 @@ function status(p, cwd, env, run) {
     `oh-my-context-mod: ${fs.existsSync(offFile(p)) || state.off ? 'off' : 'on'} · oh-my-context CLI: ${v.status === 0 ? String(v.stdout).trim() : 'not runnable'}`,
     '',
     `MCP servers (${cwd}):`,
-    ...servers.filter(s => s.here).map(s => `  ${(s.forward ? (off.has(s.key) ? 'forwarded' : 'forward*') : 'direct').padEnd(9)}  ${s.key}${s.reason ? `  (${s.reason})` : ''}`),
+    // Claude's key is not what the gateway's manifest and call tools use; show that name too.
+    ...servers.filter(s => s.here).map(s => {
+      const gwName = s.forward && Object.keys(state.servers).find(n => state.servers[n].key === s.key && state.servers[n].cwd === (s.scope || null));
+      return `  ${(s.forward ? (off.has(s.key) ? 'forwarded' : 'forward*') : 'direct').padEnd(9)}  ${s.key}${gwName ? `  (gateway: ${gwName})` : ''}${s.reason ? `  (${s.reason})` : ''}`;
+    }),
     '  * forward on the next session start in this project',
     '',
     (hid.all

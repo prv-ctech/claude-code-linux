@@ -200,7 +200,7 @@ test('apply routes servers and skills; a full restore puts back exactly what it 
   // A second start changes nothing.
   const again = apply(p, '/w', env, ok);
   assert.ok(!again.changed && !again.filesChanged);
-  assert.match(status(p, '/w', env, ok), /forwarded {2}plugin:alpha:alpha/);
+  assert.match(status(p, '/w', env, ok), /forwarded {2}plugin:alpha:alpha {2}\(gateway: \S+\)/);
   assert.match(status(p, '/w', env, ok), /Guard .*: installed/);
 
   const out = fullRestore(p);
