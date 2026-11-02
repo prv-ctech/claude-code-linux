@@ -399,7 +399,26 @@ const offFile = p => path.join(p.pluginData, 'off');
 
 // Every skill and command the mod considers here. For a file the mod patched, its decisions are
 // made on the backed-up original, not on the patched text.
-function skillPlan(p, plugins, direct, state) {
+// Skill folders of other agents (Codex, Copilot, Cursor, Gemini CLI, OpenCode, Windsurf), in a project
+// and in the home folder. Claude Code never lists them, so they only join the catalog.
+const OTHER_SKILL_DIRS = ['.agents/skills', '.github/skills', '.cursor/skills', '.gemini/skills', '.opencode/skills',
+  '.windsurf/skills', '.codex/skills', '.copilot/skills', '.config/opencode/skills'];
+
+// The desktop app's account skills (<root>/<account>/<org>/skills), loaded by Claude as the
+// "anthropic-skills" plugin; shaped like a plugin so they are routed like one.
+function desktopPlugins(p) {
+  const subdirs = d => {
+    try {
+      return fs.readdirSync(d).sort().map(n => path.join(d, n)).filter(isDir);
+    } catch (e) {
+      return [];
+    }
+  };
+  return subdirs(p.desktopSkills).flatMap(subdirs).filter(r => isDir(path.join(r, 'skills')))
+    .map(r => ({ id: 'anthropic-skills', name: 'anthropic-skills', root: path.resolve(r), manifest: {}, scope: null, here: true }));
+}
+
+function skillPlan(p, plugins, direct, state, cwd) {
   const recs = new Map(state.files.map(r => [r.path, r]));
   const original = (file, text) => {
     const rec = recs.get(file);
@@ -418,7 +437,7 @@ function skillPlan(p, plugins, direct, state) {
     }
   };
   const items = [];
-  for (const pl of plugins.filter(x => x.name !== ME)) {
+  for (const pl of [...plugins, ...desktopPlugins(p)].filter(x => x.name !== ME)) {
     for (const file of pluginSkillFiles(pl)) {
       const text = readText(file);
       const orig = original(file, text);
@@ -436,12 +455,15 @@ function skillPlan(p, plugins, direct, state) {
         route: orig !== null && !m.dmi && !kept(pl, n) && plain(pl, file), dmi: m.dmi, parsed: m.parsed });
     }
   }
-  const users = findSkills(p.skills, 3).map(file => {
+  const read = file => {
     const text = readText(file);
     const m = text === null ? { name: path.basename(path.dirname(file)) } : meta(text, path.basename(path.dirname(file)));
     return { file, text, name: m.name, dmi: m.dmi, route: !direct.includes(m.name) };
-  });
-  return { items, users };
+  };
+  // ~/.claude/skills and the project's .claude/skills: both listed by Claude, so both get name-only.
+  const users = [...new Set([p.skills, path.join(cwd, '.claude', 'skills')].flatMap(d => findSkills(d, 3)))].map(read);
+  const others = [...new Set([cwd, p.home].flatMap(b => OTHER_SKILL_DIRS.map(d => path.join(b, d))).flatMap(d => findSkills(d, 3)))].map(read);
+  return { items, users, others };
 }
 
 function runGateway(args, input) {
@@ -593,7 +615,7 @@ function applyLocked(p, cwd, env, run) {
   save();
 
   // 4. Plugin skills and commands.
-  const sk = skillPlan(p, plugins, list(opts.direct_skills), state);
+  const sk = skillPlan(p, plugins, list(opts.direct_skills), state, cwd);
   let filesChanged = false;
   const routedPaths = new Set();
   for (const it of sk.items) {
@@ -671,6 +693,7 @@ function applyLocked(p, cwd, env, run) {
   const entries = new Map();
   for (const it of sk.items.filter(x => x.orig !== null && !x.dmi && x.id)) entries.set(it.id, it.orig);
   for (const u of sk.users.filter(x => x.text !== null && !x.dmi)) entries.set(u.name, u.text);
+  for (const o of sk.others.filter(x => x.text !== null && !x.dmi && x.route)) if (!entries.has(o.name)) entries.set(o.name, o.text);
   const safe = id => id.replace(/[^A-Za-z0-9._-]/g, '_');
   const keep = new Set();
   for (const [id, text] of entries) {
@@ -750,7 +773,7 @@ function status(p, cwd, env, run) {
   const servers = plan(collectServers(p, cwd, plugins, cj, env), list(opts.direct_servers), oauthServers(p));
   const off = new Set((state.projects[cwd] || {}).keys || []);
   const files = state.files.filter(f => inScope(f.cwd, cwd));
-  const sk = skillPlan(p, plugins, list(opts.direct_skills), state);
+  const sk = skillPlan(p, plugins, list(opts.direct_skills), state, cwd);
   const guardOn = state.hooks.length > 0 && state.hooks.every(h => (((settings.hooks || {})[h.event]) || []).some(e => JSON.stringify(e) === JSON.stringify(h.entry)));
   const all = everywhere(settings);
   const out = [
@@ -761,7 +784,8 @@ function status(p, cwd, env, run) {
     '  * forward on the next session start in this project',
     '',
     `Skills: ${files.filter(f => f.kind === 'skill').length} plugin skill(s) and ${Object.keys(state.overrides).length} user skill(s) listed by name only; `
-      + `${sk.items.filter(i => i.kind === 'skill' && i.route && (i.scope || all)).length + sk.users.filter(u => all && u.route && !u.dmi).length} would be on the next start.`,
+      + `${sk.items.filter(i => i.kind === 'skill' && i.route && (i.scope || all)).length + sk.users.filter(u => all && u.route && !u.dmi).length} would be on the next start; `
+      + `${sk.others.filter(o => !o.dmi).length} skill(s) from other agents' folders (.agents, .github, .cursor ...) indexed for resolve_skills.`,
     `Commands: ${files.filter(f => f.kind === 'command').length} plugin command(s) listed by name only, still invocable.`,
     `Guard (puts everything back on uninstall or disable): ${guardOn ? 'installed' : 'not installed'}`,
     `Filters (plugin settings): direct_servers = "${opts.direct_servers}", direct_skills = "${opts.direct_skills}"`,
