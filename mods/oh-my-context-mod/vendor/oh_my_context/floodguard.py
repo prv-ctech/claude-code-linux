@@ -47,6 +47,11 @@ WINDOW_MS = 60_000
 #: Calls beyond this are refused outright.
 BLOCK_AFTER = 8
 
+#: Per-tool overrides of BLOCK_AFTER (oh-my-context-mod). Skills are now found only
+#: through `resolve_skills`, so a subagent that needs several gets a larger budget.
+#: `load_skill` is not throttled at all: it is a read of one named skill, not a search.
+BLOCK_AFTER_BY_TOOL = {"resolve_skills": 24}
+
 #: Defensive bound on tracked keys, so a host that mints unbounded agent ids
 #: cannot grow the map without limit. Eviction is oldest-window-first and fails
 #: open (the evicted actor simply gets a fresh window) — never a false block.
@@ -72,7 +77,7 @@ class FloodGuard:
     def __init__(self) -> None:
         self._buckets: dict[str, tuple[int, int]] = {}  # key -> (count, window_start)
 
-    def record(self, key: str, now_ms: int) -> Decision:
+    def record(self, key: str, now_ms: int, limit: int = BLOCK_AFTER) -> Decision:
         count, start = self._buckets.get(key, (0, now_ms))
         if now_ms - start > WINDOW_MS:
             count, start = 0, now_ms
@@ -82,4 +87,4 @@ class FloodGuard:
             oldest = min(self._buckets.items(), key=lambda kv: kv[1][1])
             self._buckets.pop(oldest[0], None)
         resets_in = max(0, int((start + WINDOW_MS - now_ms) / 1000))
-        return Decision(count=count, blocked=count > BLOCK_AFTER, resets_in=resets_in)
+        return Decision(count=count, blocked=count > limit, resets_in=resets_in)

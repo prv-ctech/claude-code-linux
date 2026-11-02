@@ -204,6 +204,29 @@ def _body_triggers(body: str) -> list[str]:
     return out[:40]
 
 
+def _front_source(md: Path) -> str:
+    """The ``source:`` frontmatter value of a catalog copy, or ``""``.
+
+    hooks/sync.js writes the absolute path of the real skill folder there; the
+    catalog copy itself is only SKILL.md. Read separately because
+    ``parse_skill_md`` keeps just name, description and body.
+    """
+    try:
+        text = md.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    if not text.startswith("---"):
+        return ""
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return ""
+    for line in parts[1].splitlines():
+        key, _, value = line.partition(":")
+        if key.strip().lower() == "source":
+            return _clean_desc(value.strip())
+    return ""
+
+
 def _walk_skill_dirs(base: Path, seen: set[str]):
     """Yield ``(slug, skill_md_path)`` anywhere under ``base``, depth-first.
 
@@ -369,6 +392,8 @@ def scan_roots(roots: list[Path]) -> dict:
                 "triggers": front + extra,
                 "alias_of": _alias_target(desc),
                 "root": str(root),
+                "file": str(md),
+                "source": _front_source(md),
             })
     return {
         "version": INDEX_VERSION,
@@ -425,14 +450,17 @@ def catalog_rows(index: dict, *, include_aliases: bool = False) -> list[dict]:
     for s in index.get("skills", []):
         if s.get("alias_of") and not include_aliases:
             continue
-        rows.append({"slug": s["slug"],
-                     "desc": _clean_desc(s.get("desc")).split("触发词")[0].strip()})
+        row = {"slug": s["slug"],
+               "desc": _clean_desc(s.get("desc")).split("触发词")[0].strip()}
+        if s.get("source"):
+            row["path"] = s["source"]
+        rows.append(row)
     rows.sort(key=lambda r: r["slug"])
     return rows
 
 
 def resolve_shortlist(query: str, k: int = 5) -> list[dict]:
-    """The k best skills for ``query`` — ``[{slug, score, desc}]``, best first.
+    """The k best skills for ``query`` — ``[{slug, score, desc, path?}]``, best first.
 
     An empty catalog yields ``[]`` rather than raising, so a machine with no
     skills still answers.
@@ -600,6 +628,7 @@ class _BM25:
         canonical, alias_map = resolve_aliases(index)
         self.slugs = set(canonical)
         self.descs: dict[str, str] = {}
+        self.sources: dict[str, str] = {}
         back: dict[str, list[str]] = defaultdict(list)
         for alias, target in alias_map.items():
             back[target].append(alias)
@@ -616,6 +645,7 @@ class _BM25:
             counts = Counter(_tokenize(" ".join(parts)))
             docs[slug] = counts
             self.descs[slug] = _clean_desc(s.get("desc"))
+            self.sources[slug] = s.get("source") or ""
             for t in counts:
                 df[t] += 1
         self.docs = docs
@@ -667,11 +697,133 @@ class _BM25:
                 score *= _EXACT_NAME_BOOST
             scored.append((score, slug))
         scored.sort(key=lambda pair: (-pair[0], pair[1]))
-        return [
-            {"slug": slug, "score": round(score, 4), "desc": self.descs.get(slug, "")}
-            for score, slug in scored[:k]
-            if score > 0
-        ]
+        out = []
+        for score, slug in scored[:k]:
+            if score <= 0:
+                continue
+            row = {"slug": slug, "score": round(score, 4), "desc": self.descs.get(slug, "")}
+            if self.sources.get(slug):
+                row["path"] = self.sources[slug]
+            out.append(row)
+        return out
+
+
+# ═══════════════════════════════════════════════════
+# Loading a skill (the Skill tool is bypassed: skills are hidden from it)
+# ═══════════════════════════════════════════════════
+
+#: Largest file `load_skill` returns; a bigger one is refused, not truncated.
+MAX_LOAD_BYTES = 512 * 1024
+
+_LOAD_FOOTER = (
+    "Where this text tells you to use the Skill tool for another skill, call "
+    "`load_skill` with that skill's id instead (resolve it with `resolve_skills` "
+    "first if unsure of the id)."
+)
+
+
+class LoadError(Exception):
+    """A user-facing reason `load_skill` cannot answer; never carries a traceback."""
+
+
+def _plugin_root(folder: Path) -> str:
+    """The plugin folder holding ``folder`` (has ``.claude-plugin/plugin.json``), or ``""``."""
+    for parent in list(folder.parents)[:8]:
+        if (parent / ".claude-plugin" / "plugin.json").is_file():
+            return str(parent)
+    return ""
+
+
+def _find_entry(index: dict, skill_id: str) -> dict:
+    want = skill_id.strip().lower().lstrip("/")
+    by_slug = {s["slug"].lower(): s for s in index.get("skills", [])}
+    entry = by_slug.get(want)
+    if entry is None:
+        # A bare name collides across plugins, so it is never guessed: list the
+        # full ids it could mean.
+        near = sorted(s["slug"] for s in index.get("skills", [])
+                      if s["slug"].lower().endswith(":" + want))
+        hint = (" Did you mean: " + ", ".join(near[:8]) + "?" if near
+                else " Find the id with resolve_skills.")
+        raise LoadError(f"No skill with id '{skill_id}'.{hint}")
+    target = (entry.get("alias_of") or "").lower()
+    return by_slug.get(target, entry) if target else entry
+
+
+def _skill_folder(entry: dict) -> tuple[Path, Path]:
+    """``(folder, skill_md)``: the real skill folder from ``source``, else the catalog copy."""
+    src = entry.get("source") or ""
+    if src:
+        folder = Path(src)
+        if folder.is_file():
+            folder = folder.parent
+        md = _find_skill_md(folder) if folder.is_dir() else None
+        if md is not None:
+            return folder, md
+    md = Path(entry.get("file") or "")
+    if md.is_file():
+        return md.parent, md
+    raise LoadError(f"Skill '{entry['slug']}' is indexed but its SKILL.md is gone; "
+                    "the index refreshes on the next session start.")
+
+
+def _read_capped(path: Path) -> str:
+    try:
+        if path.stat().st_size > MAX_LOAD_BYTES:
+            raise LoadError(f"{path.name} is larger than {MAX_LOAD_BYTES // 1024} KiB; "
+                            "read it in parts with the Read tool instead.")
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise LoadError(f"Cannot read {path.name}: {exc.strerror or exc}") from None
+
+
+def _bundled_file(folder: Path, rel: str) -> Path:
+    """``rel`` inside ``folder``, or LoadError. The trust boundary of `load_skill`."""
+    if (not rel or "\0" in rel or Path(rel).is_absolute() or rel.startswith(("/", "\\"))
+            or re.match(r"^[A-Za-z]:", rel) or ".." in re.split(r"[\\/]", rel)):
+        raise LoadError("`file` must be a relative path inside the skill folder "
+                        "(no absolute path, no '..').")
+    try:
+        base = folder.resolve()
+        target = (folder / rel).resolve()
+    except (OSError, RuntimeError):
+        raise LoadError(f"Cannot resolve '{rel}'.") from None
+    if base != target and base not in target.parents:
+        raise LoadError(f"'{rel}' resolves outside the skill folder.")
+    if not target.is_file():
+        raise LoadError(f"No file '{rel}' in the skill folder.")
+    return target
+
+
+def load_skill(skill_id: str, file: str | None = None) -> str:
+    """The SKILL.md body (or one bundled ``file``) for the full skill id, as plain text.
+
+    Raises :class:`LoadError` with a clear message on any failure.
+    """
+    if not (skill_id or "").strip():
+        raise LoadError("Pass `id`, the full skill id (e.g. ecc:docker-patterns); "
+                        "find it with resolve_skills.")
+    ensure_index()
+    entry = _find_entry(load_index(), skill_id)
+    folder, md = _skill_folder(entry)
+    if file:
+        return _read_capped(_bundled_file(folder, file))
+    try:
+        _name, _desc, body = _parse_skill_md(md)
+    except OSError as exc:
+        raise LoadError(f"Cannot read SKILL.md: {exc.strerror or exc}") from None
+    if len(body.encode("utf-8")) > MAX_LOAD_BYTES:
+        raise LoadError(f"SKILL.md is larger than {MAX_LOAD_BYTES // 1024} KiB.")
+    body = body.replace("${CLAUDE_SKILL_DIR}", str(folder))
+    root = _plugin_root(folder)
+    if root:
+        body = body.replace("${CLAUDE_PLUGIN_ROOT}", root)
+    return f"Base directory for this skill: {folder}\n\n{body}\n\n---\n{_LOAD_FOOTER}\n"
+
+
+def _parse_skill_md(md: Path):
+    from .plugin import parse_skill_md  # local: import-light
+    return parse_skill_md(md)
 
 
 # Directory names that are never a skill, wherever the tree is walked. `_index`

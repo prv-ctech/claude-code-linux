@@ -59,6 +59,7 @@ from .client import (
     DEFAULT_CALL_TIMEOUT,
 )
 from . import native_tools
+from .floodguard import BLOCK_AFTER, BLOCK_AFTER_BY_TOOL
 from . import router as router_mod
 from . import usage
 from .schema_simplifier import (
@@ -90,9 +91,9 @@ def _instructions(servers: dict) -> str:
         "Claude tool name (mcp__...) as `tool`, or `server` plus `tool`. `manifest` lists "
         "the routed tool names and `inspect` shows one tool's parameters. A routed "
         "server's own instructions are returned with its first call, and again after "
-        "/clear, compaction or a subagent. Skills are listed "
-        "by name only; `resolve_skills` returns the matching skill ids and "
-        "descriptions, which are then invoked with the Skill tool as usual."
+        "/clear, compaction or a subagent. Skills are hidden from Claude's native "
+        "listing: find one with `resolve_skills`, load it with `load_skill` (full id), "
+        "and do not use the Skill tool for them."
     )
     if not names:
         return "No MCP servers are routed through this gateway right now. " + tail
@@ -112,7 +113,7 @@ def _instructions(servers: dict) -> str:
 
 # Tools Claude Code should load with their schemas up front (no ToolSearch round
 # trip) when the upstream list is withheld. oh-my-context-mod.
-_ALWAYS_LOAD = ("call", "inspect", "manifest", "resolve_skills")
+_ALWAYS_LOAD = ("call", "inspect", "manifest", "resolve_skills", "load_skill")
 
 
 # CacheableResult defaults (SEP-2549) for list/read results. Env-tunable:
@@ -859,8 +860,10 @@ class MCPServerBridge:
         """
         if name not in ("kb_search", "resolve_skills"):
             return None
-        key = f"{self._client_name or 'unknown'}:{threading.get_ident()}"
-        decision = self._flood.record(key, int(time.time() * 1000))
+        # One bucket per tool, so a burst of skill lookups cannot spend kb_search's budget.
+        key = f"{self._client_name or 'unknown'}:{threading.get_ident()}:{name}"
+        decision = self._flood.record(key, int(time.time() * 1000),
+                                      BLOCK_AFTER_BY_TOOL.get(name, BLOCK_AFTER))
         if decision.blocked:
             return _make_tool_error(decision.message(name))
         return None
