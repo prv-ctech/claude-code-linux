@@ -928,3 +928,8 @@ test('uninstall and off undo hidden skills too', () => {
   assert.deepStrictEqual(bare(m), before);
   assert.ok(!fs.existsSync(m.p.state));
 });
+
+test('every plugin option sync.js reads is declared in plugin.json userConfig', () => {
+  const declared = Object.keys(JSON.parse(fs.readFileSync(path.join(__dirname, '..', '.claude-plugin', 'plugin.json'), 'utf8')).userConfig);
+  for (const k of ['direct_servers', 'direct_skills', 'hide_skills']) assert.ok(declared.includes(k), k);
+});

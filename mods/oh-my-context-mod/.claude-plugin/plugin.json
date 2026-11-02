@@ -17,6 +17,12 @@
       "title": "Skills kept fully listed",
       "description": "Comma-separated skills that keep their full description in Claude's skill listing: a skill name, <plugin>:<skill>, or a plugin name for its whole skill set. Blank routes them all; routed skills stay listed by name and invocable.",
       "default": ""
+    },
+    "hide_skills": {
+      "type": "string",
+      "title": "Hide skills from Claude's list",
+      "description": "Blank (default) keeps skills listed by name only. Set to true to hide every routed skill from Claude's own list (you can still type /name); Claude then finds them with the gateway's resolve_skills and loads them with load_skill. A comma-separated list of plugin or skill names hides only those. Skills named in direct_skills stay listed. Applies from the next session.",
+      "default": ""
     }
   }
 }
