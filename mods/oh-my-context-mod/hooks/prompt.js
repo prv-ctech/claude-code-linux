@@ -10,8 +10,8 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { paths, readText, writeFileAtomic } = require('./restore.js');
 
-const LOAD_HINT = 'Skills are hidden from the native list: call load_skill(<id>) to load one (resolve_skills searches).';
-const SUBAGENT_HINT = 'Skills are hidden from the native list: find them with the oh-my-context resolve_skills tool, load one with load_skill(<id>).';
+const LOAD_HINT = 'Skills are hidden from the native list: load one with load_skill(<id>) (resolve_skills searches); never Read a path or use the Skill tool.';
+const SUBAGENT_HINT = 'Skills are hidden from the native list: find them with the oh-my-context resolve_skills tool, load one with load_skill(<id>); never Read a path or use the Skill tool.';
 
 // Hide mode, which sync.js records as `hide: true` in state.json (a missing key is off), unless the mod is off.
 function hideOn(stateDir, dataDir) {

@@ -9,7 +9,6 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { decide, ruleMatches, ruleFiles } = require('../hooks/permit.js');
 const { hint, SUBAGENT_HINT } = require('../hooks/prompt.js');
-const skillGate = require('../hooks/skill-gate.js');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oh-my-context-hooks-'));
 after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -162,7 +161,7 @@ test('prompt hint: in hide mode ids are followed by the load_skill instruction, 
   const ask = (prompt, hide = true) => hint({ prompt, session_id: 'h' }, { run: () => ({ status: 0, stdout: JSON.stringify(out) }), stateDir, hide });
   assert.strictEqual(ask('write a Dockerfile for the service'),
     'Routed matches for this prompt: skills ecc:docker-patterns, plain\n'
-    + 'Skills are hidden from the native list: call load_skill(<id>) to load one (resolve_skills searches).');
+    + 'Skills are hidden from the native list: load one with load_skill(<id>) (resolve_skills searches); never Read a path or use the Skill tool.');
   assert.strictEqual(ask('write a Dockerfile for the other service', false), 'Routed matches for this prompt: skills ecc:docker-patterns, plain');
   out.skills = [];
   out.tools = [{ claude_name: 'mcp__x__y' }];
@@ -171,19 +170,13 @@ test('prompt hint: in hide mode ids are followed by the load_skill instruction, 
   assert.strictEqual(ask('nothing matches at all, quiet'), null);
 });
 
-// A fake <claude>/oh-my-context-mod with a state file and a catalog, run through the real hook scripts.
+// A fake <claude>/oh-my-context-mod with a state file, run through the real hook scripts.
 const home = path.join(dir, 'hide-home');
 const modState = path.join(home, '.claude', 'oh-my-context-mod');
 const hook = (file, input, args = []) => spawnSync(process.execPath, [path.join(__dirname, '..', 'hooks', file), ...args], {
   input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8',
   env: { PATH: process.env.PATH, HOME: home },
 });
-const catalogSkill = (id, raw) => {
-  fs.mkdirSync(path.join(modState, 'catalog', id.replace(/[^A-Za-z0-9._-]/g, '_')), { recursive: true });
-  fs.writeFileSync(path.join(modState, 'catalog', id.replace(/[^A-Za-z0-9._-]/g, '_'), 'SKILL.md'), `---\nname: ${raw || id}\ndescription: d\n---\nbody\n`);
-};
-const callSkill = skill => hook('skill-gate.js', { tool_name: 'Skill', tool_input: { skill, args: '' } });
-
 test('SubagentStart hook: additionalContext only in hide mode', () => {
   assert.strictEqual(hook('prompt.js', { agent_id: 'a', agent_type: 'Explore' }, ['subagent']).stdout, '', 'no state: off');
   w(path.join(modState, 'state.json'), { hide: false });
@@ -192,48 +185,12 @@ test('SubagentStart hook: additionalContext only in hide mode', () => {
   const r = hook('prompt.js', { agent_id: 'a', agent_type: 'Explore' }, ['subagent']);
   assert.strictEqual(r.status, 0, r.stderr);
   assert.deepStrictEqual(JSON.parse(r.stdout), { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: SUBAGENT_HINT } });
-  assert.match(SUBAGENT_HINT, /resolve_skills.*load_skill/);
+  assert.match(SUBAGENT_HINT, /resolve_skills.*load_skill.*never Read a path or use the Skill tool/);
 });
 
-test('Skill gate: denies a hidden skill with a load_skill pointer, only in hide mode', () => {
-  catalogSkill('ecc:docker-patterns');
-  catalogSkill('user-skill');
-  fs.rmSync(path.join(modState, 'state.json'));
-  assert.strictEqual(callSkill('ecc:docker-patterns').stdout, '', 'no state: off');
-  w(path.join(modState, 'state.json'), {});
-  assert.strictEqual(callSkill('ecc:docker-patterns').stdout, '', 'missing key: off');
-  w(path.join(modState, 'state.json'), { hide: true });
-  const r = callSkill('ecc:docker-patterns');
-  assert.strictEqual(r.status, 0, r.stderr);
-  assert.deepStrictEqual(JSON.parse(r.stdout), { hookSpecificOutput: {
-    hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'routed: call load_skill("ecc:docker-patterns")' } });
-  // A bare name and a leading slash map to the full id; a plain user skill keeps its name.
-  assert.match(JSON.parse(callSkill('docker-patterns').stdout).hookSpecificOutput.permissionDecisionReason, /load_skill\("ecc:docker-patterns"\)/);
-  assert.match(JSON.parse(callSkill('/ecc:docker-patterns').stdout).hookSpecificOutput.permissionDecisionReason, /ecc:docker-patterns/);
-  assert.match(JSON.parse(callSkill('user-skill').stdout).hookSpecificOutput.permissionDecisionReason, /load_skill\("user-skill"\)/);
-  // Not in the catalog: allowed. Mod switched off: allowed.
-  assert.strictEqual(callSkill('ecc:unknown').stdout, '');
-  assert.strictEqual(callSkill('').stdout, '');
-});
-
-test('Skill gate never breaks the call path', () => {
-  w(path.join(modState, 'state.json'), { hide: true });
-  for (const input of ['not json', '{}', { tool_input: { skill: 7 } }, { tool_input: null }]) {
-    const r = hook('skill-gate.js', input);
-    assert.strictEqual(r.status, 0);
-    assert.strictEqual(r.stdout, '');
-  }
-  fs.rmSync(path.join(modState, 'catalog'), { recursive: true });
-  const r = callSkill('ecc:docker-patterns');
-  assert.strictEqual(r.status, 0);
-  assert.strictEqual(r.stdout, '', 'missing catalog: allow');
-  assert.strictEqual(skillGate.decide({ tool_input: { skill: 'x' } }, { stateDir: path.join(dir, 'nope') }), null);
-});
-
-test('hooks.json wires SubagentStart, and PreToolUse on Skill', () => {
+test('hooks.json wires SubagentStart and no Skill gate', () => {
   const h = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'hooks', 'hooks.json'), 'utf8')).hooks;
   const cmds = h.SubagentStart.flatMap(g => g.hooks.map(x => x.command));
   assert.ok(cmds.some(c => /prompt\.js" subagent$/.test(c)));
-  const gate = h.PreToolUse.find(g => g.matcher === 'Skill');
-  assert.match(gate.hooks[0].command, /skill-gate\.js"$/);
+  assert.ok(!h.PreToolUse.some(g => g.matcher === 'Skill'));
 });
