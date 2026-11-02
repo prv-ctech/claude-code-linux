@@ -10,7 +10,7 @@
     {
       "name": "caveman-mod",
       "source": "./mods/caveman-mod",
-      "description": "Caveman ultracave style, always on: injected at session start, on every message and into every subagent. No modes, no buttons."
+      "description": "Caveman ultracave style: its own output style plus rules injected at session start, every message and every subagent. /caveman off restores your previous output style."
     },
     {
       "name": "codebase-memory-mod",
