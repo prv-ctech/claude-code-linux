@@ -607,6 +607,29 @@ class LoadSkillTest(unittest.TestCase):
             self.assertNotIn("SECRET", text, bad)
             self.assertNotIn("Traceback", text)
 
+    def test_footer_routes_bundled_files_through_load_skill(self):
+        text, _ = self.load("ecc:deep-research")
+        self.assertIn('file="references/x.md"', text)
+        self.assertIn("instead of Read", text)
+
+    def test_wrong_file_lists_available_files(self):
+        text, err = self.load("ecc:deep-research", "references/none.md")
+        self.assertTrue(err)
+        self.assertIn("references/a.md", text)
+        self.assertNotIn("link.md", text)  # symlink out of the folder is not offered
+        self.assertNotIn("dirlink", text)
+        self.assertNotIn("SKILL.md", text)
+        folder = self.folders["ecc:deep-research"]
+        for i in range(50):
+            (folder / "scripts").mkdir(exist_ok=True)
+            (folder / "scripts" / f"s{i:02d}.sh").write_text("x")
+        try:
+            text, _ = self.load("ecc:deep-research", "nope.md")
+            self.assertIn("more)", text)
+            self.assertLess(len(text), 2000)
+        finally:
+            shutil.rmtree(folder / "scripts")
+
     def test_file_missing_and_too_big(self):
         self.assertTrue(self.load("ecc:deep-research", "references/none.md")[1])
         text, err = self.load("ecc:deep-research", "big.txt")

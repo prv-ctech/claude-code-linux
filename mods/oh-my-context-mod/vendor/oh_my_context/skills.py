@@ -718,8 +718,12 @@ MAX_LOAD_BYTES = 512 * 1024
 _LOAD_FOOTER = (
     "Where this text tells you to use the Skill tool for another skill, call "
     "`load_skill` with that skill's id instead (resolve it with `resolve_skills` "
-    "first if unsure of the id)."
+    "first if unsure of the id). Where the text points to a bundled file (references/x.md, "
+    "scripts/...), fetch it with `load_skill` using that id and `file=\"references/x.md\"` "
+    "instead of Read."
 )
+
+_LIST_CAP = 40
 
 
 class LoadError(Exception):
@@ -777,6 +781,30 @@ def _read_capped(path: Path) -> str:
         raise LoadError(f"Cannot read {path.name}: {exc.strerror or exc}") from None
 
 
+def _available_files(folder: Path) -> str:
+    """A capped list of the files `load_skill` can return from ``folder``."""
+    try:
+        base = folder.resolve()
+    except OSError:
+        return ""
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(folder):
+        dirnames[:] = sorted(d for d in dirnames if not _skip_dir(d))
+        for name in sorted(filenames):
+            p = Path(dirpath) / name
+            try:
+                if base not in p.resolve().parents:
+                    continue  # symlink out of the folder: not offered
+            except OSError:
+                continue
+            found.append(p.relative_to(folder).as_posix())
+    found = [f for f in found if f.lower() != "skill.md"]
+    if not found:
+        return " The skill folder has no bundled files."
+    more = f" (+{len(found) - _LIST_CAP} more)" if len(found) > _LIST_CAP else ""
+    return " Available files: " + ", ".join(found[:_LIST_CAP]) + more + "."
+
+
 def _bundled_file(folder: Path, rel: str) -> Path:
     """``rel`` inside ``folder``, or LoadError. The trust boundary of `load_skill`."""
     if (not rel or "\0" in rel or Path(rel).is_absolute() or rel.startswith(("/", "\\"))
@@ -791,7 +819,7 @@ def _bundled_file(folder: Path, rel: str) -> Path:
     if base != target and base not in target.parents:
         raise LoadError(f"'{rel}' resolves outside the skill folder.")
     if not target.is_file():
-        raise LoadError(f"No file '{rel}' in the skill folder.")
+        raise LoadError(f"No file '{rel}' in the skill folder." + _available_files(folder))
     return target
 
 
