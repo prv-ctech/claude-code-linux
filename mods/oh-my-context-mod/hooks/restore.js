@@ -26,7 +26,13 @@ function paths(home = os.homedir(), env = process.env) {
   const pluginData = env.CLAUDE_PLUGIN_DATA || path.join(plugins, 'data', PLUGIN_ID_DIR);
   const mhome = env.OMC_HOME || path.join(pluginData, 'home');
   return {
+    home,
     claude,
+    // The Claude desktop app's account skills ("anthropic-skills:<name>": your uploads and the built-ins).
+    desktopSkills: path.join(
+      { darwin: path.join(home, 'Library', 'Application Support'), win32: env.APPDATA || path.join(home, 'AppData', 'Roaming') }[process.platform]
+        || env.XDG_CONFIG_HOME || path.join(home, '.config'),
+      'Claude', 'local-agent-mode-sessions', 'skills-plugin'),
     settings: path.join(claude, 'settings.json'),
     installed: path.join(plugins, 'installed_plugins.json'),
     data: path.join(plugins, 'data'),

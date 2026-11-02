@@ -734,3 +734,17 @@ test('cwd_except: a global server is not served where a project-local one or a d
   assert.strictEqual(gw['ctx@local'].cwd_only, real);
 });
 
+
+test('skills from the desktop app, the project and other agents are found', () => {
+  const m = machine();
+  const cwd = path.join(m.home, 'proj');
+  const desk = path.join(m.p.desktopSkills, 'acct', 'org');
+  w(path.join(desk, 'skills', 'pino', 'SKILL.md'), '---\nname: pino\ndescription: P\n---\n');
+  w(path.join(cwd, '.claude', 'skills', 'mine-proj', 'SKILL.md'), '---\nname: mine-proj\n---\n');
+  w(path.join(cwd, '.github', 'skills', 'gh-skill', 'SKILL.md'), '---\nname: gh-skill\n---\n');
+  w(path.join(m.home, '.agents', 'skills', 'ag-skill', 'SKILL.md'), '---\nname: ag-skill\n---\n');
+  const sk = require('../hooks/sync.js').skillPlan(m.p, [], [], { files: [] }, cwd);
+  assert.ok(sk.items.some(i => i.id === 'anthropic-skills:pino' && i.route));
+  assert.ok(!sk.users.some(u => u.name === 'mine-proj'));
+  assert.deepStrictEqual(sk.others.map(o => o.name).sort(), ['ag-skill', 'gh-skill', 'mine-proj']);
+});
