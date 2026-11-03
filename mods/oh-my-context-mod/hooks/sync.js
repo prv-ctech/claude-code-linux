@@ -844,7 +844,8 @@ function status(p, cwd, env, run) {
       : `Skills: ${files.filter(f => f.kind === 'skill').length} plugin skill(s) and ${Object.keys(state.overrides).length} user skill(s) listed by name only; `)
       + `${sk.items.filter(i => i.kind === 'skill' && i.route && (i.scope || all)).length + sk.users.filter(u => all && u.route && !u.dmi).length} would be on the next start; `
       + `${sk.others.filter(o => !o.dmi).length} skill(s) from other agents' folders (.agents, .github, .cursor ...) indexed for resolve_skills.`,
-    `Commands: ${files.filter(f => f.kind === 'command').length} plugin command(s) listed by name only, still invocable.`,
+    `Commands: ${files.filter(f => f.kind === 'command').length} plugin command(s) listed by name only, still invocable; `
+      + `${sk.items.filter(i => i.kind === 'command' && i.route && (i.scope || all)).length} would be on the next start.`,
     `Guard (puts everything back on uninstall or disable): ${guardOn ? 'installed' : 'not installed'}`,
     `Filters (plugin settings): direct_servers = "${opts.direct_servers}", direct_skills = "${opts.direct_skills}", hide_skills = "${opts.hide_skills}"`,
     `Paths: state ${p.state}, gateway config ${state.paths.gateway || p.gateway}, settings ${p.settings}`,
