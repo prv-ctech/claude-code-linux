@@ -138,6 +138,8 @@ RUN set -eu; \
 #                              registers; the CLI's `engines` requires 22+
 #   google-chrome-stable       the browser Claude Desktop hands its sign-in to,
 #                              from Google's repository, key checked by fingerprint
+#   postgresql-client-18       pg_dump / pg_restore / psql, for testing backup code
+#                              against the embedded dev Postgres 18 (client >= server)
 #   pcmanfm                    the file manager "show in folder" opens; made the
 #                              inode/directory default by rootfs/etc/xdg/mimeapps.list
 # ---------------------------------------------------------------------------
@@ -169,6 +171,7 @@ RUN set -eu; \
         gpgv \
         nodejs \
         python3-pip \
+        postgresql-client-18 \
         pcmanfm \
         google-chrome-stable; \
     command -v npm > /dev/null || DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y npm; \
@@ -241,6 +244,8 @@ RUN set -eu; \
     command -v secret-tool > /dev/null; \
     command -v gh > /dev/null; \
     command -v pcmanfm > /dev/null; \
+    command -v pg_dump > /dev/null; \
+    command -v pg_restore > /dev/null; \
     test -e /usr/share/applications/pcmanfm.desktop; \
     grep -qx 'inode/directory=pcmanfm.desktop' /etc/xdg/mimeapps.list; \
     test "$(readlink -f /usr/bin/google-chrome)" = /usr/local/bin/google-chrome; \
