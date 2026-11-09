@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 // oh-my-agent-mod: hooks and the /oma bootstrap.
 //
-//   oma.mjs session            SessionStart hook: superpowers hand-over, router reminder after compaction
+//   oma.mjs session            SessionStart hook: router reminder after compaction
 //   oma.mjs prompt             UserPromptSubmit hook: /oma turns router mode on for this session, /oma off ends it;
 //                              while on, one reminder line per prompt
 //   oma.mjs start [--dir <p>]  /oma bootstrap: sets the project up (idempotent) and prints its state for the router
 //   oma.mjs status [--dir <p>] the same state, changing nothing
-//   oma.mjs restore-superpowers  turns superpowers back on where this mod turned it off
 //
 // Hooks keep stdout to the hook protocol and never fail the session: any error prints nothing and exits 0.
 import fs from 'node:fs';
@@ -28,8 +27,6 @@ export function paths(env = process.env, home = os.homedir()) {
     settings: path.join(claude, 'settings.json'),
     data,
     sessions: path.join(data, 'sessions.json'),
-    // Outside plugin data, so what the mod changed in the person's settings is still known after an uninstall.
-    state: path.join(claude, ME, 'state.json'),
   };
 }
 
@@ -75,121 +72,6 @@ function readSettings(file) {
 
 const truthy = v => ['1', 'true', 'yes', 'on'].includes(String(v ?? '').trim().toLowerCase());
 
-// --- superpowers hand-over ------------------------------------------------------------------------
-
-const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-const alive = pid => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return e.code === 'EPERM';
-  }
-};
-
-// oh-my-context-mod rewrites the user settings from a snapshot inside its own lock
-// (<config>/oh-my-context-mod/.lock: "<pid> <ms>", taken with O_EXCL, dead or 5-minute-old holders taken
-// over). Editing settings.json under the same lock keeps the two mods from undoing each other's writes.
-// Returns null when the lock stays busy: the hand-over then waits for the next session.
-export function withOmcLock(p, fn, wait = 3000) {
-  const dir = path.join(p.claude, 'oh-my-context-mod');
-  if (!fs.existsSync(dir)) return fn();
-  const file = path.join(dir, '.lock');
-  const me = `${process.pid} ${Date.now()}`;
-  const until = Date.now() + wait;
-  for (;;) {
-    try {
-      const fd = fs.openSync(file, 'wx', 0o600);
-      fs.writeSync(fd, me);
-      fs.closeSync(fd);
-      break;
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      let age = 0;
-      let pid = 0;
-      try {
-        age = Date.now() - fs.statSync(file).mtimeMs;
-        pid = parseInt(fs.readFileSync(file, 'utf8'), 10);
-      } catch {
-        continue;
-      }
-      if ((pid > 0 && !alive(pid)) || age > 300000) {
-        fs.rmSync(file, { force: true });
-        continue;
-      }
-      if (Date.now() > until) return null;
-      sleep(100);
-    }
-  }
-  try {
-    return fn();
-  } finally {
-    try {
-      if (fs.readFileSync(file, 'utf8') === me) fs.rmSync(file, { force: true });
-    } catch {
-      /* gone */
-    }
-  }
-}
-
-const enabledAtUserScope = settings => Object.entries(settings.enabledPlugins || {}).some(([k, v]) => k.startsWith(`${ME}@`) && v === true);
-
-// oh-my-agent replaces superpowers: on a session start it turns `superpowers@*` off in the user
-// settings once, journaled, and never again for a plugin the person turned back on themselves.
-// Only while oh-my-agent itself is enabled at user scope (a project-only install leaves every other
-// project alone). keep_superpowers (plugin option) set to true leaves it alone.
-export function handOver(p, env = process.env) {
-  if (truthy(env.CLAUDE_PLUGIN_OPTION_KEEP_SUPERPOWERS)) return null;
-  if (!enabledAtUserScope(readSettings(p.settings))) return null;
-  const r = withOmcLock(p, () => handOverLocked(p));
-  return r === null ? null : r;
-}
-
-function handOverLocked(p) {
-  const settings = readSettings(p.settings);
-  const enabled = settings.enabledPlugins || {};
-  const state = readJson(p.state, {});
-  state.disabled = state.disabled || [];
-  state.respected = state.respected || [];
-  const ids = Object.keys(enabled).filter(id => id.startsWith('superpowers@') && enabled[id] === true);
-  // On again after the mod turned it off: the person wants it; leave it on for good.
-  for (const id of ids.filter(i => state.disabled.includes(i))) {
-    state.disabled = state.disabled.filter(x => x !== id);
-    if (!state.respected.includes(id)) state.respected.push(id);
-  }
-  const todo = ids.filter(id => !state.respected.includes(id));
-  if (!todo.length) {
-    writeJson(p.state, state);
-    return null;
-  }
-  for (const id of todo) state.disabled.push(id);
-  writeJson(p.state, state); // journal first
-  // Re-read right before the write and change only these keys, so nothing written meanwhile is lost.
-  const fresh = readSettings(p.settings);
-  fresh.enabledPlugins = fresh.enabledPlugins || {};
-  for (const id of todo) fresh.enabledPlugins[id] = false;
-  writeJson(p.settings, fresh);
-  return `oh-my-agent: turned ${todo.join(', ')} off, since /oma replaces it (from the next session). /oma restore-superpowers turns it back on.`;
-}
-
-export function restoreSuperpowers(p) {
-  const state = readJson(p.state, {});
-  const ids = state.disabled || [];
-  if (!ids.length) return 'oh-my-agent: it turned no superpowers plugin off, so nothing to restore.';
-  const done = withOmcLock(p, () => {
-    const settings = readSettings(p.settings);
-    settings.enabledPlugins = settings.enabledPlugins || {};
-    for (const id of ids) if (settings.enabledPlugins[id] === false) settings.enabledPlugins[id] = true;
-    writeJson(p.settings, settings);
-    return true;
-  }, 15000);
-  if (!done) return 'oh-my-agent: oh-my-context is changing the settings right now; run /oma restore-superpowers again in a minute.';
-  state.respected = [...new Set([...(state.respected || []), ...ids])];
-  state.disabled = [];
-  writeJson(p.state, state);
-  return `oh-my-agent: turned ${ids.join(', ')} back on (from the next session); it stays on.`;
-}
-
 // --- router mode per session -----------------------------------------------------------------------
 
 const routerLine = () => `oh-my-agent router mode is on in this session: you are the router. Follow ${path.join(ROOT, 'router.md')} `
@@ -220,7 +102,7 @@ export function onPrompt(p, input) {
       setSession(p, sid, false);
       return null;
     }
-    if (['restore-superpowers', 'status', 'help'].includes(arg)) return null;
+    if (['status', 'help'].includes(arg)) return null;
     setSession(p, sid, true);
     // The command itself carries the instructions; agents inherit this session's permission mode.
     const mode = String(input.permission_mode || '');
@@ -233,14 +115,8 @@ export function onPrompt(p, input) {
   return sid && sessionsOn(p)[sid] ? routerLine() : null;
 }
 
-export function onSession(p, input, env = process.env) {
+export function onSession(p, input) {
   const lines = [];
-  try {
-    const h = handOver(p, env);
-    if (h) lines.push(h);
-  } catch (e) {
-    lines.push(`oh-my-agent: could not check superpowers (${e.message}); settings left as they were.`);
-  }
   const sid = String(input.session_id || '');
   const on = sid && sessionsOn(p)[sid];
   if (on && input.source === 'clear') setSession(p, sid, false);
@@ -423,8 +299,7 @@ function main() {
     console.log(JSON.stringify(projectState(dir, { write: mode === 'start' }), null, 2));
     return;
   }
-  if (mode === 'restore-superpowers') return console.log(restoreSuperpowers(p));
-  console.error('usage: oma.mjs <session|prompt|start|status|restore-superpowers> [--dir <project>]');
+  console.error('usage: oma.mjs <session|prompt|start|status> [--dir <project>]');
   process.exitCode = 2;
 }
 
