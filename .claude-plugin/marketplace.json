@@ -31,6 +31,11 @@
       "name": "oh-my-context-mod",
       "source": "./mods/oh-my-context-mod",
       "description": "Routes every plugin and user MCP server through one oh-my-context gateway (bundled, nothing downloaded) and lists skills by name only or hides them behind the gateway (hide_skills), so they stop filling the context while everything still works. Sets itself up on enable and puts everything back on disable or uninstall. /oh-my-context-mod shows what moved and turns it off."
+    },
+    {
+      "name": "oh-my-agent-mod",
+      "source": "./mods/oh-my-agent-mod",
+      "description": "oh-my-agent (/oma): DeepSeek-style superagent. Your session becomes a router that never builds: it writes tickets with you, hands each to a worker in its own git worktree with a tester and reviewer, merges, walks the result in Claude Code's built-in browser and fixes small bugs, asking you only for decisions. Sets each project up on first /oma, replaces superpowers, works alongside oh-my-context."
     }
   ]
 }
