@@ -1,6 +1,6 @@
 # 003: Caveman style really changes how Claude replies
 
-**Status:** ready
+**Status:** done
 
 ## Summary
 caveman-mod is meant to replace the output style so every Claude reply is in terse "ultracave" form, saving tokens. The user reports that replies in their Claude Code sessions (Claude Desktop) do not come out in that style. Find out why, fix it inside caveman-mod, and leave a check that proves, without a human, that replies follow the style.
