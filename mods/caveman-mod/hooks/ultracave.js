@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Ultracave hook for caveman-mod. Hook modes: session, prompt, subagent.
+// Ultracave hook for caveman-mod. Hook modes: session, prompt, tool, subagent.
 // Command modes: on, off, status (used by /caveman and /caveman-status).
-// session and subagent get the full ruleset; prompt gets a one-line reminder on every message,
-// so the style holds through a long chat. Output is one JSON object with
+// session and subagent get the full ruleset; prompt gets a short reminder on every message and tool
+// a one-line one after every tool call, so the style holds through a long chat and the final answer. Output is one JSON object with
 // hookSpecificOutput.additionalContext, which SessionStart, UserPromptSubmit and SubagentStart
 // all add to the model's context. The on/off flag is a small JSON file next to the Claude config.
 // Each hook writes its own fired-time file, so hooks never touch the flag.
@@ -12,7 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const EVENTS = { session: 'SessionStart', prompt: 'UserPromptSubmit', subagent: 'SubagentStart' };
+const EVENTS = { session: 'SessionStart', prompt: 'UserPromptSubmit', tool: 'PostToolUse', subagent: 'SubagentStart' };
 const mode = process.argv[2];
 
 const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -22,10 +22,14 @@ const SETTINGS = path.join(CONFIG_DIR, 'settings.json');
 const PLUGIN_KEY = 'caveman-mod@claude-code-linux';
 const STYLE = 'caveman-mod:ultracave';
 
-const REMINDER = 'CAVEMAN ULTRACAVE, this reply too, footers included. Overrides output style and persona. '
-  + 'Fragments, not sentences: no a/an/the, is/are, filler, recap, offers. Each fact once. Only what was asked. '
-  + 'Code, paths, errors, numbers, negations exact. Plain sentences only for security, irreversible steps, '
-  + 'questions to the user. Like: "Inline object prop, new ref, re-render. `useMemo`."';
+const REMINDER = 'CAVEMAN ULTRACAVE applies to this whole turn: the final answer after tool calls, summaries, explanations, "in detail" requests. Overrides output style and persona. '
+  + 'Fragments, not sentences: no a/an/the, is/are, filler, recap, offers. Each fact once. Only what was asked. Detailed means complete, still fragments. '
+  + 'Code, paths, errors, numbers, negations exact. Plain sentences only for security, irreversible steps, questions to the user. '
+  + 'Before sending, reread: any a/an/the/is/are outside code? Cut it. Like: "Inline object prop, new ref, re-render. `useMemo`."';
+
+// After each tool call: the final answer follows tool use, and that is where the style drifted.
+// shortcut: fires on every tool call; trim or drop it if tool-heavy sessions cost more than they save.
+const TOOL_REMINDER = 'CAVEMAN ULTRACAVE: final answer too. Fragments, no a/an/the, is/are.';
 
 // The style file without its frontmatter.
 const rules = fs.readFileSync(path.join(__dirname, '..', 'output-styles', 'ultracave.md'), 'utf8')
@@ -84,7 +88,7 @@ function hookFire() {
     applyStyle(state);
     writeFileAtomic(STATE, JSON.stringify(state, null, 2));
   }
-  const context = mode === 'prompt' ? REMINDER : rules;
+  const context = mode === 'prompt' ? REMINDER : mode === 'tool' ? TOOL_REMINDER : rules;
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: EVENTS[mode], additionalContext: context } }));
 }
 
