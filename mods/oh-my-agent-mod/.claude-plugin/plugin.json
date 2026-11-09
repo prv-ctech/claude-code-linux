@@ -1,7 +1,7 @@
 {
   "name": "oh-my-agent-mod",
-  "version": "0.1.0",
-  "description": "oh-my-agent (/oma): one router session that never builds. It writes tickets with you, hands each to a worker in its own git worktree, has a tester and reviewer check it, merges it, walks it in Claude Code's built-in browser and fixes small bugs, coming to you only for decisions. Sets each project up on first /oma, replaces superpowers, and works alongside oh-my-context (omc).",
+  "version": "0.2.0",
+  "description": "oh-my-agent (/oma): one router session that never builds. It writes tickets with you, hands each to a worker in its own git worktree, has a tester and reviewer check it, merges it, walks it in Claude Code's built-in browser and fixes small bugs, coming to you only for decisions. Sets each project up on first /oma and works alongside oh-my-context (omc).",
   "author": { "name": "prv-ctech" },
   "license": "MIT",
   "repository": "https://github.com/prv-ctech/claude-code-linux",
@@ -10,12 +10,6 @@
       "type": "string",
       "title": "Review tickets before building",
       "description": "Blank (default): tickets the router writes are built straight away; you are asked only about choices that change what users see. Set to true to keep new tickets as draft until you approve them.",
-      "default": ""
-    },
-    "keep_superpowers": {
-      "type": "string",
-      "title": "Keep superpowers on",
-      "description": "Blank (default): oh-my-agent turns the superpowers plugin off once, since /oma replaces it (/oma restore-superpowers undoes it, and a plugin you turn back on yourself stays on). Set to true to never touch it.",
       "default": ""
     }
   }
