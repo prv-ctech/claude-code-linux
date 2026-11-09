@@ -18,3 +18,7 @@ claude-code-state/
 .idea/
 *.swp
 .DS_Store
+
+# oh-my-agent: job files and agent worktrees
+/.oma/job/
+/.claude/worktrees/
