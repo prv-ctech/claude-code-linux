@@ -74,6 +74,12 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 - The only settings it edits: the project's git-ignored `.claude/settings.local.json`.
 - oma agents can start only oma subagents, so the guard covers everything they run.
 
+## With codebase-memory-mod
+
+- oma detects codebase-memory-mod plus a `.codebase-memory/` graph in the folder, and tells its agents (SubagentStart hook) to search code with the graph tools there.
+- The `.env` rule covers the graph tools too: `file_pattern`, `path_filter` and `file_path` may not target env files.
+- Where there is no graph, or the plugin is off, oma leaves Grep, Glob and grep alone; agent worktrees never have a graph.
+
 ## Development
 
 ```bash

@@ -64,3 +64,36 @@ test('unreadable settings.json is never overwritten', () => {
   h.run('on');
   assert.strictEqual(fs.readFileSync(h.file, 'utf8'), '{ not json');
 });
+
+test('prompt reminder stays short; tool reminder fires after tool calls; off silences all hooks', () => {
+  const h = home({});
+  const prompt = JSON.parse(h.run('prompt')).hookSpecificOutput;
+  assert.strictEqual(prompt.hookEventName, 'UserPromptSubmit');
+  assert.match(prompt.additionalContext, /^CAVEMAN ULTRACAVE/);
+  assert.ok(prompt.additionalContext.length <= 600, `${prompt.additionalContext.length} chars`);
+  assert.match(prompt.additionalContext, /final answer after tool calls/);
+  const tool = JSON.parse(h.run('tool')).hookSpecificOutput;
+  assert.strictEqual(tool.hookEventName, 'PostToolUse');
+  assert.match(tool.additionalContext, /^CAVEMAN ULTRACAVE/);
+  assert.ok(tool.additionalContext.length <= 120);
+  h.run('off');
+  for (const m of ['session', 'prompt', 'tool', 'subagent']) assert.strictEqual(h.run(m), '');
+});
+
+test('hooks.json wires PostToolUse to the tool mode', () => {
+  const hooks = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'hooks', 'hooks.json'), 'utf8')).hooks;
+  assert.match(hooks.PostToolUse[0].hooks[0].command, /ultracave\.js" tool$/);
+});
+
+test('status lists the PostToolUse heartbeat', () => {
+  const h = home({});
+  h.run('tool');
+  assert.match(h.run('status'), /PostToolUse\s+\d{4}-/);
+});
+
+test('on and off write no output-styles folder', () => {
+  const h = home({ outputStyle: 'Concise' });
+  h.run('on');
+  h.run('off');
+  assert.ok(!fs.existsSync(path.join(path.dirname(h.file), 'output-styles')));
+});
