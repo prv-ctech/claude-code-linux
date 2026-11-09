@@ -35,7 +35,7 @@
     {
       "name": "oh-my-agent-mod",
       "source": "./mods/oh-my-agent-mod",
-      "description": "oh-my-agent (/oma): DeepSeek-style superagent. Your session becomes a router that never builds: it writes tickets with you, hands each to a worker in its own git worktree with a tester and reviewer, merges, walks the result in Claude Code's built-in browser and fixes small bugs, asking you only for decisions. Sets each project up on first /oma, replaces superpowers, works alongside oh-my-context."
+      "description": "oh-my-agent (/oma): DeepSeek-style superagent. Your session becomes a router that never builds: it writes tickets with you, hands each to a worker in its own git worktree with a tester and reviewer, merges, walks the result in Claude Code's built-in browser and fixes small bugs, asking you only for decisions. Sets each project up on first /oma, works alongside oh-my-context."
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 DeepSeek's super-agent idea as a Claude Code plugin, adapted from the `deepseek-superagent` pack in this repo and fitted to this repo's Claude Code Linux desktop setup. You talk to one session, the **router**. It never builds anything itself. It turns what you ask for into tickets, hands each ticket to a **worker** in its own context window and git worktree, checks what comes back against the ticket's evals, merges it, has it walked in Claude Code's built-in browser, fixes small bugs it finds, and only comes to you when there's a choice that changes what users get.
 
-It replaces the superpowers plugin (its disciplines live inside the agents: test first, root cause before fixes, no claim without fresh evidence, independent review) and works alongside oh-my-context (`/omc`): oma adds no MCP servers and no skills, injects one short line per session, and its agents find routed tools and hidden skills through the oh-my-context gateway.
+Its disciplines live inside the agents (test first, root cause before fixes, no claim without fresh evidence, independent review), and it works alongside oh-my-context (`/omc`): oma adds no MCP servers and no skills, injects one short line per session, and its agents find routed tools and hidden skills through the oh-my-context gateway.
 
 ## Install
 
@@ -22,7 +22,6 @@ In any project (a git repository), in a normal Claude Code chat:
 /oma 004                  start one ticket
 /oma status               board and running jobs, changes nothing
 /oma off                  end router mode in this session
-/oma restore-superpowers  turn superpowers back on
 ```
 
 While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`, `the publish button seemed to do nothing on my phone` (it quietly sends the reproducer), `give workers 20 minutes before calling them stuck`.
@@ -65,7 +64,6 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 | Setting | Blank (default) | Set to `true` |
 |---|---|---|
 | Review tickets before building | tickets are built straight away | new tickets stay draft until you approve them |
-| Keep superpowers on | superpowers is turned off once (`/oma restore-superpowers` undoes it; turning it back on yourself is respected) | superpowers is never touched |
 
 ## Safety
 
@@ -73,7 +71,7 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 - oma agents never read `.env` files; list a file the app needs in `.worktreeinclude`.
 - Only the merger and the ticket-writer commit to your branch, staging by path, one at a time. The merger undoes its own merge with `git reset --keep` when lint or build fails, which refuses rather than touch a file you edited meanwhile.
 - The checker and agents never stop a dev server they didn't start (`oma stop` refuses).
-- The only settings it edits: the superpowers entry in your user `settings.json` (only when oh-my-agent is enabled at user scope, under oh-my-context's settings lock, journaled in `~/.claude/oh-my-agent-mod/state.json`) and the project's git-ignored `.claude/settings.local.json`.
+- The only settings it edits: the project's git-ignored `.claude/settings.local.json`.
 - oma agents can start only oma subagents, so the guard covers everything they run.
 
 ## Development

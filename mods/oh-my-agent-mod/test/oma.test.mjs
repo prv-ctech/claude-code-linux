@@ -1,11 +1,11 @@
-// oma.mjs (hooks, bootstrap, superpowers hand-over) and the bin/oma helper, against temp homes and repos.
+// oma.mjs (hooks, bootstrap) and the bin/oma helper, against temp homes and repos.
 import { test } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { ROOT, tmp, repo, git, write, run } from './helpers.mjs';
-import { paths, handOver, restoreSuperpowers, onPrompt, onSession, projectState, withOmcLock } from '../scripts/oma.mjs';
+import { paths, onPrompt, onSession, projectState } from '../scripts/oma.mjs';
 
 const OMA_ON = { 'oh-my-agent-mod@claude-code-linux': true };
 
@@ -20,56 +20,13 @@ function home(settings) {
   return { p, env };
 }
 
-test('superpowers is turned off once, journaled, and left on when the person turns it back on', () => {
-  const { p, env } = home({ enabledPlugins: { ...OMA_ON, 'superpowers@superpowers-dev': true, 'x@y': true }, theme: 'dark' });
-  assert.match(handOver(p, env), /turned superpowers@superpowers-dev off/);
-  assert.deepStrictEqual(readJson(p.settings), { enabledPlugins: { ...OMA_ON, 'superpowers@superpowers-dev': false, 'x@y': true }, theme: 'dark' });
-  assert.deepStrictEqual(readJson(p.state).disabled, ['superpowers@superpowers-dev']);
-  assert.strictEqual(handOver(p, env), null, 'second start: nothing to do');
-  // The person turns it back on: respected for good.
-  const s = readJson(p.settings);
-  s.enabledPlugins['superpowers@superpowers-dev'] = true;
-  write(p.settings, s);
-  assert.strictEqual(handOver(p, env), null);
-  assert.strictEqual(readJson(p.settings).enabledPlugins['superpowers@superpowers-dev'], true);
-  assert.deepStrictEqual(readJson(p.state).respected, ['superpowers@superpowers-dev']);
-});
-
-test('keep_superpowers leaves it alone; restore puts it back; a broken settings file is never rewritten', () => {
-  const a = home({ enabledPlugins: { ...OMA_ON, 'superpowers@m': true } });
-  assert.strictEqual(handOver(a.p, { ...a.env, CLAUDE_PLUGIN_OPTION_KEEP_SUPERPOWERS: 'true' }), null);
-  assert.strictEqual(readJson(a.p.settings).enabledPlugins['superpowers@m'], true);
-  handOver(a.p, a.env);
-  assert.strictEqual(readJson(a.p.settings).enabledPlugins['superpowers@m'], false);
-  assert.match(restoreSuperpowers(a.p), /back on/);
-  assert.strictEqual(readJson(a.p.settings).enabledPlugins['superpowers@m'], true);
-  assert.match(restoreSuperpowers(a.p), /nothing to restore/);
-  const b = home();
-  write(b.p.settings, '{ broken');
-  const out = onSession(b.p, { source: 'startup', session_id: 's' }, b.env);
-  assert.match(out, /could not check superpowers/);
-  assert.strictEqual(fs.readFileSync(b.p.settings, 'utf8'), '{ broken');
-});
-
-test('hand-over needs oh-my-agent at user scope, waits on oh-my-context\'s lock, and keeps a symlinked settings file', () => {
-  const proj = home({ enabledPlugins: { 'superpowers@m': true } });
-  assert.strictEqual(handOver(proj.p, proj.env), null, 'not enabled at user scope: other projects untouched');
-  assert.strictEqual(readJson(proj.p.settings).enabledPlugins['superpowers@m'], true);
-  const h = home({ enabledPlugins: { ...OMA_ON, 'superpowers@m': true } });
-  const lockDir = path.join(h.p.claude, 'oh-my-context-mod');
-  write(path.join(lockDir, '.lock'), `${process.pid} ${Date.now()}`); // held by a live process
-  assert.strictEqual(withOmcLock(h.p, () => 'ran', 300), null);
-  assert.strictEqual(handOver(h.p, h.env), null, 'busy lock: wait for the next session');
-  assert.strictEqual(readJson(h.p.settings).enabledPlugins['superpowers@m'], true);
-  fs.rmSync(path.join(lockDir, '.lock'));
-  // A symlinked settings file stays a symlink.
-  const real = path.join(tmp('oma-dot-'), 'settings.json');
-  fs.renameSync(h.p.settings, real);
-  fs.symlinkSync(real, h.p.settings);
-  assert.match(handOver(h.p, h.env), /turned superpowers@m off/);
-  assert.ok(fs.lstatSync(h.p.settings).isSymbolicLink());
-  assert.strictEqual(readJson(real).enabledPlugins['superpowers@m'], false);
-  assert.ok(!fs.existsSync(path.join(lockDir, '.lock')), 'lock released');
+test('session start never touches the user settings', () => {
+  const { p } = home({ enabledPlugins: { ...OMA_ON, 'x@y': true } });
+  const before = fs.readFileSync(p.settings);
+  const out = onSession(p, { source: 'startup', session_id: 's' });
+  assert.match(out, /^oh-my-agent: \/oma <what to build> runs the superagent/);
+  assert.deepStrictEqual(fs.readFileSync(p.settings), before);
+  assert.ok(!fs.existsSync(path.join(p.claude, 'oh-my-agent-mod')));
 });
 
 test('/oma turns router mode on for its session only; /oma off ends it; compaction reminds, clear forgets', () => {
