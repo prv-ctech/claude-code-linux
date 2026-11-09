@@ -41,6 +41,33 @@ test('guard denies git push and env files for oma agents only, however git is sp
   assert.strictEqual(spawn('oh-my-agent-mod:tester'), null);
 });
 
+test('guard covers env files in codebase-memory graph tools and leaves code search alone', () => {
+  const X = 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp__';
+  const cm = (agent_type, t, tool_input) => decide({ agent_type, tool_name: X + t, tool_input });
+  const base = { project: 'p', pattern: 'KEY' };
+  for (const [t, ti] of [
+    ['search_code', { ...base, file_pattern: '.env*' }],
+    ['search_code', { ...base, path_filter: 'config/.env' }],
+    ['search_code', { ...base, file_pattern: '*.env' }],
+    ['search_code', { ...base, file_pattern: '*.ts,.env.local' }],
+    ['get_file_outline', { project: 'p', file_path: 'deploy/.env.production' }],
+  ]) assert.strictEqual(cm(W, t, ti), 'oh-my-agent agents never read .env files.', JSON.stringify(ti));
+  for (const [t, ti] of [
+    ['search_code', { ...base, file_pattern: '*.ts' }],
+    ['search_code', { ...base, file_pattern: '.env.example' }],
+    ['search_graph', { project: 'p', name_pattern: 'env' }],
+    ['get_file_outline', { project: 'p', file_path: 'src/environment.ts' }],
+    ['search_code', undefined],
+    ['search_code', { ...base, file_pattern: 5 }],
+  ]) assert.strictEqual(cm(W, t, ti), null, JSON.stringify(ti));
+  assert.strictEqual(cm(undefined, 'search_code', { ...base, file_pattern: '.env*' }), null);
+  assert.strictEqual(cm('other:agent', 'get_file_outline', { project: 'p', file_path: '.env' }), null);
+  for (const [tool_name, tool_input] of [['Grep', { pattern: 'foo', path: 'src' }], ['Glob', { pattern: '**/*.ts' }],
+    ['Bash', { command: 'grep -rn foo src' }], ['Bash', { command: 'find . -name "*.ts"' }]]) {
+    assert.strictEqual(decide({ agent_type: W, tool_name, tool_input }), null, tool_name);
+  }
+});
+
 test('guard hook prints a PreToolUse deny and nothing otherwise', () => {
   const r = run('node', [path.join(ROOT, 'scripts', 'guard.mjs')], { input: JSON.stringify({ agent_type: W, tool_name: 'Bash', tool_input: { command: 'git push' } }) });
   assert.strictEqual(r.status, 0);

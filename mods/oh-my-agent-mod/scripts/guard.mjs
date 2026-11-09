@@ -5,6 +5,7 @@
 //   - no `git push` from any oma agent (nothing leaves the machine until the person pushes), however
 //     git is spelled (/usr/bin/git, quoted, inside bash -c / sh -c, after env or global options);
 //   - no reading or writing env files (.env, .env.*, .env-*, .envrc, *.env; not .env.example and kin);
+//   - the same for codebase-memory graph tools' file_pattern / path_filter / file_path;
 //   - no subagents other than oh-my-agent ones, which this guard would not cover.
 // Prints a deny decision or nothing. Any error prints nothing and exits 0.
 import { readFileSync } from 'node:fs';
@@ -18,6 +19,12 @@ export const isEnvName = name => {
   if (ENV_OK.test(b)) return false;
   return /^\.env([._-].*)?$/i.test(b) || /^\.envrc$/i.test(b) || /^[^/]+\.env$/i.test(b);
 };
+
+// A graph-tool pattern that targets an env file: a name isEnvName rejects, or `.env...` right after the
+// start, / * { or , that is not an allowed example-style name.
+const targetsEnv = v => typeof v === 'string' && (isEnvName(v)
+  || [...v.matchAll(/(?:^|[/*{,])(\.env[^/,}]*)/gi)].some(m => !ENV_OK.test(m[1])));
+const CM_PREFIX = 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp__';
 
 // Shell words of one command line: quotes removed, $(...) / `...` contents kept as their own text.
 // shortcut: not a full shell parser (no here-docs, no escapes inside single quotes); enough to find a
@@ -91,6 +98,9 @@ export function decide(input) {
     return 'oh-my-agent agents never read or write .env files. List a needed one in .worktreeinclude instead.';
   }
   if (tool === 'Grep' && (isEnvName(ti.path) || /(^|[\/{,])\.env/i.test(String(ti.glob || '')))) {
+    return 'oh-my-agent agents never read .env files.';
+  }
+  if (typeof tool === 'string' && tool.startsWith(CM_PREFIX) && [ti.file_pattern, ti.path_filter, ti.file_path].some(targetsEnv)) {
     return 'oh-my-agent agents never read .env files.';
   }
   if (tool === 'Agent' && typeof ti.subagent_type === 'string' && !ti.subagent_type.startsWith(PREFIX)) {
