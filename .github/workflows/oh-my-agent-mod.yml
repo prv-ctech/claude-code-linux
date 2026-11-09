@@ -1,0 +1,30 @@
+name: oh-my-agent-mod
+
+# Offline tests of mods/oh-my-agent-mod: the hooks, the watch script, the finish gate and the oma
+# helper, run against temp git repos and temp homes with no network.
+on:
+  pull_request:
+    paths:
+      - 'mods/oh-my-agent-mod/**'
+      - '.github/workflows/oh-my-agent-mod.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mods/oh-my-agent-mod/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test
+        run: node --test mods/oh-my-agent-mod/test/*.test.mjs
+      - name: Agent files have frontmatter
+        working-directory: mods/oh-my-agent-mod
+        run: |
+          for f in agents/*.md commands/*.md; do
+            head -1 "$f" | grep -qx -- '---' || { echo "$f has no frontmatter"; exit 1; }
+          done

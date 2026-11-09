@@ -1,0 +1,277 @@
+#!/usr/bin/env node
+// oh-my-agent-mod helper, on the Bash PATH of every session while the plugin is enabled.
+// Agents call it as plain one-line commands, which worktree-isolated subagents are allowed to run
+// (Claude Code refuses shell loops, runtime variables and long && chains inside a worktree).
+//
+//   oma cfg                         the profile's json block (.oma/project.md), as JSON
+//   oma run <install|lint|build|test>   runs that profile command here; prints "<what> exit <code>" last
+//   oma serve <port>                starts the profile's start command on <port>, detached, logs to
+//                                   .oma/job/dev-<port>.log, waits up to 120 s for `oma up`
+//   oma up <port> [seconds]         waits (default 0 s) until http://localhost:<port><upPath> answers 200
+//   oma port <port>                 pids listening on <port> ("busy (pid unknown)" for another user's
+//                                   process); nothing printed when free
+//   oma stop <port>                 stops what listens on <port>, only if `oma serve` started it in this
+//                                   repository (this folder or another of its worktrees), unless --force
+//   oma status init <ticket-folder|repro:<slug>> <port> [--name <teammate>]
+//   oma status <step> [note] [--evals p/f/t] [--round next|<n>] [--name <teammate>]
+//                                   writes .oma/job/status.json (status-<name>.json for a teammate) at the
+//                                   git top level, keeping `stepStarted` right and `updated` current
+//   oma now                         ISO UTC time
+//
+// Exit codes: 0 ok, 1 failed (message on stderr), 2 bad usage.
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const { spawnSync, spawn } = require('child_process');
+
+const STEPS = ['setup', 'building', 'testing', 'reviewing', 'fixing', 'done', 'blocked'];
+const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+const die = (msg, code = 1) => {
+  process.stderr.write(`oma: ${msg}\n`);
+  process.exit(code);
+};
+
+function top(dir = process.cwd()) {
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : dir;
+}
+const jobDir = root => path.join(root, '.oma', 'job');
+
+// The first ```json block of .oma/project.md, with `<port>` left in place.
+function cfg(root = top()) {
+  const file = path.join(root, '.oma', 'project.md');
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    die(`${file} not found; run /oma in the main checkout first`);
+  }
+  const m = text.match(/```json[^\n]*\n([\s\S]*?)\n```/);
+  if (!m) die(`${file} has no json block`);
+  try {
+    return JSON.parse(m[1]);
+  } catch (e) {
+    die(`${file} json block is not valid JSON (${e.message})`);
+  }
+}
+const isNone = v => v === undefined || v === null || /^\s*(none|)\s*$/i.test(String(v));
+const withPort = (s, port) => String(s).replace(/<port>/g, String(port));
+
+// { busy, pids }. ss shows pids only for this user's processes, so a listener with none is still busy.
+function probe(port) {
+  const r = spawnSync('ss', ['-Hltnp', `sport = :${port}`], { encoding: 'utf8' });
+  if (r.status !== 0) return { busy: false, pids: [] };
+  const lines = r.stdout.split('\n').filter(l => l.trim());
+  return { busy: lines.length > 0, pids: [...new Set([...r.stdout.matchAll(/pid=(\d+)/g)].map(m => Number(m[1])))] };
+}
+const listening = port => probe(port).pids;
+const busy = port => probe(port).busy;
+
+function upCode(port, upPath) {
+  const url = `http://localhost:${port}${upPath && upPath.startsWith('/') ? upPath : `/${upPath || ''}`}`;
+  const r = spawnSync('curl', ['-s', '-o', '/dev/null', '-m', '10', '-w', '%{http_code}', url], { encoding: 'utf8' });
+  return { url, code: (r.stdout || '').trim() || '000' };
+}
+
+const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+function waitUp(port, seconds, upPath) {
+  const end = Date.now() + seconds * 1000;
+  for (;;) {
+    const u = upCode(port, upPath);
+    if (u.code === '200') return u;
+    if (Date.now() >= end) return u;
+    sleep(2000);
+  }
+}
+
+function cmdUp([port, seconds = '0']) {
+  if (!/^\d+$/.test(port || '')) die('usage: oma up <port> [seconds]', 2);
+  const c = cfg();
+  if (isNone(c.start)) die('the profile has no start command (start: none)');
+  const u = waitUp(port, Number(seconds) || 0, c.upPath);
+  console.log(`${u.url} ${u.code}`);
+  process.exit(u.code === '200' ? 0 : 1);
+}
+
+function cmdServe([port]) {
+  if (!/^\d+$/.test(port || '')) die('usage: oma serve <port>', 2);
+  const root = top();
+  const c = cfg(root);
+  if (isNone(c.start)) die('the profile has no start command (start: none)');
+  const held = probe(port);
+  if (held.busy) {
+    const u = upCode(port, c.upPath);
+    die(`port ${port} is already in use by ${held.pids.length ? `pid ${held.pids.join(',')}` : 'a process of another user'} (${u.url} ${u.code}); not starting another server`);
+  }
+  fs.mkdirSync(jobDir(root), { recursive: true });
+  const log = path.join(jobDir(root), `dev-${port}.log`);
+  const out = fs.openSync(log, 'a');
+  const child = spawn('bash', ['-c', withPort(c.start, port)], {
+    cwd: root, detached: true, stdio: ['ignore', out, out], env: { ...process.env, PORT: String(port) },
+  });
+  child.unref();
+  fs.writeFileSync(path.join(jobDir(root), `dev-${port}.pid`), `${child.pid}\n`);
+  const u = waitUp(port, 120, c.upPath);
+  if (u.code !== '200') die(`app did not come up: ${u.url} ${u.code}; see ${log}`);
+  try {
+    process.kill(-child.pid, 0); // our server is the one answering, not something that grabbed the port
+  } catch {
+    die(`the start command exited, yet ${u.url} answers: another process holds port ${port}; see ${log}`);
+  }
+  console.log(`serving ${u.url} (pid ${child.pid}, log ${log})`);
+}
+
+function cmdPort([port]) {
+  if (!/^\d+$/.test(port || '')) die('usage: oma port <port>', 2);
+  const held = probe(port);
+  if (held.pids.length) console.log(held.pids.join('\n'));
+  else if (held.busy) console.log('busy (pid unknown: another user\'s process)');
+}
+
+// The pid file `oma serve <port>` left in this folder, or else in another worktree of this repository
+// (a stopped or re-routed agent's), with the folder it is in.
+function findPidFile(root, port) {
+  const name = path.join('.oma', 'job', `dev-${port}.pid`);
+  const wt = spawnSync('git', ['worktree', 'list', '--porcelain'], { cwd: root, encoding: 'utf8' });
+  const dirs = wt.status === 0 ? wt.stdout.split('\n').filter(l => l.startsWith('worktree ')).map(l => l.slice(9)) : [];
+  for (const d of [root, ...dirs.filter(d => path.resolve(d) !== path.resolve(root))]) {
+    const f = path.join(d, name);
+    try {
+      const pid = Number(fs.readFileSync(f, 'utf8').trim());
+      if (pid) return { file: f, pid, dir: d };
+    } catch {
+      /* none here */
+    }
+  }
+  return null;
+}
+
+function cmdStop(args) {
+  const port = args[0];
+  if (!/^\d+$/.test(port || '')) die('usage: oma stop <port> [--force]', 2);
+  const root = top();
+  const found = findPidFile(root, port);
+  const pidFile = found && found.file;
+  const group = found ? found.pid : null;
+  const held = probe(port);
+  const pids = held.pids;
+  if (!held.busy && !group) return console.log(`port ${port} free`);
+  if (!group && !args.includes('--force')) die(`port ${port} is held by ${pids.length ? `pid ${pids.join(',')}` : 'a process of another user'}, not started by oma serve in this repository; left running`);
+  if (found && found.dir !== root) console.log(`stopping the server oma serve started in ${found.dir}`);
+  // The server was started detached, so its pid is its process group: kill the whole group.
+  if (group) {
+    try {
+      process.kill(-group, 'SIGTERM');
+    } catch {
+      /* already gone */
+    }
+  }
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      /* already gone */
+    }
+  }
+  for (let i = 0; i < 20 && busy(port); i++) sleep(500);
+  for (const pid of listening(port)) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      /* gone */
+    }
+  }
+  if (pidFile) fs.rmSync(pidFile, { force: true });
+  if (busy(port)) die(`port ${port} still held${listening(port).length ? ` by pid ${listening(port).join(',')}` : ''}`);
+  console.log(`port ${port} free`);
+}
+
+function cmdRun([what]) {
+  if (!['install', 'lint', 'build', 'test'].includes(what)) die('usage: oma run <install|lint|build|test>', 2);
+  const root = top();
+  const c = cfg(root);
+  if (isNone(c[what])) return console.log(`${what} none (skipped)`);
+  const r = spawnSync('bash', ['-c', c[what]], { cwd: process.cwd(), stdio: 'inherit' });
+  const code = r.status === null ? 1 : r.status;
+  console.log(`${what} exit ${code}: ${c[what]}`);
+  process.exit(code);
+}
+
+function flags(args) {
+  const out = { rest: [] };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--name' || a === '--evals' || a === '--round') out[a.slice(2)] = args[++i];
+    else out.rest.push(a);
+  }
+  return out;
+}
+
+function statusFile(root, name) {
+  if (name && !/^[A-Za-z0-9_-]+$/.test(name)) die('--name must be letters, digits, - or _', 2);
+  return path.join(jobDir(root), name ? `status-${name}.json` : 'status.json');
+}
+
+function writeStatus(file, s) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(s) + '\n');
+  fs.renameSync(tmp, file);
+}
+
+function cmdStatus(args) {
+  const f = flags(args);
+  const root = top();
+  const file = statusFile(root, f.name);
+  const t = now();
+  if (f.rest[0] === 'init') {
+    const [, target, port] = f.rest;
+    if (!target || !/^\d+$/.test(port || '')) die('usage: oma status init <ticket-folder|repro:<slug>> <port> [--name <teammate>]', 2);
+    let ticket;
+    let slug;
+    if (target.startsWith('repro:')) {
+      ticket = 'repro';
+      slug = target.slice(6) || 'bug';
+    } else {
+      slug = path.basename(target.replace(/\/+$/, ''));
+      const m = slug.match(/^(\d{3})-/);
+      if (!m) die(`ticket folder must be specs/tickets/NNN-slug, got ${target}`, 2);
+      ticket = m[1];
+    }
+    const b = spawnSync('git', ['branch', '--show-current'], { cwd: root, encoding: 'utf8' });
+    const s = { ticket, slug, step: 'setup', stepStarted: t, updated: t, port: Number(port), branch: (b.stdout || '').trim(),
+      evals: { passed: 0, failed: 0, total: 0, round: 0 }, note: 'setting up' };
+    writeStatus(file, s);
+    return console.log(JSON.stringify(s));
+  }
+  const [step, ...noteParts] = f.rest;
+  if (!STEPS.includes(step)) die(`usage: oma status <${STEPS.join('|')}> [note] [--evals p/f/t] [--round next|<n>]`, 2);
+  let s;
+  try {
+    s = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    die(`${file} missing or not JSON; run oma status init first`);
+  }
+  if (s.step !== step) s.stepStarted = t;
+  s.step = step;
+  s.updated = t;
+  if (noteParts.length) s.note = noteParts.join(' ');
+  s.evals = s.evals || { passed: 0, failed: 0, total: 0, round: 0 };
+  if (f.evals) {
+    const m = f.evals.match(/^(\d+)\/(\d+)\/(\d+)$/);
+    if (!m || Number(m[1]) + Number(m[2]) !== Number(m[3])) die('--evals is passed/failed/total, and passed + failed must equal total', 2);
+    Object.assign(s.evals, { passed: Number(m[1]), failed: Number(m[2]), total: Number(m[3]) });
+  }
+  if (f.round) s.evals.round = f.round === 'next' ? (Number(s.evals.round) || 0) + 1 : Number(f.round) || 0;
+  // A blocked worker is let through the finish gate on its note, so it must be this call's own note.
+  if (step === 'blocked' && !noteParts.join(' ').trim()) die('a blocked status needs a note saying why: oma status blocked "<why>"', 2);
+  writeStatus(file, s);
+  console.log(JSON.stringify(s));
+}
+
+const [cmd, ...rest] = process.argv.slice(2);
+const table = { cfg: () => console.log(JSON.stringify(cfg(), null, 2)), run: cmdRun, serve: cmdServe, up: cmdUp,
+  port: cmdPort, stop: cmdStop, status: cmdStatus, now: () => console.log(now()) };
+if (!table[cmd]) die('usage: oma <cfg|run|serve|up|port|stop|status|now> ... (see the header of this file)', 2);
+table[cmd](rest);
