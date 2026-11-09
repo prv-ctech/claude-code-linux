@@ -1,6 +1,6 @@
 # 001: Remove all superpowers handling from /oma
 
-**Status:** ready
+**Status:** done
 
 ## Summary
 oh-my-agent-mod stops managing the superpowers plugin entirely. It no longer turns superpowers off on session start, the `/oma restore-superpowers` argument is gone, the `keep_superpowers` setting is gone, and oma never edits the user's `settings.json`. This is for every person who installs oh-my-agent-mod.
