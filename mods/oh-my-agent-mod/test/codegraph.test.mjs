@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, tmp, write, run } from './helpers.mjs';
+import { ROOT, tmp, write, run, repo } from './helpers.mjs';
 import { codeGraph, onSubagent } from '../scripts/oma.mjs';
 
 const OMA = path.join(ROOT, 'scripts', 'oma.mjs');
@@ -50,10 +50,14 @@ test('codeGraph settings: later files win, broken ones are skipped, any marketpl
 test('status carries a codeGraph key', () => {
   const { proj, env } = fx();
   const r = run('node', [OMA, 'status', '--dir', proj], { env: { ...process.env, ...env } });
-  // proj is not a git repo here: the state is a problem, so use this repo's own folder for the key
+  // proj is not a git repo here: the state is a problem
   assert.strictEqual(JSON.parse(r.stdout).ok, false);
-  const s = run('node', [OMA, 'status', '--dir', ROOT], { env: { ...process.env, ...env } });
-  assert.strictEqual(JSON.parse(s.stdout).codeGraph.reason, 'no graph');
+  // a throwaway git repo with the graph, so the result never depends on the host checkout
+  const g = repo();
+  write(path.join(g, '.codebase-memory', 'graph.db.zst'), '');
+  const s = JSON.parse(run('node', [OMA, 'status', '--dir', g], { env: { ...process.env, ...env } }).stdout);
+  assert.strictEqual(s.ok, true);
+  assert.strictEqual(s.codeGraph.reason, 'on');
 });
 
 test('subagent hook text for oma agents, silence otherwise', () => {
