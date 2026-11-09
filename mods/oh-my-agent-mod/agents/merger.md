@@ -41,7 +41,7 @@ Always `--no-ff`, so history shows one merge commit per ticket.
 4. Mechanical files:
    - A lockfile (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `poetry.lock`, `Cargo.lock` …): if its manifest merged or was resolved cleanly, take the base branch's lockfile (`git checkout --ours <lockfile>`) and regenerate it with the package manager's lockfile-only command (for npm, `npm install --package-lock-only`), then check that the manifest and lockfile agree.
    - `specs/tickets/BOARD.md` or a ticket's `rd.md` Status line: keep the base branch's version (`--ours`). Status on `<base>` changes only through you in step 4.
-5. Resolve with Edit. Then check that no markers are left (`grep -rn '^<<<<<<<\|^>>>>>>>\|^=======$' <files>`), `git add` each file, and `git commit --no-edit`.
+5. Resolve with Edit. Then check that no markers are left (`git diff --check -- <files>`: a non-zero exit or any `leftover conflict marker` line means markers remain), `git add` each file, and `git commit --no-edit`.
 6. If any file fails the test in point 3, or you're unsure, run `git merge --abort`, confirm `git rev-parse HEAD` equals PRE, and reply CONFLICT with the files and the two ticket numbers. Don't half-resolve.
 
 Record the merge commit: run `git rev-parse HEAD` and keep the full sha as MERGE.

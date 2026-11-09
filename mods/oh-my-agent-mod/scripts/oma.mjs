@@ -6,6 +6,7 @@
 //                              while on, one reminder line per prompt
 //   oma.mjs start [--dir <p>]  /oma bootstrap: sets the project up (idempotent) and prints its state for the router
 //   oma.mjs status [--dir <p>] the same state, changing nothing
+//   oma.mjs subagent           SubagentStart hook: tells oma agents which code-search tools work (codebase-memory-mod)
 //
 // Hooks keep stdout to the hook protocol and never fail the session: any error prints nothing and exits 0.
 import fs from 'node:fs';
@@ -125,6 +126,44 @@ export function onSession(p, input) {
   }
   if (!lines.length && input.source === 'startup') lines.push('oh-my-agent: /oma <what to build> runs the superagent (router, workers in worktrees, tester, reviewer, merger, checker).');
   return lines.join('\n') || null;
+}
+
+// --- codebase-memory-mod compatibility -----------------------------------------------------------------
+
+// Mirrors mods/codebase-memory-mod/hooks/gate.js: same graph file, same escape file, folder as given.
+// codebase-memory-mod counts as enabled when the last settings file with a codebase-memory-mod@* key sets it true.
+export function codeGraph(dir, { env = process.env, home = os.homedir() } = {}) {
+  const abs = path.resolve(dir);
+  const files = [
+    path.join(env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'settings.json'),
+    path.join(abs, '.claude', 'settings.json'),
+    path.join(abs, '.claude', 'settings.local.json'),
+  ];
+  let enabled = false;
+  for (const f of files) {
+    const plugins = (readJson(f, null) || {}).enabledPlugins;
+    const key = plugins && typeof plugins === 'object' ? Object.keys(plugins).find(k => k.startsWith('codebase-memory-mod@')) : undefined;
+    if (key !== undefined) enabled = plugins[key] === true;
+  }
+  let reason = 'on';
+  if (!enabled) reason = 'plugin not enabled';
+  else if (!fs.existsSync(path.join(abs, '.codebase-memory', 'graph.db.zst'))) reason = 'no graph';
+  else if (fs.existsSync(path.join(env.XDG_CACHE_HOME || path.join(home, '.cache'), 'codebase-memory-mcp', 'gate-off'))) reason = 'gate off';
+  const active = reason === 'on';
+  return { active, project: active ? abs.replace(/\//g, '-').replace(/^-+/, '') : null, reason };
+}
+
+// What the SubagentStart hook adds for an oma agent, or null.
+export function onSubagent(input, opts) {
+  if (typeof input.agent_type !== 'string' || !input.agent_type.startsWith(`${ME}:`)) return null;
+  const cwd = path.resolve(input.cwd || process.cwd());
+  const g = codeGraph(cwd, opts);
+  if (g.reason === 'plugin not enabled') return null;
+  if (!g.active) return `oh-my-agent code search: codebase-memory-mod is on but no graph applies in ${cwd} (${g.reason}), so Grep, Glob and grep work as usual here.`;
+  return `oh-my-agent code search: codebase-memory-mod is on and ${cwd} has a graph, so Grep, Glob and shell grep/rg/ag/ack/find/git grep on code are blocked here. `
+    + 'Use the codebase-memory tools (load them with ToolSearch: mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_graph, search_code, get_code_snippet, trace_path, get_file_outline) '
+    + `with project "${g.project}". Piping command output into grep stays allowed. `
+    + `A worktree under .claude/worktrees/ has no graph of its own: there Grep, Glob and grep work as usual, and the graph shows ${cwd}, not your branch.`;
 }
 
 // --- project bootstrap -------------------------------------------------------------------------------
@@ -257,6 +296,7 @@ export function projectState(dir, { write = false, env = process.env } = {}) {
     agentTeams: (env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS || (settings.env || {}).CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS) === '1',
     reviewTickets: truthy(env.CLAUDE_PLUGIN_OPTION_REVIEW_TICKETS),
     changed,
+    codeGraph: codeGraph(dir, { env }),
   };
 }
 
@@ -295,11 +335,19 @@ function main() {
     }
     return;
   }
+  if (mode === 'subagent') {
+    try {
+      hookOut('SubagentStart', onSubagent(stdinJson()));
+    } catch {
+      /* never hold up a subagent */
+    }
+    return;
+  }
   if (mode === 'start' || mode === 'status') {
     console.log(JSON.stringify(projectState(dir, { write: mode === 'start' }), null, 2));
     return;
   }
-  console.error('usage: oma.mjs <session|prompt|start|status> [--dir <project>]');
+  console.error('usage: oma.mjs <session|prompt|subagent|start|status> [--dir <project>]');
   process.exitCode = 2;
 }
 

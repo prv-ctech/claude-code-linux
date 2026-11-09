@@ -22,6 +22,18 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/oma.mjs\" subagent",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "matcher": "oh-my-agent-mod:worker",
@@ -46,7 +58,7 @@
         ]
       },
       {
-        "matcher": "Bash|Monitor|Read|Edit|Write|NotebookEdit|Grep|Agent",
+        "matcher": "Bash|Monitor|Read|Edit|Write|NotebookEdit|Grep|Agent|mcp__plugin_codebase-memory-mod_codebase-memory-mcp__.*",
         "hooks": [
           {
             "type": "command",
