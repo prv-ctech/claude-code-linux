@@ -1,6 +1,6 @@
 # 002: oh-my-agent works with codebase-memory-mod's code-search gate
 
-**Status:** ready
+**Status:** done
 
 ## Summary
 When codebase-memory-mod is enabled and the project has a `.codebase-memory/` graph, oh-my-agent (`/oma`) detects it, tells its own agents to search code with the graph tools instead of Grep, Glob and shell grep, never runs a command the gate would block, and applies its `.env` protection to the codebase-memory tools too. When the plugin is off or the folder has no graph, oma agents keep using Grep, Glob and grep as usual.
