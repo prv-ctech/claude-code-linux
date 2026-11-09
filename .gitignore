@@ -19,6 +19,9 @@ claude-code-state/
 *.swp
 .DS_Store
 
+# Reference docs for later use (not committed)
+/.reference/
+
 # oh-my-agent: job files and agent worktrees
 /.oma/job/
 /.claude/worktrees/
