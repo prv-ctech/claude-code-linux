@@ -1,6 +1,6 @@
 # 010: /omc is the only oh-my-context-mod command
 
-**Status:** ready
+**Status:** done
 
 ## Summary
 oh-my-context-mod registers two slash commands that do the same thing: `/oh-my-context-mod` and `/omc`. Remove the long one so `/omc` is the single main command, and make every hint, doc and description point to `/omc`.

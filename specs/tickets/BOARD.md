@@ -9,4 +9,4 @@
 | 007 | /omc status shows the whole mod, plus naming check | done | solo | waits for 005, 006: needs recovery stats and saved tokens; shares commands, README, plugin.json |
 | 008 | Remove caveman-mod from the repo | done | solo | waits for 004: done; shares no file with 006/007 |
 | 009 | Uninstall the old mod from the user's Claude Code | draft | solo | waits for 008; then user pushes main and updates oh-my-context-mod |
-| 010 | /omc is the only oh-my-context-mod command | ready | solo | alongside |
+| 010 | /omc is the only oh-my-context-mod command | done | solo | alongside |
