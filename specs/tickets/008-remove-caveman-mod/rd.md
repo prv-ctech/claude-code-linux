@@ -1,6 +1,6 @@
 # 008: Remove caveman-mod from the repo
 
-**Status:** ready
+**Status:** done
 
 ## Summary
 Delete `mods/caveman-mod` and every live reference to it in this repo. The uninstall from the user's Claude Code is ticket 009.
