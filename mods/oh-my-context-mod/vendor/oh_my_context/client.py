@@ -735,7 +735,7 @@ class MCPClient:
                 raise MCPError(
                     "HTTP_ERROR",
                     f"HTTP 401: this server needs Claude's own sign-in. Add it to direct_servers "
-                    f"(a setting of /oh-my-context-mod) so Claude connects to it directly. {body[:200]}",
+                    f"(a setting of /omc) so Claude connects to it directly. {body[:200]}",
                 ) from e
             raise MCPError("HTTP_ERROR", f"HTTP {e.code}: {body[:300]}") from e
         except urllib.error.URLError as e:

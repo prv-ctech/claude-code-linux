@@ -114,7 +114,7 @@ the HTTP MCP servers the gateway routes.
                                  shows the instructions of a server that is
                                  already running and never starts one for them;
                                  kb_index takes a local path only; notices point
-                                 to /oh-my-context-mod.
+                                 to /omc.
   oh_my_context/client.py        keeps a server's initialize instructions;
                                  upstream servers start without the launcher's
                                  PYTHONPATH/PYTHONPYCACHEPREFIX/OMC_* variables

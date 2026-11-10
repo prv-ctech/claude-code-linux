@@ -803,7 +803,7 @@ function sessionContext(r) {
     + `${skillText}direct: ${direct.join(', ') || 'none'}.`;
   if (r.changed) line += ' Changes made at this start count from the next session.';
   if (!r.indexed) line += ' The skill index did not rebuild.';
-  if (r.problems.length) line += ` ${r.problems.length} file(s) left as is (/oh-my-context-mod status).`;
+  if (r.problems.length) line += ` ${r.problems.length} file(s) left as is (/omc status).`;
   return line;
 }
 
@@ -881,7 +881,7 @@ function status(p, cwd, env, run) {
 }
 
 // The SessionStart hook: apply (or put everything back when the CLI cannot run).
-const OFF_LINE = 'oh-my-context-mod: off; every MCP server and skill loads directly. /oh-my-context-mod on routes them again.';
+const OFF_LINE = 'oh-my-context-mod: off; every MCP server and skill loads directly. /omc on routes them again.';
 
 function session(p, cwd, env, run) {
   // Off, with no state to undo: return before the lock creates the state dir.
