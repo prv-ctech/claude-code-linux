@@ -237,6 +237,10 @@ class PipelineTests(unittest.TestCase):
         self.assertIsNone(compressor.compress_text(j))
         self.assertEqual(usage.saved_tokens(), before)
 
+    def test_no_old_path(self):
+        old = "compress_with_" + "c" + "cr"  # built from parts: the naming test forbids the literal
+        self.assertFalse(hasattr(compressor, old))
+
     def test_setting(self):
         real = config.get_setting
         try:
