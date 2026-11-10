@@ -1,6 +1,6 @@
 # 006: /omc compress: document minimizer with backup and restore
 
-**Status:** ready
+**Status:** done
 
 ## Summary
 `/omc compress <path>` rewrites a prose file (CLAUDE.md, notes, docs) to the fewest tokens while keeping every technical detail, backs the original up outside the file's folder, validates that protected parts are unchanged, and leaves the original in place if it cannot pass. `/omc restore <path>` puts the backup back.
