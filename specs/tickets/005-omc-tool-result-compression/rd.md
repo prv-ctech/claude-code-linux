@@ -1,6 +1,6 @@
 # 005: Tool-result compression and recovery in the oh-my-context gateway
 
-**Status:** ready
+**Status:** done
 
 ## Summary
 Results of routed MCP tools (those reached through the gateway's `call` tool) are compressed by shape (JSON, logs, test reports, diffs, code, tables, text), with TOON for uniform arrays of objects. Every lossy result keeps its exact original in a local store behind a content-hash handle; a marker in the text names the handle and the gateway's `retrieve` tool gives the original (or matching sections) back.
