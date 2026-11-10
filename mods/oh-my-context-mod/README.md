@@ -12,7 +12,7 @@ On every session start, a hook (`hooks/sync.js session`) sets this up:
 |---|---|
 | MCP servers | Every server Claude would start (yours and local-scope ones in `~/.claude.json`, and each enabled plugin's, user or project scope) gets an entry in the gateway config and is turned off for this project with `disabledMcpServers` in `~/.claude.json`, the key the `/mcp` toggle writes. Claude then sees only the gateway's own tools. |
 | Original tool names | The gateway's tools are `mcp__plugin_oh-my-context-mod_oh-my-context__<tool>` to Claude. `call` takes one of two forms: `tool` set to a routed tool's original Claude name (`mcp__github__create_issue`, `mcp__plugin_<plugin>_<server>__<tool>`), with `server` left out or naming the server that tool belongs to; or `server` plus the server's own tool name as `tool`. Any other form (a `name` argument, a bare tool name without `server`, a server that is not routed or does not match) is refused. `manifest` lists the routed tools and `inspect` shows one tool's parameters. These three and `resolve_skills` are loaded up front; the gateway's other tools stay deferred. |
-| Results | A routed call returns what a direct call would: the server's own content blocks (text, images, resources) and its `structuredContent`, and an `isError` result stays an error. Results are not compressed; `{"compress": "smart"}` in the gateway's `settings.json` (next to its config, see Secrets below) turns the gateway's compression on from the next session. |
+| Results | A routed call returns what a direct call would: the server's own content blocks (text, images, resources) and its `structuredContent`, and an `isError` result stays an error. Large results are compressed (see Tool-result compression below); `{"compress": "off"}` in the gateway's `settings.json` (next to its config, see Secrets below) passes them through unchanged. |
 | Server instructions | A routed server's own instructions come with its first successful call instead of on every turn, and again after `/clear`, compaction, or a subagent starting or finishing (the SessionStart, SubagentStart and SubagentStop hooks tell the gateway a new context began). `inspect` shows them only for a server that is already running; it never starts one. |
 | Prompts and resources | A routed server's prompts show as `/mcp__plugin_oh-my-context-mod_oh-my-context__<server>__<prompt>`, and its resources are listed and read through the gateway. Only servers known to offer them are asked, so a newly added server's prompts and resources appear after its first call or tool fetch. |
 | Plugin skills | Each `SKILL.md` gets the one-line description `routed` (its `when_to_use` is dropped). The skill stays listed by name and the Skill tool still runs it. A file reached through a symlink is left as it is (but still indexed). |
@@ -116,6 +116,31 @@ node mods/oh-my-context-mod/test/live-reply.mjs
 `/omc compress <file>` shrinks a prose file (CLAUDE.md, notes, docs) to fewer tokens. Types: `.md`, `.markdown`, `.txt`, `.rst`, `.typ`, `.typst`, `.tex` or no extension, up to 1 MiB, UTF-8, no symlinks. Flow: `scripts/doc.js prepare` backs up the original and prints the rewrite rules, the session model writes a candidate, `scripts/doc.js apply` checks it (frontmatter, headings, code blocks, inline code, URLs, paths, numbers, table rows identical; not/never/no/only/except not fewer; strictly shorter) and only then replaces the file. A failed check lists the problems; Claude fixes them and retries twice, then `abort` leaves the file unchanged. Nothing goes over the network.
 
 Backups live in `${XDG_DATA_HOME:-~/.local/share}/oh-my-context-mod/backups/<hash>-<folder>/<name>.original`. A second compress is refused while a backup exists. `/omc restore <file>` copies the backup back and deletes it.
+
+## Tool-result compression
+
+The gateway shrinks large text results of routed calls before Claude sees them. It recognises shapes (JSON, logs, tables and the like, see `vendor/oh_my_context/shapes`), compresses only when the saving clears its thresholds, and encodes uniform JSON arrays as TOON. A compressed result ends with a marker line `<<omc:HANDLE>>`. The exact original is kept in the recovery store; call the gateway's `retrieve` tool with the handle (and optionally a `query` to get only the matching parts) to read it.
+
+The store is `<gateway home>/recovery/`, capped at 512 MiB (536870912 bytes); `OMC_RECOVERY_MAX_BYTES` changes the cap. Nothing is evicted: when the store is full, results pass through uncompressed. The `compress` setting in the gateway's `settings.json` is `on` (default) or `off`.
+
+## Status
+
+`/omc status` (or `/omc`) prints, besides the per-server lines, one view of the whole mod and changes nothing:
+
+```
+oh-my-context-mod: on · oh-my-context CLI: oh-my-context 0.9.0
+MCP servers (/project): ...
+Skills: ...
+Commands: ...
+Skills by name: direct: none; hidden: none; listed by name only: 12
+Reply mode: ultra (style: default)
+Tool-result compression: on
+Recovery store: 0.0 MiB of 512.0 MiB, 0 entries (<gateway home>/recovery)
+Tokens saved by compression: 0
+Guard ...
+```
+
+The last three gateway lines come from `oh-my-context stats` (one JSON line); if it cannot run they read `unknown (gateway CLI not runnable)`.
 
 ## Credits and licenses
 

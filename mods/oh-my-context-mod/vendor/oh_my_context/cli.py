@@ -19,6 +19,7 @@
     oh-my-context serve                .mcp.json: the stdio MCP gateway
     oh-my-context hint                 hooks/prompt.js: skill and tool hints for a prompt
     oh-my-context skills index <dir>   hooks/sync.js: index the skill catalog
+    oh-my-context stats                hooks/sync.js status: compression, recovery store, tokens saved (one JSON line)
 """
 
 import sys
@@ -27,7 +28,7 @@ from pathlib import Path
 from . import __version__
 
 # oh-my-context-mod: anything else is not a command of this copy.
-USAGE = "usage: oh-my-context --version | serve | hint [--k-skills N] [--k-tools N] | skills index <dir>..."
+USAGE = "usage: oh-my-context --version | serve | hint [--k-skills N] [--k-tools N] | skills index <dir>... | stats"
 
 
 def _harden_stream_encoding() -> None:
@@ -76,6 +77,14 @@ def main() -> None:
     elif command == "serve" and len(args) == 1:
         from .serve import run_serve
         run_serve()
+    elif command == "stats" and len(args) == 1:
+        import json
+
+        from . import config, recovery, usage
+
+        rec = recovery.stats()
+        rec["path"] = str(recovery._dir())
+        print(json.dumps({"compress": config.compression_mode(), "recovery": rec, "saved_tokens": usage.saved_tokens()}))
     elif command == "hint":
         from .hint import run_hint
         sys.exit(run_hint(args[1:]))

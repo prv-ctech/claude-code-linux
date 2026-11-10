@@ -933,3 +933,21 @@ test('every plugin option sync.js reads is declared in plugin.json userConfig', 
   const declared = Object.keys(JSON.parse(fs.readFileSync(path.join(__dirname, '..', '.claude-plugin', 'plugin.json'), 'utf8')).userConfig);
   for (const k of ['direct_servers', 'direct_skills', 'hide_skills']) assert.ok(declared.includes(k), k);
 });
+
+test('status adds skill names, reply mode and the gateway numbers; unknown when the CLI fails', () => {
+  const m = machine();
+  const cfg = path.join(m.home, 'cfg');
+  const env = { ...m.env, CLAUDE_CONFIG_DIR: cfg };
+  const stats = { compress: 'on', recovery: { bytes: 1572864, cap: 536870912, entries: 3, path: '/rec' }, saved_tokens: 42 };
+  const stub = args => (args[0] === 'stats' ? { status: 0, stdout: `${JSON.stringify(stats)}\n` } : ok(args));
+  const out = status(m.p, '/w', env, stub);
+  assert.match(out, /Skills by name: direct: .*keep-me.*; hidden: none; listed by name only: \d+/);
+  assert.match(out, /Reply mode: ultra \(style: default\)/);
+  assert.match(out, /Tool-result compression: on/);
+  assert.match(out, /Recovery store: 1\.5 MiB of 512\.0 MiB, 3 entries \(\/rec\)/);
+  assert.match(out, /Tokens saved by compression: 42/);
+  w(path.join(cfg, 'oh-my-context-mod', 'reply.json'), { mode: 'lite' });
+  assert.match(status(m.p, '/w', env, stub), /Reply mode: lite \(style:/);
+  const down = status(m.p, '/w', env, args => (args[0] === 'stats' ? { status: 127, stdout: '' } : ok(args)));
+  assert.strictEqual(down.split('\n').filter(l => l.endsWith('unknown (gateway CLI not runnable)')).length, 3);
+});

@@ -807,6 +807,27 @@ function sessionContext(r) {
   return line;
 }
 
+// Reply mode, then the gateway's compression setting, recovery store and savings (one `stats` call).
+function newLines(run, env) {
+  const rep = spawnSync(process.execPath, [path.join(__dirname, 'reply.js'), 'status'], { env: { ...process.env, ...env }, encoding: 'utf8', timeout: 3000 });
+  const out = String(rep.stdout || '');
+  const reply = (/^reply mode: (\S+)/m.exec(out) || [])[1] || 'ultra';
+  const style = (/^style: (.+)$/m.exec(out) || [])[1] || 'default';
+  let g = null;
+  try {
+    const r = run(['stats']);
+    if (r.status === 0) g = JSON.parse(String(r.stdout).trim().split('\n').pop());
+  } catch (e) { /* unknown below */ }
+  const unknown = 'unknown (gateway CLI not runnable)';
+  const mib = n => (n / 1048576).toFixed(1);
+  return [
+    `Reply mode: ${reply} (style: ${style})`,
+    `Tool-result compression: ${g ? g.compress : unknown}`,
+    `Recovery store: ${g ? `${mib(g.recovery.bytes)} MiB of ${mib(g.recovery.cap)} MiB, ${g.recovery.entries} entries (${g.recovery.path})` : unknown}`,
+    `Tokens saved by compression: ${g ? g.saved_tokens : unknown}`,
+  ];
+}
+
 function status(p, cwd, env, run) {
   const settings = readJson(p.settings, {});
   const cj = readJson(p.claudeJson, {});
@@ -827,6 +848,8 @@ function status(p, cwd, env, run) {
   const guardOn = state.hooks.length > 0 && state.hooks.every(h => (((settings.hooks || {})[h.event]) || []).some(e => JSON.stringify(e) === JSON.stringify(h.entry)));
   const all = everywhere(settings);
   const hid = hiddenCounts(state, cwd);
+  const names = a => a.join(', ') || 'none';
+  const extra = newLines(run, env);
   const out = [
     `oh-my-context-mod: ${fs.existsSync(offFile(p)) || state.off ? 'off' : 'on'} · oh-my-context CLI: ${v.status === 0 ? String(v.stdout).trim() : 'not runnable'}`,
     '',
@@ -846,6 +869,10 @@ function status(p, cwd, env, run) {
       + `${sk.others.filter(o => !o.dmi).length} skill(s) from other agents' folders (.agents, .github, .cursor ...) indexed for resolve_skills.`,
     `Commands: ${files.filter(f => f.kind === 'command').length} plugin command(s) listed by name only, still invocable; `
       + `${sk.items.filter(i => i.kind === 'command' && i.route && (i.scope || all)).length} would be on the next start.`,
+    `Skills by name: direct: ${names(sk.items.filter(i => i.kind === 'skill' && (i.scope || all) && !i.dmi && !i.route).map(i => i.id).concat(sk.users.filter(u => all && !u.dmi && !u.route).map(u => u.name)))}; `
+      + `hidden: ${names(sk.items.filter(i => i.kind === 'skill' && (i.scope || all) && i.hide).map(i => i.id).concat(sk.users.filter(u => all && u.hide).map(u => u.name)))}; `
+      + `listed by name only: ${sk.items.filter(i => i.kind === 'skill' && (i.scope || all) && i.route && !i.hide).length + sk.users.filter(u => all && u.route && !u.dmi && !u.hide).length}`,
+    ...extra,
     `Guard (puts everything back on uninstall or disable): ${guardOn ? 'installed' : 'not installed'}`,
     `Filters (plugin settings): direct_servers = "${opts.direct_servers}", direct_skills = "${opts.direct_skills}", hide_skills = "${opts.hide_skills}"`,
     `Paths: state ${p.state}, gateway config ${state.paths.gateway || p.gateway}, settings ${p.settings}`,

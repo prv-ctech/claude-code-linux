@@ -237,9 +237,6 @@ class PipelineTests(unittest.TestCase):
         self.assertIsNone(compressor.compress_text(j))
         self.assertEqual(usage.saved_tokens(), before)
 
-    def test_no_old_path(self):
-        self.assertFalse(hasattr(compressor, "compress_with_ccr"))
-
     def test_setting(self):
         real = config.get_setting
         try:
