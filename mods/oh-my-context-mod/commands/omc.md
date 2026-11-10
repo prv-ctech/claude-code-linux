@@ -1,5 +1,5 @@
 ---
-description: Short for /oh-my-context-mod: show which MCP servers and skills run behind oh-my-context, or turn the mod on or off
+description: Show which MCP servers and skills run behind oh-my-context, or turn the mod on or off
 argument-hint: "[status|on|off|mode <off|lite|full|ultra|max>|compress <file>|restore <file>]"
 ---
 

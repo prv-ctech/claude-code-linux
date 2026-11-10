@@ -724,7 +724,7 @@ def _manifest(arguments: dict, state: dict) -> dict:
     if not servers:
         payload["notice"] = (
             "No upstream tools indexed. This gateway publishes only what the routed servers "
-            "expose; /oh-my-context-mod in Claude Code shows which servers are routed."
+            "expose; /omc in Claude Code shows which servers are routed."
         )
     return payload
 
@@ -753,7 +753,7 @@ def _servers(arguments: dict, state: dict) -> dict:
     out = {"servers": rows, "configured": len(configured)}
     if not configured:
         out["notice"] = (
-            "No servers are routed through this gateway. /oh-my-context-mod in Claude Code "
+            "No servers are routed through this gateway. /omc in Claude Code "
             "shows what it routes and why a server stays direct."
         )
     return out
@@ -841,7 +841,7 @@ def _skills(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform sig
     if not rows:
         payload["notice"] = (
             "No skill index yet. oh-my-context-mod builds it at session start; "
-            "/oh-my-context-mod in Claude Code shows the setup."
+            "/omc in Claude Code shows the setup."
         )
     return payload
 
