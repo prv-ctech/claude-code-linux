@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { ROOT, tmp, repo, git, write, run } from './helpers.mjs';
-import { paths, onPrompt, onSession, projectState } from '../scripts/oma.mjs';
+import { paths, onPrompt, onSession, projectState, guardIgnores } from '../scripts/oma.mjs';
 
 const OMA_ON = { 'oh-my-agent-mod@claude-code-linux': true };
 
@@ -48,6 +48,23 @@ test('/oma turns router mode on for its session only; /oma off ends it; compacti
   assert.match(onSession(p, { session_id: 'D', source: 'startup' }, env), /\/oma <what to build>/);
 });
 
+test('session start ignores oma files without init, and untracks ones already committed', () => {
+  const dir = repo(); // commits .oma/project.md
+  write(path.join(dir, 'specs', 'tickets', 'BOARD.md'), 'x');
+  git(dir, 'add', '-f', 'specs');
+  assert.ok(git(dir, 'ls-files', '.oma', 'specs').includes('BOARD.md'));
+  const changed = guardIgnores(dir);
+  assert.ok(changed.length >= 3);
+  assert.strictEqual(git(dir, 'ls-files', '.oma', 'specs', '.worktreeinclude'), '');
+  assert.ok(fs.existsSync(path.join(dir, '.oma', 'project.md')), 'files stay on disk');
+  assert.strictEqual(run('git', ['check-ignore', '-q', 'specs/tickets/001-x/rd.md'], { cwd: dir }).status, 0);
+  assert.deepStrictEqual(guardIgnores(dir), []);
+  const plain = repo();
+  fs.rmSync(path.join(plain, '.oma'), { recursive: true });
+  git(plain, 'rm', '-rq', '--cached', '.oma');
+  assert.deepStrictEqual(guardIgnores(plain), [], 'projects without oma files are left alone');
+});
+
 test('bootstrap sets a project up once and reports its state', () => {
   const dir = tmp('oma-proj-');
   git(dir, 'init', '-q', '-b', 'trunk');
@@ -63,7 +80,9 @@ test('bootstrap sets a project up once and reports its state', () => {
   assert.strictEqual(s.board, null);
   assert.ok(fs.existsSync(path.join(dir, '.oma', 'project.md')));
   assert.ok(fs.existsSync(path.join(dir, '.oma', 'watchdog-rules.md')));
-  assert.match(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), /node_modules\/\n\n# oh-my-agent[^\n]*\n\/\.oma\/job\/\n\/\.claude\/worktrees\/\n$/);
+  assert.match(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), /node_modules\/\n\n# oh-my-agent[^\n]*\n\/\.oma\/\n\/specs\/tickets\/\n\/\.worktreeinclude\n\/\.claude\/worktrees\/\n$/);
+  assert.match(fs.readFileSync(path.join(dir, '.dockerignore'), 'utf8'), /^# oh-my-agent[^\n]*\n\/\.oma\/\n\/specs\/tickets\//);
+  assert.strictEqual(fs.readFileSync(path.join(dir, '.worktreeinclude'), 'utf8').split('\n').filter(l => l && l[0] !== '#').join(), '/.oma/,/specs/tickets/');
   assert.deepStrictEqual(readJson(path.join(dir, '.claude', 'settings.local.json')), { worktree: { baseRef: 'head' } });
   assert.strictEqual(run('git', ['check-ignore', '-q', '.claude/settings.local.json'], { cwd: dir }).status, 0, 'local settings ignored');
   assert.ok(s.watchCommand.includes('check.mjs') && s.watchCommand.includes('--watch'));

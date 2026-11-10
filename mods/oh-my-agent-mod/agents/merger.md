@@ -20,7 +20,7 @@ You can't ask the user anything. Anything that needs a decision goes in your rep
 1. `git branch --show-current` must print `<base>`. If not, stop and reply FAILED.
 2. Tracked files must be clean: `git status --porcelain --untracked-files=no` must print nothing. Untracked files (`.oma/job/` and the other never-commit paths) don't count, and neither do the "Files tools rewrite on their own" from `.oma/project.md` when a dev server is running (`oma port <mainPort>` prints a pid; leave those files alone, they're not yours to commit or discard). If tracked files are modified, stop and reply FAILED with the file list. Don't stash or discard anyone's changes.
 3. The branch must exist: `git rev-parse --verify <branch>`. Show what it brings: `git log --oneline <base>..<branch>` and `git diff --stat <base>...<branch>`. If it has no commits beyond `<base>`, reply FAILED: nothing to merge.
-4. Find the ticket folder: `ls -d specs/tickets/NNN-*`. Read its `rd.md` (Affected areas, Do not touch, Decisions made).
+4. Find the ticket folder in the main checkout, on disk (tickets are never committed, so never use git for them): `ls -d specs/tickets/NNN-*`. Read its `rd.md` (Affected areas, Do not touch, Decisions made).
 5. Record the current head: run `git rev-parse HEAD` and keep the full sha as PRE. You need it to undo the merge. Shell variables don't survive between commands, so write the sha itself wherever PRE appears below.
 
 ## 2. Merge
@@ -40,7 +40,6 @@ Always `--no-ff`, so history shows one merge commit per ticket.
    - A result exists that keeps both intents (for example, two tickets each adding their own field, route or import).
 4. Mechanical files:
    - A lockfile (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `poetry.lock`, `Cargo.lock` …): if its manifest merged or was resolved cleanly, take the base branch's lockfile (`git checkout --ours <lockfile>`) and regenerate it with the package manager's lockfile-only command (for npm, `npm install --package-lock-only`), then check that the manifest and lockfile agree.
-   - `specs/tickets/BOARD.md` or a ticket's `rd.md` Status line: keep the base branch's version (`--ours`). Status on `<base>` changes only through you in step 4.
 5. Resolve with Edit. Then check that no markers are left (`git diff --check -- <files>`: a non-zero exit or any `leftover conflict marker` line means markers remain), `git add` each file, and `git commit --no-edit`.
 6. If any file fails the test in point 3, or you're unsure, run `git merge --abort`, confirm `git rev-parse HEAD` equals PRE, and reply CONFLICT with the files and the two ticket numbers. Don't half-resolve.
 
@@ -62,8 +61,8 @@ Only after lint and build both pass:
 
 1. In `specs/tickets/NNN-slug/rd.md`, set the `**Status:**` line near the top to exactly `**Status:** done`.
 2. In `specs/tickets/BOARD.md`, set the Status cell of row `NNN` to `done`. Change nothing else in the table.
-3. `git add specs/tickets/NNN-slug/rd.md specs/tickets/BOARD.md` (only these two files) and `git commit -m "Mark NNN done"`.
-4. If either file is missing, still keep the merge, skip the commit, and say so in your reply.
+3. Do not `git add` or commit them: they are ignored local files. `git status --porcelain` must print nothing for them.
+4. If either file is missing, still keep the merge and say so in your reply.
 
 Then check BOARD.md for rows that say `waits for NNN`. Those may be able to start now, so tell the router.
 
@@ -72,7 +71,7 @@ Then check BOARD.md for rows that say `waits for NNN`. Those may be able to star
 At most 4 lines, nothing else. Write `lint ok, build ok` only from this run's `oma run` output (`exit 0`, or `none (skipped)`, which you say instead of `ok`).
 
 ```
-MERGED NNN-slug: merge <short sha>, Mark NNN done <short sha>
+MERGED NNN-slug: merge <short sha>, marked done (local files)
 lint ok, build ok
 Router: <what the router must decide, e.g. "003 and 005 waited for NNN and can start"; branch <branch> and its worktree are still there>
 ```
@@ -89,13 +88,13 @@ The work is uncommitted in the main checkout, so the tree is meant to be dirty. 
 
 1. `git branch --show-current` must print `<base>`. Record PRE (`git rev-parse HEAD`).
 2. Read `specs/tickets/NNN-slug/rd.md` (every Affected areas block) and `specs/tickets/NNN-slug/contract.md`.
-3. List the changes: `git status --porcelain`. Every changed or new file must be either in the ticket's Affected areas or under `specs/tickets/NNN-slug/`. Ignore `.oma/job/`, the never-commit paths and the files tools rewrite on their own (`.oma/project.md` lists both). If any other file changed, stop and reply FAILED, listing those files. Someone else's work may be mixed in.
+3. List the changes: `git status --porcelain`. Every changed or new file must be either in the ticket's Affected areas or under `specs/tickets/NNN-slug/` (ignored, so `git status` never lists them). Ignore `.oma/job/`, the never-commit paths and the files tools rewrite on their own (`.oma/project.md` lists both). If any other file changed, stop and reply FAILED, listing those files. Someone else's work may be mixed in.
 4. If a dependency manifest changed, run Install. Then run Lint and Build (the dev-server check in step 3.2 applies here too). If either fails, commit nothing, leave every file as it is, and reply FAILED with the error, so the router can send it back to the teammates.
 5. Stage exactly the files from point 3, by path (never `git add -A` or `git add .`), and commit with `git commit -m "NNN-slug: <ticket title> (team)"`. Check with `git status` that nothing outside that list was staged.
 6. Do step 4 (Mark the ticket done) as usual.
 7. Delete the teammates' status files for this ticket, so they don't make later runs think a team is still working: for each `.oma/job/status-*.json` whose `"ticket"` is `"NNN"`, `rm` it by its literal path (they're gitignored, so this changes nothing in git).
 
-Reply as for a branch, with `MERGED NNN-slug (team): commit <short sha>, Mark NNN done <short sha>`.
+Reply as for a branch, with `MERGED NNN-slug (team): commit <short sha>, marked done (local files)`.
 
 ## Never
 

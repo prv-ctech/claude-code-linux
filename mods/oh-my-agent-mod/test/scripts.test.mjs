@@ -21,6 +21,10 @@ test('guard denies git push and env files for oma agents only, however git is sp
     'git diff --stat main...HEAD -- push/', 'git checkout -b push-alerts', 'git commit -m "Load settings from .env file"', 'npm run push']) {
     assert.strictEqual(bash(c), null, c);
   }
+  for (const c of ['git add .oma/project.md', 'git add -f specs/tickets/001-x/rd.md', 'git commit -m x -- specs/tickets/BOARD.md', 'git -C /w add ./.oma/job']) {
+    assert.match(bash(c), /local and never committed/, c);
+  }
+  for (const c of ['git status -- .oma', 'git add specs/other.md', 'git log -- specs/tickets', 'git add src/oma/x.ts']) assert.strictEqual(bash(c), null, c);
   assert.strictEqual(bash('git push origin main', null), null, 'the person\'s own session is untouched');
   assert.strictEqual(bash('git push', 'other-plugin:worker'), null);
   assert.match(decide({ agent_type: W, tool_name: 'Monitor', tool_input: { command: 'git push' } }), /git push is off/);
@@ -108,6 +112,14 @@ test('finish gate blocks an unfinished worker, passes a finished one, and gives 
   git(wt, 'add', 'feature.txt');
   git(wt, 'commit', '-q', '-m', 'feature');
   assert.strictEqual(gate({ agent_type: W, cwd: wt }), null, 'done, 0 failed, clean: lets it stop');
+  // Local oma files (tickets, results, evidence) are never committed, even where .gitignore doesn't list them yet.
+  write(path.join(wt, 'specs', 'tickets', '004-x', 'results.md'), 'E-1 | PASS | ok');
+  write(path.join(wt, 'specs', 'tickets', '004-x', 'evidence', 'E-1.md'), 'ok');
+  write(path.join(wt, 'specs', 'tickets', 'BOARD.md'), 'x');
+  assert.strictEqual(gate({ agent_type: W, cwd: wt }), null, 'untracked oma files do not block');
+  write(path.join(wt, 'other', 'x.txt'), 'x');
+  assert.match(gate({ agent_type: W, cwd: wt, last_assistant_message: 'b' }).reason, /\?\? other\/x\.txt/, 'real changes still block');
+  fs.rmSync(path.join(wt, 'other'), { recursive: true });
   // Blocked with a note: through at once.
   status({ step: 'blocked', note: 'ticket contradicts itself' });
   out = gate({ agent_type: W, cwd: wt });

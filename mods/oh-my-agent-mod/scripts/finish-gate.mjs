@@ -12,7 +12,7 @@
 //
 // The worker may only finish when, in ITS worktree (not the main checkout):
 //   - .oma/job/status.json has step "done", evals.total > 0 and evals.failed === 0
-//   - `git status --porcelain` is empty, ignoring untracked files under .oma/job/
+//   - `git status --porcelain` is empty, ignoring untracked oma files (.oma/, specs/tickets/)
 //
 // Exception: a worker whose status step is "blocked" with a non-empty "note"
 // is let through at once (no 3-block count, no clean-tree requirement). A
@@ -170,6 +170,10 @@ function blockedNote(status) {
   return typeof status.note === 'string' && status.note.trim() ? status.note.trim() : null;
 }
 
+// oma's own files are local and never committed. A worktree branches from the last commit, so its
+// .gitignore may not list them yet (the main checkout's .gitignore edit can still be uncommitted).
+export const isLocalOmaPath = (p) => p.startsWith('.oma/') || p.startsWith('specs/tickets/') || p === '.worktreeinclude';
+
 function checkWorktree(root, { status, error }) {
   const problems = [];
   if (!status) {
@@ -204,7 +208,7 @@ function checkWorktree(root, { status, error }) {
     const dirty = git(['status', '--porcelain', '--untracked-files=all'], root)
       .split('\n')
       .filter(Boolean)
-      .filter((line) => !(line.startsWith('?? ') && line.slice(3).replace(/^"/, '').startsWith('.oma/job/')));
+      .filter((line) => !(line.startsWith('?? ') && isLocalOmaPath(line.slice(3).replace(/^"/, ''))));
     if (dirty.length) {
       const shown = dirty.slice(0, 15).map((l) => `    ${l}`).join('\n');
       const more = dirty.length > 15 ? `\n    ...and ${dirty.length - 15} more` : '';

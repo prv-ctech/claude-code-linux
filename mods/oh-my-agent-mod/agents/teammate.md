@@ -24,6 +24,7 @@ The `oma` helper is on your PATH. If `oma` is not found, run `node <plugin root>
 - Edit only files in your block. A test file next to a file in your block counts as yours. The one exception: the first-named teammate writes `specs/tickets/NNN-slug/contract.md`. Everyone appends to `specs/tickets/NNN-slug/results.md` under their own heading, and writes their own status file and evidence.
 - If you need a change in a file you don't own, message its owner with SendMessage and say exactly what you need. If no teammate owns the file, message the lead. Don't edit it yourself.
 - Never run git commands that change files or the index: no `add`, `commit`, `stash`, `checkout`, `restore`, `reset`, `merge`, `clean` or `push`. They would wipe out or capture other teammates' work. `git status` and `git diff` are fine. The lead routes the merge.
+- Tickets, `results.md`, evidence and `.oma/` are local files, ignored by git and never committed. Read and write them on disk in the shared checkout; never use git for them.
 - Never add a dependency unless `contract.md` says one is needed and names the teammate who adds it.
 - If Edit says a file changed since you read it, read it again and redo the edit. Don't overwrite it.
 - Never read `.env` files.
