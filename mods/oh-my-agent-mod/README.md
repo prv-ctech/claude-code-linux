@@ -28,9 +28,9 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 
 ## What happens
 
-1. **First `/oma` in a project** sets it up (idempotent): `.oma/project.md` (the profile every agent reads) and `.oma/watchdog-rules.md` from templates, `/.oma/job/` and `/.claude/worktrees/` in `.gitignore`, and `worktree.baseRef: "head"` in the session folder's `.claude/settings.local.json` (git-ignored) so workers branch from your checked-out commit. Everything lands on the branch checked out in the session (a desktop session running in its own worktree uses that worktree's branch); a detached HEAD or a repository with no commits is refused with a one-line reason.
-2. The **ticket-writer** (Opus) fills the profile in (checks the start command really serves on a spare port), reads the code, and writes `specs/tickets/NNN-slug/rd.md` + `eval.md` and `BOARD.md`. Questions only for choices that change what users see, batched (at most 4), asked by the router. Tickets are committed to your branch and built straight away (set *Review tickets* to keep them draft until you approve).
-3. **Solo ticket** → a **worker** (Sonnet) in its own worktree on port 3100 + NNN builds it test-first, has the **tester** run every eval check and the **reviewer** check the diff, fixes up to 3 rounds, writes `results.md` and evidence, commits on its branch. A finish gate (SubagentStop hook) won't let it end until every check passes and its tree is clean, or it reports blocked with a note.
+1. **First `/oma` in a project** sets it up (idempotent): `.oma/project.md` (the profile every agent reads) and `.oma/watchdog-rules.md` from templates, `/.oma/`, `/specs/tickets/`, `/.worktreeinclude` and `/.claude/worktrees/` in `.gitignore` and `.dockerignore`, `/.oma/` and `/specs/tickets/` in `.worktreeinclude`, and `worktree.baseRef: "head"` in the session folder's `.claude/settings.local.json` (git-ignored) so workers branch from your checked-out commit. Everything lands on the branch checked out in the session (a desktop session running in its own worktree uses that worktree's branch); a detached HEAD or a repository with no commits is refused with a one-line reason.
+2. The **ticket-writer** (Opus) fills the profile in (checks the start command really serves on a spare port), reads the code, and writes `specs/tickets/NNN-slug/rd.md` + `eval.md` and `BOARD.md`. Questions only for choices that change what users see, batched (at most 4), asked by the router. Tickets stay local files (git-ignored, never committed) and are built straight away (set *Review tickets* to keep them draft until you approve).
+3. **Solo ticket** → a **worker** (Sonnet) in its own worktree on port 3100 + NNN builds it test-first, has the **tester** run every eval check and the **reviewer** check the diff, fixes up to 3 rounds, writes `results.md` and evidence (local files), commits its code on its branch. A finish gate (SubagentStop hook) won't let it end until every check passes and its tree is clean, or it reports blocked with a note.
 4. The router checks `results.md` against `eval.md` itself; follow-ups go to the same worker. On a pass the **merger** merges (`--no-ff`), runs lint and build, undoes the merge if either fails, marks the ticket done; the **checker** walks the feature and the core flows in the built-in browser.
 5. **Team tickets** (agent teams on: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) get one **teammate** per block of the ticket, agreeing on a `contract.md`. Without agent teams they run as solo tickets.
 6. Bugs go to the **reproducer**: reproduced twice, root cause first, fixed on its own branch when the fix is small, merged by the merger.
@@ -40,7 +40,7 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 
 - **Permission mode:** agents inherit the session's mode. In default mode every agent stops for approvals; switch the session to **auto** for a run that goes without you (`/oma` reminds you once).
 - **Browser:** agents open `http://<name>.localhost:<port>` in the built-in browser. If the pane asks to allow `localhost` sites, allow it once; a background agent can't answer that prompt and falls back to `http://localhost:<port>`.
-- **Commit first:** workers see only committed files. The router won't route tickets that exist only on disk.
+- **Local only:** plans, tickets, results and `.oma/` are never committed or pushed and never enter a Docker build context. `/oma init` sets this up; every session start in a project with oma files re-checks it. Workers receive copies through `.worktreeinclude`.
 
 ## Agents
 
@@ -69,7 +69,7 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 
 - Nothing is pushed: `git push` is denied for every oma agent. Review with `git log <branch>` and push yourself.
 - oma agents never read `.env` files; list a file the app needs in `.worktreeinclude`.
-- Only the merger and the ticket-writer commit to your branch, staging by path, one at a time. The merger undoes its own merge with `git reset --keep` when lint or build fails, which refuses rather than touch a file you edited meanwhile.
+- Only the merger commits to your branch (code only), staging by path, one at a time. The merger undoes its own merge with `git reset --keep` when lint or build fails, which refuses rather than touch a file you edited meanwhile.
 - The checker and agents never stop a dev server they didn't start (`oma stop` refuses).
 - The only settings it edits: the project's git-ignored `.claude/settings.local.json`.
 - oma agents can start only oma subagents, so the guard covers everything they run.

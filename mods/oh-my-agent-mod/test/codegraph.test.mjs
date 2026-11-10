@@ -70,19 +70,22 @@ test('subagent hook text for oma agents, silence otherwise', () => {
   assert.strictEqual(on.status, 0);
   const o = JSON.parse(on.stdout).hookSpecificOutput;
   assert.strictEqual(o.hookEventName, 'SubagentStart');
-  assert.ok(o.additionalContext.startsWith(`oh-my-agent code search: codebase-memory-mod is on and ${proj} has a graph`));
+  assert.ok(o.additionalContext.startsWith('oh-my-agent local files:'), 'every oma agent learns the local-files rule');
+  assert.ok(o.additionalContext.includes(`oh-my-agent code search: codebase-memory-mod is on and ${proj} has a graph`));
   assert.ok(o.additionalContext.includes(`with project "${name}"`));
   assert.ok(o.additionalContext.endsWith(`the graph shows ${proj}, not your branch.`));
 
   fs.rmSync(path.join(proj, '.codebase-memory', 'graph.db.zst'));
   const ng = JSON.parse(sub({ agent_type: 'oh-my-agent-mod:merger', cwd: proj }).stdout).hookSpecificOutput.additionalContext;
-  assert.strictEqual(ng, `oh-my-agent code search: codebase-memory-mod is on but no graph applies in ${proj} (no graph), so Grep, Glob and grep work as usual here.`);
+  assert.ok(ng.endsWith(`oh-my-agent code search: codebase-memory-mod is on but no graph applies in ${proj} (no graph), so Grep, Glob and grep work as usual here.`));
   write(path.join(proj, '.codebase-memory', 'graph.db.zst'), '');
 
   const quiet = r => { assert.strictEqual(r.status, 0); assert.strictEqual(r.stdout, ''); };
   quiet(sub({ agent_type: 'general-purpose', cwd: proj }));
   quiet(sub({ cwd: proj }));
   quiet(sub('not json'));
-  quiet(sub({ agent_type: W, cwd: proj }, { ...env, CLAUDE_CONFIG_DIR: path.join(t, 'nothing') }));
-  assert.strictEqual(onSubagent({ agent_type: W, cwd: proj }, { env: { ...env, CLAUDE_CONFIG_DIR: path.join(t, 'nothing') }, home: t }), null);
+  // codebase-memory-mod off: no code-search text, but the local-files rule still reaches the agent.
+  const off = onSubagent({ agent_type: W, cwd: proj }, { env: { ...env, CLAUDE_CONFIG_DIR: path.join(t, 'nothing') }, home: t });
+  assert.match(off, /^oh-my-agent local files:/);
+  assert.ok(!off.includes('code search'));
 });

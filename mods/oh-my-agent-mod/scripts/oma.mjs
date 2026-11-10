@@ -4,6 +4,7 @@
 //   oma.mjs session            SessionStart hook: router reminder after compaction
 //   oma.mjs prompt             UserPromptSubmit hook: /oma turns router mode on for this session, /oma off ends it;
 //                              while on, one reminder line per prompt
+//   oma.mjs init [--dir <p>]   /oma init: same setup as start, no router; ignores oma files in git and Docker
 //   oma.mjs start [--dir <p>]  /oma bootstrap: sets the project up (idempotent) and prints its state for the router
 //   oma.mjs status [--dir <p>] the same state, changing nothing
 //   oma.mjs subagent           SubagentStart hook: tells oma agents which code-search tools work (codebase-memory-mod)
@@ -18,7 +19,10 @@ import { fileURLToPath } from 'node:url';
 export const ME = 'oh-my-agent-mod';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP_SESSIONS = 50;
-const IGNORE_LINES = ['/.oma/job/', '/.claude/worktrees/'];
+// Everything oma writes in a project. Never committed, never sent into a Docker build context.
+export const IGNORE_LINES = ['/.oma/', '/specs/tickets/', '/.worktreeinclude', '/.claude/worktrees/'];
+// Ignored files that every new worktree still needs (Claude Code copies what .worktreeinclude lists).
+const WORKTREE_LINES = ['/.oma/', '/specs/tickets/'];
 
 export function paths(env = process.env, home = os.homedir()) {
   const claude = env.CLAUDE_CONFIG_DIR || path.join(home, '.claude');
@@ -103,7 +107,7 @@ export function onPrompt(p, input) {
       setSession(p, sid, false);
       return null;
     }
-    if (['status', 'help'].includes(arg)) return null;
+    if (['status', 'help', 'init'].includes(arg)) return null;
     setSession(p, sid, true);
     // The command itself carries the instructions; agents inherit this session's permission mode.
     const mode = String(input.permission_mode || '');
@@ -158,9 +162,10 @@ export function onSubagent(input, opts) {
   if (typeof input.agent_type !== 'string' || !input.agent_type.startsWith(`${ME}:`)) return null;
   const cwd = path.resolve(input.cwd || process.cwd());
   const g = codeGraph(cwd, opts);
-  if (g.reason === 'plugin not enabled') return null;
-  if (!g.active) return `oh-my-agent code search: codebase-memory-mod is on but no graph applies in ${cwd} (${g.reason}), so Grep, Glob and grep work as usual here.`;
-  return `oh-my-agent code search: codebase-memory-mod is on and ${cwd} has a graph, so Grep, Glob and shell grep/rg/ag/ack/find/git grep on code are blocked here. `
+  const local = 'oh-my-agent local files: plans, tickets (specs/tickets/), results, evidence and .oma/ are git-ignored and never committed or pushed. Read and write them on disk, never with git (no git show, add or commit for them). A worktree gets copies through .worktreeinclude; if one is missing there, copy it from the main checkout.';
+  if (g.reason === 'plugin not enabled') return local;
+  if (!g.active) return `${local}\noh-my-agent code search: codebase-memory-mod is on but no graph applies in ${cwd} (${g.reason}), so Grep, Glob and grep work as usual here.`;
+  return `${local}\noh-my-agent code search: codebase-memory-mod is on and ${cwd} has a graph, so Grep, Glob and shell grep/rg/ag/ack/find/git grep on code are blocked here. `
     + 'Use the codebase-memory tools (load them with ToolSearch: mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_graph, search_code, get_code_snippet, trace_path, get_file_outline) '
     + `with project "${g.project}". Piping command output into grep stays allowed. `
     + `A worktree under .claude/worktrees/ has no graph of its own: there Grep, Glob and grep work as usual, and the graph shows ${cwd}, not your branch.`;
@@ -170,7 +175,7 @@ export function onSubagent(input, opts) {
 
 const git = (cwd, args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
 
-function ensureLines(file, lines) {
+function ensureLines(file, lines, comment) {
   let text = '';
   try {
     text = fs.readFileSync(file, 'utf8');
@@ -181,9 +186,28 @@ function ensureLines(file, lines) {
   const add = lines.filter(l => !have.has(l) && !have.has(l.replace(/^\//, '')));
   if (!add.length) return [];
   const sep = text && !text.endsWith('\n') ? '\n' : '';
-  const head = text ? '\n# oh-my-agent: job files and agent worktrees\n' : '# oh-my-agent: job files and agent worktrees\n';
+  const head = text ? `\n${comment}\n` : `${comment}\n`;
   fs.writeFileSync(file, `${text}${sep}${head}${add.join('\n')}\n`);
   return add;
+}
+
+// Keeps oma files out of git and out of Docker images. Safe to run any time; returns what it changed.
+export function ensureOmaIgnores(root) {
+  const changed = [];
+  const note = '# oh-my-agent: local plans, tickets and job files (never commit)';
+  for (const name of ['.gitignore', '.dockerignore']) {
+    const added = ensureLines(path.join(root, name), IGNORE_LINES, note);
+    if (added.length) changed.push(`${name} (+ ${added.join(', ')})`);
+  }
+  // Ignored files do not reach a worktree on their own: list them so workers still see the tickets.
+  const wti = ensureLines(path.join(root, '.worktreeinclude'), WORKTREE_LINES, '# oh-my-agent: files workers need');
+  if (wti.length) changed.push(`.worktreeinclude (+ ${wti.join(', ')})`);
+  // An ignore line does nothing for a file git already tracks: drop those from the index, keep them on disk.
+  const tracked = git(root, ['ls-files', '--', '.oma', 'specs/tickets', '.worktreeinclude']).stdout.split('\n').filter(Boolean);
+  if (tracked.length && git(root, ['rm', '-r', '--cached', '-q', '--', ...tracked]).status === 0) {
+    changed.push(`untracked ${tracked.length} oma file(s) (still on disk; commit the removal)`);
+  }
+  return changed;
 }
 
 function board(root) {
@@ -223,6 +247,15 @@ function inFlight(root) {
   return out;
 }
 
+// Session start in a project that already holds oma files, init or not: keep them ignored.
+export function guardIgnores(dir) {
+  const r = git(dir, ['rev-parse', '--show-toplevel']);
+  if (r.status !== 0) return [];
+  const root = r.stdout.trim();
+  if (!fs.existsSync(path.join(root, '.oma')) && !fs.existsSync(path.join(root, 'specs', 'tickets'))) return [];
+  return ensureOmaIgnores(root);
+}
+
 export function projectState(dir, { write = false, env = process.env } = {}) {
   const r = git(dir, ['rev-parse', '--show-toplevel']);
   if (r.status !== 0) {
@@ -249,8 +282,7 @@ export function projectState(dir, { write = false, env = process.env } = {}) {
         changed.push(`.oma/${name} (new)`);
       }
     }
-    const added = ensureLines(path.join(root, '.gitignore'), IGNORE_LINES);
-    if (added.length) changed.push(`.gitignore (+ ${added.join(', ')})`);
+    changed.push(...ensureOmaIgnores(root));
     // Workers branch from the commit checked out here, not from origin's default branch. Claude Code reads
     // local settings from the session's project folder, which can be a subfolder of the repository.
     const local = path.join(dir, '.claude', 'settings.local.json');
@@ -263,7 +295,7 @@ export function projectState(dir, { write = false, env = process.env } = {}) {
     const rel = path.relative(root, local).split(path.sep).join('/');
     if (git(root, ['check-ignore', '-q', rel]).status !== 0) {
       const ex = git(root, ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude']);
-      if (ex.status === 0) ensureLines(ex.stdout.trim(), [`/${rel}`]);
+      if (ex.status === 0) ensureLines(ex.stdout.trim(), [`/${rel}`], '# oh-my-agent');
     }
   }
   const profileText = (() => {
@@ -276,7 +308,6 @@ export function projectState(dir, { write = false, env = process.env } = {}) {
   const profile = !profileText ? 'missing' : /\*\*Profile:\*\*\s*filled in/.test(profileText) && !profileText.includes('{{') ? 'filled in' : 'not filled in';
   const branch = branchNow;
   const dirty = git(root, ['status', '--porcelain', '--untracked-files=no']).stdout.split('\n').filter(Boolean);
-  const untrackedOma = git(root, ['status', '--porcelain', '--', '.oma', 'specs/tickets', '.gitignore']).stdout.split('\n').filter(Boolean);
   const head = git(root, ['rev-parse', '--short', 'HEAD']);
   const settings = readJson(paths(env).settings, {});
   return {
@@ -292,7 +323,6 @@ export function projectState(dir, { write = false, env = process.env } = {}) {
     board: board(root),
     inFlight: inFlight(root),
     uncommittedTracked: dirty,
-    omaFilesNotCommitted: untrackedOma,
     agentTeams: (env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS || (settings.env || {}).CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS) === '1',
     reviewTickets: truthy(env.CLAUDE_PLUGIN_OPTION_REVIEW_TICKETS),
     changed,
@@ -322,6 +352,7 @@ function main() {
   if (mode === 'session') {
     try {
       hookOut('SessionStart', onSession(p, stdinJson()));
+      guardIgnores(dir);
     } catch {
       /* never break a session start */
     }
@@ -343,11 +374,11 @@ function main() {
     }
     return;
   }
-  if (mode === 'start' || mode === 'status') {
-    console.log(JSON.stringify(projectState(dir, { write: mode === 'start' }), null, 2));
+  if (mode === 'start' || mode === 'status' || mode === 'init') {
+    console.log(JSON.stringify(projectState(dir, { write: mode !== 'status' }), null, 2));
     return;
   }
-  console.error('usage: oma.mjs <session|prompt|subagent|start|status> [--dir <project>]');
+  console.error('usage: oma.mjs <session|prompt|subagent|init|start|status> [--dir <project>]');
   process.exitCode = 2;
 }
 

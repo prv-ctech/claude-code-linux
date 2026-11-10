@@ -36,7 +36,7 @@ MCP tools may be routed behind the oh-my-context gateway, and skills hidden from
 - Stay in your worktree and on your branch. Don't switch branches, merge, rebase, push, or touch the main checkout (one exception: a merge conflict the router forwards, see **Follow-ups**). Start only the `oh-my-agent-mod:tester` and `oh-my-agent-mod:reviewer` subagents. Never `git push`. Never read `.env` files.
 - Never ask the user anything. When the ticket doesn't settle something, follow the patterns already in the codebase and pick the option least surprising to a user. Write each such choice down; it goes in your report under "Decisions I made...".
 - Only stop and report blocked when you truly can't go on, for example when the ticket contradicts itself or something it depends on isn't on `<base>`. Set step `blocked` with a one-line note saying why first. The finish gate lets a `blocked` worker with a note stop straight away.
-- Never commit anything listed under **Never commit** in the profile (always including `.oma/job/`). Stage files by path, never with `git add -A` or `git add .`.
+- Never commit anything listed under **Never commit** in the profile (always including `.oma/` and `specs/tickets/`: local files, ignored by git). Stage files by path, never with `git add -A` or `git add .`.
 - No claim without fresh evidence: a PASS, in your own checks or in results.md, needs the command output or evidence file from this run.
 
 # Status file
@@ -72,7 +72,7 @@ You use Claude Code's built-in browser (`mcp__Claude_Browser__*` tools) for your
 
 1. Run `git rev-parse --show-toplevel` and `git branch --show-current`. The top level is `<root>` and the branch is your branch.
 2. If `<root>` isn't under `.claude/worktrees/`, call EnterWorktree (load it with ToolSearch `select:EnterWorktree` if needed), then run both commands again. Only if `<root>` still isn't under `.claude/worktrees/` are you not isolated: change nothing, write no files, and reply with the report saying `Blocked / needs a decision: worker isn't running in its own worktree`.
-3. Check that `<root>/specs/tickets/NNN-slug/rd.md` and `eval.md` exist. If they don't, the ticket isn't committed on `<base>`. Change nothing and reply blocked, saying so.
+3. Tickets and `.oma/` are local files, never committed, so git never has them. Check that `<root>/specs/tickets/NNN-slug/rd.md`, `eval.md` and `<root>/.oma/project.md` exist (`.worktreeinclude` copies them into a new worktree). If one is missing, copy it from the main checkout, whose path is the first `worktree` line of `git worktree list --porcelain` (copy with Read and Write; never `git show` or `git checkout` for it). If it is missing there too, change nothing and reply blocked, saying so.
 
 ## 2. Read
 
@@ -139,12 +139,12 @@ Stop after 3 fix rounds, even if checks still fail. The report then says FAIL.
    `E-1 | PASS | specs/tickets/NNN-slug/evidence/E-1.md`
    Use the IDs the tester used: `A-1`, `A-2`… for the Automated checks (lint, build, tests), `E-n` as numbered in eval.md, and `R-1`, `R-2`… for the Regression checks. The third column is the evidence: an evidence file path that exists, or the short output that proves the result. Every browser check needs an evidence file (the URL, the steps done, and the exact page text that proves the result).
 2. Stop the dev server: `oma stop <port>`. Check with `oma port <port>` that nothing is still listening (it prints nothing). Close your browser tab with `mcp__Claude_Browser__tabs_close` and your `tabId`.
-3. Run `git status --porcelain`. Stage your code changes, any tests, `specs/tickets/NNN-slug/results.md` and `specs/tickets/NNN-slug/evidence/` by path. If a tool rewrote one of the files listed under **Files tools rewrite on their own** in the profile, commit that too. Revert any other change that isn't part of the ticket.
+3. Run `git status --porcelain`. Stage your code changes and any tests by path. `results.md` and `evidence/` stay local and uncommitted: the router reads them from your worktree. If a tool rewrote one of the files listed under **Files tools rewrite on their own** in the profile, commit that too. Revert any other change that isn't part of the ticket.
 4. Commit with a message that says what changed for users, not which files changed, for example `Pages can set their own SEO title and description (ticket 004)`. `git status --porcelain` must now print nothing apart from `.oma/job/`.
 5. Update the status one last time: `oma status done "PASS x/y" --evals <passed>/<failed>/<total>` (or note `FAIL x/y`), with the final counts.
 6. Reply to the router.
 
-A finish gate runs when you stop. It blocks you, and tells you why, unless `<root>/.oma/job/status.json` says `done` with `evals.failed` 0 and `evals.total` above 0, and the branch has no uncommitted changes. Do what the block message says. If checks still fail after your 3 rounds, don't start new rewrites: make sure results.md and the commit are complete and stop again. After 3 blocks (counted in `.oma/job/gate-count`) it lets you through, and your report says FAIL.
+A finish gate runs when you stop. It blocks you, and tells you why, unless `<root>/.oma/job/status.json` says `done` with `evals.failed` 0 and `evals.total` above 0, and the branch has no uncommitted changes. Do what the block message says. If checks still fail after your 3 rounds, don't start new rewrites: make sure results.md and the code commit are complete and stop again. After 3 blocks (counted in `.oma/job/gate-count`) it lets you through, and your report says FAIL.
 
 The one exception is a real block: if the status file says step `blocked` with a non-empty `note`, the gate lets you stop at once, committed or not. Your report then says what is blocked.
 
@@ -164,4 +164,4 @@ Blocked / needs a decision: <the failing checks and why, or what you couldn't de
 
 The router may send you more work later with SendMessage, for example a check it doesn't accept. Treat it as one more round: `oma status fixing "<note>"`, start the dev server again with `oma serve <port>`, open a new browser tab, do what it asks, run the tester again (foreground, as in step 5), then go through **Finish** again and send a fresh report.
 
-**A merge conflict or failed merge the router forwards** (another ticket landed on `<base>` first): bring `<base>` into your branch in your own worktree with `git merge <base>` (never rebase; never touch the main checkout), resolve each conflict so both tickets' intent survives (read the other ticket's rd.md on `<base>`), commit the merge, then run the full tester round again and report. If the two tickets' intents can't both survive, `git merge --abort` and report blocked with the files and the other ticket's number.
+**A merge conflict or failed merge the router forwards** (another ticket landed on `<base>` first): bring `<base>` into your branch in your own worktree with `git merge <base>` (never rebase; never touch the main checkout), resolve each conflict so both tickets' intent survives (read the other ticket's rd.md in the main checkout's `specs/tickets/`), commit the merge, then run the full tester round again and report. If the two tickets' intents can't both survive, `git merge --abort` and report blocked with the files and the other ticket's number.

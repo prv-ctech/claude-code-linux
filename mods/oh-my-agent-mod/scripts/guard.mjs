@@ -85,6 +85,11 @@ export function namesEnvFile(cmd) {
   return segments(cmd).some(seg => words(seg).some(w => isEnvName(w.replace(/^[<>]+/, ''))));
 }
 
+// Plans, tickets, results and .oma/ stay on disk. They are git-ignored; this stops a forced add.
+export function stagesOmaFiles(cmd) {
+  return segments(cmd).some(seg => /\bgit\b.*\b(add|commit|stage)\b/.test(seg) && /(^|[\s"'=\/])\.?\/?(\.oma|specs\/tickets)(\/|\s|$|"|')/.test(seg));
+}
+
 export function decide(input) {
   if (!input || typeof input.agent_type !== 'string' || !input.agent_type.startsWith(PREFIX)) return null;
   const ti = input.tool_input || {};
@@ -92,6 +97,7 @@ export function decide(input) {
   if (tool === 'Bash' || tool === 'Monitor') {
     const cmd = String(ti.command || '');
     if (runsGitPush(cmd)) return 'git push is off for oh-my-agent agents: nothing leaves this machine until the person pushes it.';
+    if (stagesOmaFiles(cmd)) return 'oma files (.oma/, specs/tickets/) are local and never committed: do not git add or commit them.';
     if (namesEnvFile(cmd)) return 'oh-my-agent agents never read .env files. List a needed one in .worktreeinclude instead.';
   }
   if (['Read', 'Edit', 'Write', 'NotebookEdit'].includes(tool) && isEnvName(ti.file_path || ti.notebook_path)) {

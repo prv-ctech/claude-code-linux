@@ -50,9 +50,9 @@ Every agent that builds these tickets reads `.oma/project.md` for the project's 
 1. Read the project: the manifest and scripts (`package.json`, `Makefile`, `pyproject.toml`, …), README, AGENTS.md / CLAUDE.md, `.env.example`, the routes or entry points, and how the app is started. If a lint, build or test command doesn't exist, write `none` rather than inventing one.
 2. Replace every `{{…}}` with the real value for this project, including the ```json block (keep it valid JSON; `oma cfg` must print it without error). Commands that need a port use `<port>`. Keep `mainPort` 3000 and the Ports table as they are unless something on this machine that isn't this app already uses those ports (`oma port 3000`).
 3. If there is a start command, check it really works on another port: `oma serve 3199`, then `oma up 3199`. Fix the command (or pick a different `upPath`) until `oma up 3199` prints 200; run `oma stop 3199` before each retry, or `oma serve` refuses the busy port. Then check agent hosts: `curl -s -o /dev/null -w '%{http_code}' http://probe.localhost:3199<upPath>` (with the real upPath). `200` means `"agentHosts": "yes"`, anything else `"no"`. Then `oma stop 3199`, also when a step failed. With start `none`: `upPath` is `none`, `agentHosts` is `no`, skip the checks.
-4. If the app needs a gitignored file such as `.env` to start, check that a `.worktreeinclude` file at the project root lists it. If not, create one listing it (it uses `.gitignore` syntax and makes Claude Code copy those files into every new worktree). Check that a file exists with `ls -a`; never read it.
+4. If the app needs a gitignored file such as `.env` to start, check that a `.worktreeinclude` file at the project root lists it (keep the `/.oma/` and `/specs/tickets/` lines `init` wrote). If not, add it (it uses `.gitignore` syntax and makes Claude Code copy those files into every new worktree). Check that a file exists with `ls -a`; never read it.
 5. Bring the watchdog's numbers in line with the profile: in the ```json block of `.oma/watchdog-rules.md`, set `healthPaths` to `["<upPath>"]` (`[]` if the start command is `none`), set `appUrl` to `http://localhost:<mainPort>`, and add every file under "Files tools rewrite on their own" to `driftIgnore`. Keep the block valid JSON.
-6. Set the line to `**Profile:** filled in`. Make sure `.oma/job/` and `.claude/worktrees/` are in `.gitignore`, and add them if not.
+6. Set the line to `**Profile:** filled in`. Run `node "<plugin root>/scripts/oma.mjs" init` once: it puts `.oma/`, `specs/tickets/`, `.worktreeinclude` and `.claude/worktrees/` in `.gitignore` and `.dockerignore`, and lists `.oma/` and `specs/tickets/` in `.worktreeinclude` so workers get copies.
 7. Don't ask the user to confirm the profile. Your final reply carries a 3-line summary of it (commands, ports and agent hosts, core flows); the router shows it to the user, who corrects it if needed.
 
 Skip this step when the profile already says `filled in`. If your prompt only asks for the profile, go to step 9.
@@ -256,12 +256,9 @@ Only **ready** tickets get handed to workers. Status is the same in rd.md and in
 - `Review tickets: true`: write every new ticket as **Status: draft**. The router walks the user through each draft (its summary, the **Decisions made** list and the board) and resumes you with `mark NNN ready` or with changes. Apply changes, re-run step 7 if the affected areas changed, and commit again. Mark a ticket ready only when the router's message says so for that ticket. Never mark a draft ready on your own.
 - Never change the Status of a ticket that is ready, done or in flight unless the router's message asks for it.
 
-### 9. Commit on the base branch
+### 9. Never commit oma files
 
-1. `git branch --show-current` must print the Base branch from your prompt. If not, don't commit: report `BLOCKED: main checkout is on <branch>, not <base>; files written, not committed`. If `git rev-parse -q --verify MERGE_HEAD` prints a sha, a merge is in progress there: don't commit; report `BLOCKED: a merge is in progress in the main checkout; files written, not committed`.
-2. Stage only your paths (new files need it): the ticket folders you wrote or changed in this run (`specs/tickets/NNN-slug`, never another ticket's folder or a team's `contract.md`), `specs/tickets/BOARD.md`, and, when you changed them, `.oma/project.md`, `.oma/watchdog-rules.md`, `.gitignore` and `.worktreeinclude`: `git add -- <those paths>`.
-3. Commit only those paths: `git commit -m "oma: tickets NNN, NNN" -- <the same paths>`. For a profile-only run the message is `oma: project profile`; for a status change `oma: tickets NNN ready`. A commit with paths commits only those paths, even if other changes are staged.
-4. Never commit anything else, never stash, reset, checkout or push. Run each git command as a plain, separate command.
+Tickets, `BOARD.md` and everything under `.oma/` are local: they are in `.gitignore`, `.dockerignore` and `.worktreeinclude`, and must never be committed or pushed. Do not run `git add` or `git commit` for them. Check that `git status --porcelain -- .oma specs/tickets` prints nothing; if it lists a path, run `node "<plugin root>/scripts/oma.mjs" init` once and look again. Workers get the files through `.worktreeinclude` when their worktree is created, so write every ticket before the router starts a worker.
 
 ## Final reply
 
@@ -270,6 +267,6 @@ At most 10 lines, plain text:
 - If you filled in the profile: a 3-line summary of it (commands; mainPort and agent hosts; core flows).
 - One line per ticket: `NNN title: status, mode, runs`.
 - Every decision you made on your own that changes what users see (one line each, or `Decisions: none that change what users see`).
-- `Commit: <sha>` (from `git rev-parse --short HEAD`), or the BLOCKED line.
+- `Committed: nothing (oma files are local)`.
 
 Or, when step 3 left user-facing choices open: the profile summary if you filled it in this run, then the `QUESTIONS` block, nothing else (commit only after the answers, in step 9). Don't paste the files; they're on disk.
