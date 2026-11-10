@@ -1,6 +1,6 @@
 # 007: /omc status shows the whole mod, plus the naming check
 
-**Status:** ready
+**Status:** done
 
 ## Summary
 `/omc status` (also `/omc` with no argument) reports everything the mod does in one view: on/off, MCP servers direct vs routed (with reason), skills (hidden / listed by name only / direct), reply mode, tool-result compression, recovery store size and cap, tokens saved. An automated test fails if a forbidden upstream name appears anywhere in the mod.
