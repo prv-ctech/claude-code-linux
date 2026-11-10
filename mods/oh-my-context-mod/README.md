@@ -111,6 +111,12 @@ Live check (calls the real model, needs a logged-in `claude`; exit 2 means skipp
 node mods/oh-my-context-mod/test/live-reply.mjs
 ```
 
+## Compress a document
+
+`/omc compress <file>` shrinks a prose file (CLAUDE.md, notes, docs) to fewer tokens. Types: `.md`, `.markdown`, `.txt`, `.rst`, `.typ`, `.typst`, `.tex` or no extension, up to 1 MiB, UTF-8, no symlinks. Flow: `scripts/doc.js prepare` backs up the original and prints the rewrite rules, the session model writes a candidate, `scripts/doc.js apply` checks it (frontmatter, headings, code blocks, inline code, URLs, paths, numbers, table rows identical; not/never/no/only/except not fewer; strictly shorter) and only then replaces the file. A failed check lists the problems; Claude fixes them and retries twice, then `abort` leaves the file unchanged. Nothing goes over the network.
+
+Backups live in `${XDG_DATA_HOME:-~/.local/share}/oh-my-context-mod/backups/<hash>-<folder>/<name>.original`. A second compress is refused while a backup exists. `/omc restore <file>` copies the backup back and deletes it.
+
 ## Credits and licenses
 
 - The gateway, oh-my-context, is derived from [mcptoon](https://github.com/activeing123/mcptoon) 0.8.33 by activeing123, Apache License 2.0. It ships in `vendor/oh_my_context` with mcptoon's license in `vendor/LICENSE` and its NOTICE, kept verbatim, in `vendor/NOTICE`, which also lists what we changed (renames and removed modules and commands included). Each changed file has a "Modified by oh-my-context-mod" header and each functional change an `oh-my-context-mod:` comment; upstream copyright lines stay. `vendor/oh_my_context/hint.py` is ours, under the same license.
