@@ -99,6 +99,18 @@ With `CLAUDE_CONFIG_DIR` set, `~/.claude` above is that folder (and `.claude.jso
 - **Only the plugin's commands.** The vendored gateway keeps the four commands the plugin runs: `serve` (`.mcp.json`), `--version`, `skills index <dir>` (`hooks/sync.js`) and `hint` (`hooks/prompt.js`). Upstream's other commands, including every one that wrote agent configs, shell rc files, autostart entries, skill folders or the gateway config, downloaded something or left a process behind, are removed with their code; any other command line prints a usage line and exits 2. It never reads a project's `./.oh-my-context.json` or `.oh-my-context.toml`, so a cloned repo cannot make it run a command. The servers it starts get the environment Claude gave the gateway, without the launcher's own Python variables.
 - **Permissions.** The gateway's own block on destructive tools is skipped for a `call` that resolved to an exact route, because `hooks/permit.js` applies your rules to it instead; a direct call under `{"exposure": "full"}` in `settings.json` (which also lists every routed tool) keeps the block. `hooks/permit.js` denies, and the gateway refuses, a call in any form other than the two it maps back to an original tool name, so no routed call runs without your rules being checked. Rules passed with `--settings` or `--disallowedTools` are not visible to the hook; Claude still applies them to `call` itself.
 
+## Reply modes
+
+Terse replies save output tokens. Levels: `off`, `lite` (full sentences, no padding), `full` (short sentences, answer first), `ultra` (fragments, the default) and `max` (`label: value` lines only). Set one with `/omc mode <level>`; `/omc mode` shows the current one.
+
+A level switches your `outputStyle` to `oh-my-context-mod:reply-<level>` and adds a reminder at session start, on every prompt, after every tool call and into every subagent (`hooks/reply.js`). State is `<config dir>/oh-my-context-mod/reply.json` (`mode`, and the style you had before). `off` restores that style, or removes the key if you had none, but only while the current style is one of ours; a style you picked since stays. An unreadable `settings.json` is never overwritten. `OMC_REPLY_MODE` overrides the mode for hook output only and writes nothing.
+
+Live check (calls the real model, needs a logged-in `claude`; exit 2 means skipped):
+
+```bash
+node mods/oh-my-context-mod/test/live-reply.mjs
+```
+
 ## Credits and licenses
 
 - The gateway, oh-my-context, is derived from [mcptoon](https://github.com/activeing123/mcptoon) 0.8.33 by activeing123, Apache License 2.0. It ships in `vendor/oh_my_context` with mcptoon's license in `vendor/LICENSE` and its NOTICE, kept verbatim, in `vendor/NOTICE`, which also lists what we changed (renames and removed modules and commands included). Each changed file has a "Modified by oh-my-context-mod" header and each functional change an `oh-my-context-mod:` comment; upstream copyright lines stay. `vendor/oh_my_context/hint.py` is ours, under the same license.
