@@ -2,10 +2,10 @@
 'use strict';
 // Document minimizer helper: prepare / apply / abort / restore. Node stdlib only, no network.
 // The session model rewrites the candidate; this script checks and swaps files.
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const crypto = require('crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
 
 const EXTS = new Set(['.md', '.markdown', '.txt', '.rst', '.typ', '.typst', '.tex', '']);
 const MAX = 1024 * 1024;
@@ -49,11 +49,11 @@ function parts(text) {
   for (const line of lines) {
     if (fence) {
       cur.push(line);
-      const m = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
+      const m = /^\s*(`{3,}|~{3,})\s*$/.exec(line);
       if (m && m[1][0] === fence[0] && m[1].length >= fence.length) { fences.push(cur.join('\n')); fence = null; }
       continue;
     }
-    const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    const open = /^\s*(`{3,}|~{3,})/.exec(line);
     if (open) {
       if (ind) { indented.push(ind.join('\n').replace(/\s+$/, '')); ind = null; }
       fence = open[1]; cur = [line]; continue;
@@ -166,6 +166,11 @@ function apply(file) {
 
 function abort(file) {
   const p = paths(file);
+  // After a successful apply the candidate is gone and the file differs: keep the backup for restore.
+  if (!fs.existsSync(p.candidate) && fs.existsSync(p.backup) && fs.existsSync(file)
+    && sha(fs.readFileSync(file)) !== sha(fs.readFileSync(p.backup))) {
+    fail(`refused: ${file} differs from its backup; use /omc restore to undo`);
+  }
   fs.rmSync(p.candidate, { force: true });
   fs.rmSync(p.backup, { force: true });
   console.log(`left unchanged: ${file}`);

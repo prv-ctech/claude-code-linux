@@ -139,3 +139,19 @@ test('restore puts original back; second restore fails', () => {
   assert.strictEqual(r2.status, 1);
   assert.match(r2.stdout, /^no backup for /);
 });
+
+test('abort after a successful apply keeps the backup', () => {
+  const e = env(); const { backup, cand } = e.prep();
+  fs.writeFileSync(cand, GOOD); e.run('apply');
+  const r = e.run('abort');
+  assert.strictEqual(r.status, 1);
+  assert.ok(fs.existsSync(backup));
+});
+
+test('fenced block nested in a list at deep indent is protected', () => {
+  const e = env();
+  fs.writeFileSync(e.file, '- item one here\n\n    ```sh\n    echo  a\n    ```\n\nEnd of text now.\n');
+  const { cand } = e.prep();
+  fs.writeFileSync(cand, '- item\n\n    ```sh\n    echo a\n    ```\n\nEnd.\n');
+  assert.match(e.run('apply').stdout, /fenced/);
+});
