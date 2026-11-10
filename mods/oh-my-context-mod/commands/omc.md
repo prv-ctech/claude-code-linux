@@ -25,7 +25,7 @@ Otherwise run this Bash command and show its output as is, without changing anyt
 
 What each argument does (no argument means `status`):
 
-- `status`: lists every MCP server of this project and what happens to it (`forwarded`, `forward*` = from the next session start, or `direct` with the reason), how many skills and commands are routed, whether the guard hooks are installed, the two settings and the paths in use. Changes nothing.
+- `status`: lists every MCP server of this project and what happens to it (`forwarded`, `forward*` = from the next session start, or `direct` with the reason), how many skills and commands are routed, which skills are direct, hidden or listed by name only, the reply mode, whether tool-result compression is on, the recovery store size, entries and cap, the tokens saved by compression, whether the guard hooks are installed, the settings and the paths in use. Changes nothing.
 - `off`: puts everything back (MCP server switches, gateway entries, skill overrides, patched plugin skill and command files, guard hooks) and keeps the mod off until `on` (the switch is a file `off` in the plugin's data folder; uninstalling the plugin clears it). Claude shows every server and skill fully from the next session.
 - `on`: turns the mod back on and applies the setup to this project now; it counts from the next session.
 - `mode <off|lite|full|ultra|max>`: sets the terse reply mode (output style plus reminders in every prompt, tool result and subagent); `mode` alone shows the current one. `off` puts your previous output style back. Independent of `on` and `off`.
