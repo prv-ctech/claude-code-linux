@@ -8,11 +8,6 @@
   },
   "plugins": [
     {
-      "name": "caveman-mod",
-      "source": "./mods/caveman-mod",
-      "description": "Caveman ultracave style: its own output style plus rules injected at session start, every message and every subagent. /caveman off restores your previous output style."
-    },
-    {
       "name": "codebase-memory-mod",
       "source": "./mods/codebase-memory-mod",
       "description": "codebase-memory-mcp for Claude Code: MCP server, skill, and hooks that put the graph first in every chat and subagent, with a gate on grep for indexed code."

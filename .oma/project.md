@@ -12,7 +12,7 @@ The `oma` helper (on every session's PATH while the plugin is on) reads the json
   "install": "none",
   "lint": "for m in mods/*-mod; do claude plugin validate \"$m\" || exit 1; done",
   "build": "none",
-  "test": "node --test mods/oh-my-agent-mod/test/*.test.mjs mods/caveman-mod/test/*.test.js mods/oh-my-context-mod/test/*.test.js mods/codebase-memory-mod/test/*.test.js && PYTHONPATH=mods/oh-my-context-mod/vendor python3 -m unittest discover -s mods/oh-my-context-mod/test -p 'test_*.py'",
+  "test": "node --test mods/oh-my-agent-mod/test/*.test.mjs mods/oh-my-context-mod/test/*.test.js mods/codebase-memory-mod/test/*.test.js && PYTHONPATH=mods/oh-my-context-mod/vendor python3 -m unittest discover -s mods/oh-my-context-mod/test -p 'test_*.py'",
   "start": "none",
   "upPath": "none",
   "mainPort": 3000,
