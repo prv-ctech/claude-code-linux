@@ -53,12 +53,26 @@ test('session start ignores oma files without init, and untracks ones already co
   write(path.join(dir, 'specs', 'tickets', 'BOARD.md'), 'x');
   git(dir, 'add', '-f', 'specs');
   assert.ok(git(dir, 'ls-files', '.oma', 'specs').includes('BOARD.md'));
+  write(path.join(dir, '.worktreeinclude'), '.env\n'); // the user's own, committed file
+  git(dir, 'add', '.worktreeinclude');
+  git(dir, 'commit', '-q', '-m', 'wti');
   const changed = guardIgnores(dir);
   assert.ok(changed.length >= 3);
-  assert.strictEqual(git(dir, 'ls-files', '.oma', 'specs', '.worktreeinclude'), '');
+  assert.strictEqual(git(dir, 'ls-files', '.oma', 'specs'), '');
+  assert.strictEqual(git(dir, 'ls-files', '.worktreeinclude'), '.worktreeinclude', 'the user\'s .worktreeinclude stays tracked');
+  assert.ok(fs.readFileSync(path.join(dir, '.worktreeinclude'), 'utf8').startsWith('.env\n'), 'its own lines stay');
   assert.ok(fs.existsSync(path.join(dir, '.oma', 'project.md')), 'files stay on disk');
   assert.strictEqual(run('git', ['check-ignore', '-q', 'specs/tickets/001-x/rd.md'], { cwd: dir }).status, 0);
   assert.deepStrictEqual(guardIgnores(dir), []);
+  // A linked worktree is never edited: its tracked .worktreeinclude would turn the worker's tree dirty.
+  const wt = path.join(dir, '.claude', 'worktrees', 'w');
+  git(dir, 'worktree', 'add', '-q', '-b', 'w', wt);
+  write(path.join(wt, 'specs', 'tickets', 'BOARD.md'), 'x');
+  fs.writeFileSync(path.join(dir, '.worktreeinclude'), '.env\n');
+  git(dir, 'commit', '-qam', 'reset wti');
+  const before = git(wt, 'status', '--porcelain');
+  assert.deepStrictEqual(guardIgnores(wt), []);
+  assert.strictEqual(git(wt, 'status', '--porcelain'), before);
   const plain = repo();
   fs.rmSync(path.join(plain, '.oma'), { recursive: true });
   git(plain, 'rm', '-rq', '--cached', '.oma');
@@ -80,7 +94,7 @@ test('bootstrap sets a project up once and reports its state', () => {
   assert.strictEqual(s.board, null);
   assert.ok(fs.existsSync(path.join(dir, '.oma', 'project.md')));
   assert.ok(fs.existsSync(path.join(dir, '.oma', 'watchdog-rules.md')));
-  assert.match(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), /node_modules\/\n\n# oh-my-agent[^\n]*\n\/\.oma\/\n\/specs\/tickets\/\n\/\.worktreeinclude\n\/\.claude\/worktrees\/\n$/);
+  assert.match(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), /node_modules\/\n\n# oh-my-agent[^\n]*\n\/\.oma\/\n\/specs\/tickets\/\n\/\.claude\/worktrees\/\n$/);
   assert.match(fs.readFileSync(path.join(dir, '.dockerignore'), 'utf8'), /^# oh-my-agent[^\n]*\n\/\.oma\/\n\/specs\/tickets\//);
   assert.strictEqual(fs.readFileSync(path.join(dir, '.worktreeinclude'), 'utf8').split('\n').filter(l => l && l[0] !== '#').join(), '/.oma/,/specs/tickets/');
   assert.deepStrictEqual(readJson(path.join(dir, '.claude', 'settings.local.json')), { worktree: { baseRef: 'head' } });

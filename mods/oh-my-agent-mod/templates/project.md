@@ -65,5 +65,5 @@ Project rules the reviewer holds every change to. Only ones that cause real bugs
 
 ## Files
 
-- **Never commit:** `.oma/`, `specs/tickets/`, `.worktreeinclude`, `.claude/worktrees/`, {{e.g. `node_modules/`, `.next/`, `.env*`}}
+- **Never commit:** `.oma/`, `specs/tickets/`, `.claude/worktrees/`, {{e.g. `node_modules/`, `.next/`, `.env*`}}
 - **Files tools rewrite on their own** (commit them with the work if they change, never count them as drift): {{or "none"}}

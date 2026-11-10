@@ -172,7 +172,7 @@ function blockedNote(status) {
 
 // oma's own files are local and never committed. A worktree branches from the last commit, so its
 // .gitignore may not list them yet (the main checkout's .gitignore edit can still be uncommitted).
-export const isLocalOmaPath = (p) => p.startsWith('.oma/') || p.startsWith('specs/tickets/') || p === '.worktreeinclude';
+export const isLocalOmaPath = (p) => p.startsWith('.oma/') || p.startsWith('specs/tickets/');
 
 function checkWorktree(root, { status, error }) {
   const problems = [];
