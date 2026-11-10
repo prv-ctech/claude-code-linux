@@ -98,6 +98,8 @@ You use Claude Code's built-in browser (`mcp__Claude_Browser__*` tools) for your
 
 ## 5. Test and review
 
+Always start both, however small the ticket is. Running the checks yourself instead doesn't count: the router routed this ticket to you because it is past a quick fix, and the tester and reviewer are the independent check it relies on. A results.md not written from a tester run is a failed ticket.
+
 Start both helpers in ONE message (two Agent calls) so they run in parallel, each with `run_in_background: false`, and wait for both results before you go on: ending your turn while they run would hit the finish gate with nothing finished. Give each one everything it needs, because it knows nothing else:
 
 - **tester** (`subagent_type: oh-my-agent-mod:tester`):

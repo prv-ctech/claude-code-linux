@@ -80,7 +80,7 @@ const truthy = v => ['1', 'true', 'yes', 'on'].includes(String(v ?? '').trim().t
 // --- router mode per session -----------------------------------------------------------------------
 
 const routerLine = () => `oh-my-agent router mode is on in this session: you are the router. Follow ${path.join(ROOT, 'router.md')} `
-  + '(Read it again if it is not in your context): route work to oh-my-agent-mod agents, never build, edit or run git yourself. /oma off ends router mode.';
+  + '(Read it again if it is not in your context): route work to oh-my-agent-mod agents, never build, edit or run git yourself, except a quick fix as the Quick path in router.md allows. /oma off ends router mode.';
 
 export function sessionsOn(p) {
   return readJson(p.sessions, {});
@@ -109,18 +109,39 @@ export function onPrompt(p, input) {
     }
     if (['status', 'help', 'init'].includes(arg)) return null;
     setSession(p, sid, true);
-    // The command itself carries the instructions; agents inherit this session's permission mode.
+    // Headless runs (claude -p) don't resolve the short /oma name, so the command text may be missing.
+    const lines = [`oh-my-agent: the user ran /oma, so you are the oh-my-agent router for this request, even if no /oma command text appears above (headless runs don't resolve the short name). `
+      + `Unless you already did for this prompt, first run node "${path.join(ROOT, 'scripts', 'oma.mjs')}" start in the project root, then read ${path.join(ROOT, 'router.md')} in full and follow it.`];
+    // Agents inherit this session's permission mode.
     const mode = String(input.permission_mode || '');
     if (mode && !['auto', 'bypassPermissions', 'dontAsk'].includes(mode)) {
-      return `oh-my-agent: this session's permission mode is "${mode}", so every agent will stop and wait for approvals. `
-        + 'Tell the user once, in one line, that switching the session to auto mode lets the run go without them.';
+      lines.push(`oh-my-agent: this session's permission mode is "${mode}", so every agent will stop and wait for approvals. `
+        + 'Tell the user once, in one line, that switching the session to auto mode lets the run go without them.');
     }
-    return null;
+    return lines.join('\n');
   }
   return sid && sessionsOn(p)[sid] ? routerLine() : null;
 }
 
+// Claude Code only resolves plugin commands by their full name (/oh-my-agent-mod:oma), so a user-level
+// /oma alias points at this plugin version. Never overwrites a file without our marker.
+const ALIAS_MARK = '<!-- oh-my-agent-mod alias: rewritten at every session start; delete freely -->';
+export function ensureAlias(p, root = ROOT) {
+  const file = path.join(p.claude, 'commands', 'oma.md');
+  let old = null;
+  try { old = fs.readFileSync(file, 'utf8'); } catch {}
+  if (old !== null && !old.includes(ALIAS_MARK)) return false;
+  const src = fs.readFileSync(path.join(root, 'commands', 'oma.md'), 'utf8').replaceAll('${CLAUDE_PLUGIN_ROOT}', root);
+  const end = src.indexOf('\n---', 4) + 4;
+  const text = `${src.slice(0, end)}\n${ALIAS_MARK}\n\nIf ${path.join(root, 'scripts', 'oma.mjs')} does not exist, oh-my-agent-mod is uninstalled: delete ${file}, tell the user /oma is gone, and stop.\n${src.slice(end)}`;
+  if (text === old) return false;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+  return true;
+}
+
 export function onSession(p, input) {
+  try { ensureAlias(p); } catch {}
   const lines = [];
   const sid = String(input.session_id || '');
   const on = sid && sessionsOn(p)[sid];
