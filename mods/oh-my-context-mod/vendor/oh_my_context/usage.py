@@ -52,6 +52,35 @@ def calls_recorded() -> int:
         return 0
 
 
+def saved_tokens() -> int:
+    """Tokens saved by compression so far, cumulative."""
+    try:
+        return int(json.loads(_USAGE_FILE.read_text(encoding="utf-8")).get("saved_tokens", 0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0
+
+
+def _write(**fields) -> None:
+    _USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        data = json.loads(_USAGE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    data.update(fields)
+    tmp = _USAGE_FILE.with_name(f"usage.json.tmp.{os.getpid()}.{threading.get_ident()}")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(tmp, _USAGE_FILE)
+
+
+def add_saved_tokens(n: int) -> None:
+    """Add to the cumulative saved-token count. Never raises."""
+    try:
+        with _usage_lock:
+            _write(saved_tokens=saved_tokens() + int(n))
+    except (OSError, ValueError):
+        pass
+
+
 def track_call() -> None:
     """Count one tool call. Crash-safe: counting must never break the call itself.
 
@@ -60,9 +89,6 @@ def track_call() -> None:
     try:
         with _usage_lock:
             total = calls_recorded() + 1
-            _USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            tmp = _USAGE_FILE.with_name(f"usage.json.tmp.{os.getpid()}.{threading.get_ident()}")
-            tmp.write_text(json.dumps({"total": total}), encoding="utf-8")
-            os.replace(tmp, _USAGE_FILE)
+            _write(total=total)
     except OSError:
         pass

@@ -1,0 +1,25 @@
+# run 1
+backed up /config/.claude/backups/remove-caveman-mod-20261110132732
+uninstalled caveman-mod@claude-code-linux
+already gone: enabledPlugins[caveman-mod@claude-code-linux]
+already gone: installed_plugins.json caveman-mod@claude-code-linux
+removed /config/.claude/plugins/cache/claude-code-linux/caveman-mod
+already gone: /config/.claude/plugins/data/caveman-mod-claude-code-linux
+outputStyle: caveman-mod:ultracave -> oh-my-context-mod:reply-ultra
+removed /config/.claude/caveman-mod.json
+removed /config/.claude/caveman-mod-fired
+removed /config/.claude/plugins/data/caveman-mod-inline
+
+# run 2 (idempotent)
+backed up /config/.claude/backups/remove-caveman-mod-20261110132748
+uninstall: nothing to do or failed (ignored)
+already gone: enabledPlugins[caveman-mod@claude-code-linux]
+already gone: installed_plugins.json caveman-mod@claude-code-linux
+already gone: /config/.claude/plugins/cache/claude-code-linux/caveman-mod
+already gone: /config/.claude/plugins/data/caveman-mod-claude-code-linux
+already gone: outputStyle caveman-mod:ultracave
+already gone: /config/.claude/caveman-mod.json
+already gone: /config/.claude/caveman-mod-fired
+already gone: /config/.claude/plugins/data/caveman-mod-inline
+
+normalized settings/installed JSON equal before/after: yes (cmp)

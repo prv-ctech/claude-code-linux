@@ -12,7 +12,7 @@ On every session start, a hook (`hooks/sync.js session`) sets this up:
 |---|---|
 | MCP servers | Every server Claude would start (yours and local-scope ones in `~/.claude.json`, and each enabled plugin's, user or project scope) gets an entry in the gateway config and is turned off for this project with `disabledMcpServers` in `~/.claude.json`, the key the `/mcp` toggle writes. Claude then sees only the gateway's own tools. |
 | Original tool names | The gateway's tools are `mcp__plugin_oh-my-context-mod_oh-my-context__<tool>` to Claude. `call` takes one of two forms: `tool` set to a routed tool's original Claude name (`mcp__github__create_issue`, `mcp__plugin_<plugin>_<server>__<tool>`), with `server` left out or naming the server that tool belongs to; or `server` plus the server's own tool name as `tool`. Any other form (a `name` argument, a bare tool name without `server`, a server that is not routed or does not match) is refused. `manifest` lists the routed tools and `inspect` shows one tool's parameters. These three and `resolve_skills` are loaded up front; the gateway's other tools stay deferred. |
-| Results | A routed call returns what a direct call would: the server's own content blocks (text, images, resources) and its `structuredContent`, and an `isError` result stays an error. Results are not compressed; `{"compress": "smart"}` in the gateway's `settings.json` (next to its config, see Secrets below) turns the gateway's compression on from the next session. |
+| Results | A routed call returns what a direct call would: the server's own content blocks (text, images, resources) and its `structuredContent`, and an `isError` result stays an error. Large results are compressed (see Tool-result compression below); `{"compress": "off"}` in the gateway's `settings.json` (next to its config, see Secrets below) passes them through unchanged. |
 | Server instructions | A routed server's own instructions come with its first successful call instead of on every turn, and again after `/clear`, compaction, or a subagent starting or finishing (the SessionStart, SubagentStart and SubagentStop hooks tell the gateway a new context began). `inspect` shows them only for a server that is already running; it never starts one. |
 | Prompts and resources | A routed server's prompts show as `/mcp__plugin_oh-my-context-mod_oh-my-context__<server>__<prompt>`, and its resources are listed and read through the gateway. Only servers known to offer them are asked, so a newly added server's prompts and resources appear after its first call or tool fetch. |
 | Plugin skills | Each `SKILL.md` gets the one-line description `routed` (its `when_to_use` is dropped). The skill stays listed by name and the Skill tool still runs it. A file reached through a symlink is left as it is (but still indexed). |
@@ -98,6 +98,49 @@ With `CLAUDE_CONFIG_DIR` set, `~/.claude` above is that folder (and `.claude.jso
 - **No network of its own.** No pip, no venv, no update check, no download. The gateway connects only to the servers it routes; `kb_index` indexes local files only, tokens are estimated without tiktoken (which downloads its encoding), and `oh-my-context hint` reads local files only.
 - **Only the plugin's commands.** The vendored gateway keeps the four commands the plugin runs: `serve` (`.mcp.json`), `--version`, `skills index <dir>` (`hooks/sync.js`) and `hint` (`hooks/prompt.js`). Upstream's other commands, including every one that wrote agent configs, shell rc files, autostart entries, skill folders or the gateway config, downloaded something or left a process behind, are removed with their code; any other command line prints a usage line and exits 2. It never reads a project's `./.oh-my-context.json` or `.oh-my-context.toml`, so a cloned repo cannot make it run a command. The servers it starts get the environment Claude gave the gateway, without the launcher's own Python variables.
 - **Permissions.** The gateway's own block on destructive tools is skipped for a `call` that resolved to an exact route, because `hooks/permit.js` applies your rules to it instead; a direct call under `{"exposure": "full"}` in `settings.json` (which also lists every routed tool) keeps the block. `hooks/permit.js` denies, and the gateway refuses, a call in any form other than the two it maps back to an original tool name, so no routed call runs without your rules being checked. Rules passed with `--settings` or `--disallowedTools` are not visible to the hook; Claude still applies them to `call` itself.
+
+## Reply modes
+
+Terse replies save output tokens. Levels: `off`, `lite` (full sentences, no padding), `full` (short sentences, answer first), `ultra` (fragments, the default) and `max` (`label: value` lines only). Set one with `/omc mode <level>`; `/omc mode` shows the current one.
+
+A level switches your `outputStyle` to `oh-my-context-mod:reply-<level>` and adds a reminder at session start, on every prompt, after every tool call and into every subagent (`hooks/reply.js`). State is `<config dir>/oh-my-context-mod/reply.json` (`mode`, and the style you had before). `off` restores that style, or removes the key if you had none, but only while the current style is one of ours; a style you picked since stays. An unreadable `settings.json` is never overwritten. `OMC_REPLY_MODE` overrides the mode for hook output only and writes nothing.
+
+Live check (calls the real model, needs a logged-in `claude`; exit 2 means skipped):
+
+```bash
+node mods/oh-my-context-mod/test/live-reply.mjs
+```
+
+## Compress a document
+
+`/omc compress <file>` shrinks a prose file (CLAUDE.md, notes, docs) to fewer tokens. Types: `.md`, `.markdown`, `.txt`, `.rst`, `.typ`, `.typst`, `.tex` or no extension, up to 1 MiB, UTF-8, no symlinks. Flow: `scripts/doc.js prepare` backs up the original and prints the rewrite rules, the session model writes a candidate, `scripts/doc.js apply` checks it (frontmatter, headings, code blocks, inline code, URLs, paths, numbers, table rows identical; not/never/no/only/except not fewer; strictly shorter) and only then replaces the file. A failed check lists the problems; Claude fixes them and retries twice, then `abort` leaves the file unchanged. Nothing goes over the network.
+
+Backups live in `${XDG_DATA_HOME:-~/.local/share}/oh-my-context-mod/backups/<hash>-<folder>/<name>.original`. A second compress is refused while a backup exists. `/omc restore <file>` copies the backup back and deletes it, but refuses (backup kept) if the file was edited after the compress.
+
+## Tool-result compression
+
+The gateway shrinks large text results of routed calls before Claude sees them. It recognises shapes (JSON, logs, tables and the like, see `vendor/oh_my_context/shapes`), compresses only when the saving clears its thresholds, and encodes uniform JSON arrays as TOON. A compressed result ends with a marker line `<<omc:HANDLE>>`. The exact original is kept in the recovery store; call the gateway's `retrieve` tool with the handle (and optionally a `query` to get only the matching parts) to read it.
+
+The store is `<gateway home>/recovery/`, capped at 512 MiB (536870912 bytes); `OMC_RECOVERY_MAX_BYTES` changes the cap. Nothing is evicted: when the store is full, results pass through uncompressed. The `compress` setting in the gateway's `settings.json` is `on` (default) or `off`.
+
+## Status
+
+`/omc status` (or `/omc`) prints, besides the per-server lines, one view of the whole mod and changes nothing:
+
+```
+oh-my-context-mod: on · oh-my-context CLI: oh-my-context 0.9.0
+MCP servers (/project): ...
+Skills: ...
+Commands: ...
+Skills by name: direct: none; hidden: none; listed by name only: 12
+Reply mode: ultra (style: default)
+Tool-result compression: on
+Recovery store: 0.0 MiB of 512.0 MiB, 0 entries (<gateway home>/recovery)
+Tokens saved by compression: 0
+Guard ...
+```
+
+The last three gateway lines come from `oh-my-context stats` (one JSON line); if it cannot run they read `unknown (gateway CLI not runnable)`.
 
 ## Credits and licenses
 

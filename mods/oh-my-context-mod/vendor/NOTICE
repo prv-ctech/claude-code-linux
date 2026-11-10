@@ -133,8 +133,10 @@ the HTTP MCP servers the gateway routes.
                                  resolve over it; skills are indexed by their
                                  frontmatter name (the Skill tool's id).
   oh_my_context/cache.py         per-server files under OMC_HOME/cache only.
-  oh_my_context/ccr.py           the store lives in OMC_HOME/ccr, never expires
-                                 and keeps one session per gateway process.
+  oh_my_context/recovery.py      (formerly the store module) one file per
+                                 content-hash handle in OMC_HOME/recovery, byte
+                                 cap (OMC_RECOVERY_MAX_BYTES), never evicts,
+                                 section query; one session per gateway process.
   oh_my_context/compressor.py    used only by the gateway.
   oh_my_context/floodguard.py    blocks only (no soft cap), fixed limits.
   oh_my_context/headers.py       documentation only.
