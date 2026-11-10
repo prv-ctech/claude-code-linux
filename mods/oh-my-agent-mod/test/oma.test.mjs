@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { ROOT, tmp, repo, git, write, run } from './helpers.mjs';
-import { paths, onPrompt, onSession, projectState, guardIgnores } from '../scripts/oma.mjs';
+import { paths, onPrompt, onSession, projectState, guardIgnores, ensureAlias } from '../scripts/oma.mjs';
 
 const OMA_ON = { 'oh-my-agent-mod@claude-code-linux': true };
 
@@ -32,9 +32,11 @@ test('session start never touches the user settings', () => {
 test('/oma turns router mode on for its session only; /oma off ends it; compaction reminds, clear forgets', () => {
   const { p, env } = home({});
   assert.strictEqual(onPrompt(p, { session_id: 'A', prompt: 'hello there, plain prompt' }), null);
-  assert.strictEqual(onPrompt(p, { session_id: 'A', prompt: '/oma add password reset', permission_mode: 'auto' }), null);
+  assert.match(onPrompt(p, { session_id: 'A', prompt: '/oma add password reset', permission_mode: 'auto' }), /you are the oh-my-agent router.*oma\.mjs" start/);
   assert.match(onPrompt(p, { session_id: 'E', prompt: '/oma go', permission_mode: 'default' }), /permission mode is "default"/);
-  assert.match(onPrompt(p, { session_id: 'A', prompt: 'what is running?' }), /router mode is on/);
+  assert.match(onPrompt(p, { session_id: 'A', prompt: 'what is running?' }), /router mode is on.*Quick path/);
+  onPrompt(p, { session_id: 'F', prompt: '/oma fix cover posters do not render', permission_mode: 'auto' });
+  assert.match(onPrompt(p, { session_id: 'F', prompt: 'go' }), /router mode is on/, '/oma fix turns router mode on');
   assert.strictEqual(onPrompt(p, { session_id: 'B', prompt: 'what is running?' }), null, 'other sessions untouched');
   assert.strictEqual(onPrompt(p, { session_id: 'B', prompt: '/oma status' }), null);
   assert.strictEqual(onPrompt(p, { session_id: 'B', prompt: 'x y z' }), null, '/oma status does not turn it on');
@@ -213,4 +215,18 @@ test('oma serve, up, port and stop manage only their own dev server', async () =
   assert.strictEqual(r.status, 0, r.stderr);
   assert.strictEqual(oma(dir, 'port', port).stdout.trim(), '');
   assert.strictEqual(oma(dir, 'up', port).status, 1);
+});
+
+test('session start writes a user-level /oma alias pointing at this plugin, never over a user file', () => {
+  const { p, env } = home({});
+  onSession(p, { session_id: 'S', source: 'startup' }, env);
+  const file = path.join(p.claude, 'commands', 'oma.md');
+  const text = fs.readFileSync(file, 'utf8');
+  assert.match(text, /^---\ndescription:/);
+  assert.ok(text.includes(path.join(ROOT, 'scripts', 'oma.mjs')) && !text.includes('${CLAUDE_PLUGIN_ROOT}'));
+  assert.match(text, /oh-my-agent-mod is uninstalled: delete/);
+  assert.strictEqual(ensureAlias(p), false, 'unchanged alias is not rewritten');
+  fs.writeFileSync(file, 'my own command');
+  assert.strictEqual(ensureAlias(p), false);
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), 'my own command');
 });

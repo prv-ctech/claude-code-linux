@@ -20,11 +20,13 @@ In any project (a git repository), in a normal Claude Code chat:
 /oma add password reset by email, and rate-limit failed logins
 /oma                      resume: route ready tickets, or ask what to build
 /oma 004                  start one ticket
+/oma fix <bug>            quick fix here: repro, root cause, test, fix, commit
+/oma build <feature>      force the full ticket pipeline
 /oma status               board and running jobs, changes nothing
 /oma off                  end router mode in this session
 ```
 
-While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`, `the publish button seemed to do nothing on my phone` (it quietly sends the reproducer), `give workers 20 minutes before calling them stuck`.
+While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`, `the publish button seemed to do nothing on my phone` (it triages first: a small bug with a clear cause gets fixed right in the session, root cause and regression test first; anything bigger quietly goes to the reproducer or the ticket pipeline), `give workers 20 minutes before calling them stuck`.
 
 ## What happens
 
