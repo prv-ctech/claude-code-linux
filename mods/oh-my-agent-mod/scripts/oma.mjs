@@ -20,7 +20,7 @@ export const ME = 'oh-my-agent-mod';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP_SESSIONS = 50;
 // Everything oma writes in a project. Never committed, never sent into a Docker build context.
-export const IGNORE_LINES = ['/.oma/', '/specs/tickets/', '/.worktreeinclude', '/.claude/worktrees/'];
+export const IGNORE_LINES = ['/.oma/', '/specs/tickets/', '/.claude/worktrees/'];
 // Ignored files that every new worktree still needs (Claude Code copies what .worktreeinclude lists).
 const WORKTREE_LINES = ['/.oma/', '/specs/tickets/'];
 
@@ -200,10 +200,11 @@ export function ensureOmaIgnores(root) {
     if (added.length) changed.push(`${name} (+ ${added.join(', ')})`);
   }
   // Ignored files do not reach a worktree on their own: list them so workers still see the tickets.
+  // .worktreeinclude is the user's file (usually committed): lines are only appended, never ignored or untracked.
   const wti = ensureLines(path.join(root, '.worktreeinclude'), WORKTREE_LINES, '# oh-my-agent: files workers need');
   if (wti.length) changed.push(`.worktreeinclude (+ ${wti.join(', ')})`);
   // An ignore line does nothing for a file git already tracks: drop those from the index, keep them on disk.
-  const tracked = git(root, ['ls-files', '--', '.oma', 'specs/tickets', '.worktreeinclude']).stdout.split('\n').filter(Boolean);
+  const tracked = git(root, ['ls-files', '--', '.oma', 'specs/tickets']).stdout.split('\n').filter(Boolean);
   if (tracked.length && git(root, ['rm', '-r', '--cached', '-q', '--', ...tracked]).status === 0) {
     changed.push(`untracked ${tracked.length} oma file(s) (still on disk; commit the removal)`);
   }
