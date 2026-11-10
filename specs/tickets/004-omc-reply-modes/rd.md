@@ -1,6 +1,6 @@
 # 004: Reply compression modes in oh-my-context-mod
 
-**Status:** ready
+**Status:** done
 
 ## Summary
 oh-my-context-mod gets terse reply modes (`off | lite | full | ultra | max`), set with `/omc mode <level>`. They replace what mods/caveman-mod does today (output style + rules injected at session start, every prompt, after every tool call and into every subagent), under neutral names, with the same behaviour ticket 003 proved, plus a live check.
