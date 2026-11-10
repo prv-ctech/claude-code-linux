@@ -253,6 +253,9 @@ export function guardIgnores(dir) {
   const r = git(dir, ['rev-parse', '--show-toplevel']);
   if (r.status !== 0) return [];
   const root = r.stdout.trim();
+  // A worker's worktree branches from HEAD: editing its tracked .worktreeinclude there would make the tree dirty. Only the main checkout is touched.
+  const dirs = ['--git-dir', '--git-common-dir'].map(a => git(root, ['rev-parse', '--path-format=absolute', a]).stdout.trim());
+  if (dirs[0] !== dirs[1]) return [];
   if (!fs.existsSync(path.join(root, '.oma')) && !fs.existsSync(path.join(root, 'specs', 'tickets'))) return [];
   return ensureOmaIgnores(root);
 }

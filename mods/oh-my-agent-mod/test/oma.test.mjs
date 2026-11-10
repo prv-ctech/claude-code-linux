@@ -64,6 +64,15 @@ test('session start ignores oma files without init, and untracks ones already co
   assert.ok(fs.existsSync(path.join(dir, '.oma', 'project.md')), 'files stay on disk');
   assert.strictEqual(run('git', ['check-ignore', '-q', 'specs/tickets/001-x/rd.md'], { cwd: dir }).status, 0);
   assert.deepStrictEqual(guardIgnores(dir), []);
+  // A linked worktree is never edited: its tracked .worktreeinclude would turn the worker's tree dirty.
+  const wt = path.join(dir, '.claude', 'worktrees', 'w');
+  git(dir, 'worktree', 'add', '-q', '-b', 'w', wt);
+  write(path.join(wt, 'specs', 'tickets', 'BOARD.md'), 'x');
+  fs.writeFileSync(path.join(dir, '.worktreeinclude'), '.env\n');
+  git(dir, 'commit', '-qam', 'reset wti');
+  const before = git(wt, 'status', '--porcelain');
+  assert.deepStrictEqual(guardIgnores(wt), []);
+  assert.strictEqual(git(wt, 'status', '--porcelain'), before);
   const plain = repo();
   fs.rmSync(path.join(plain, '.oma'), { recursive: true });
   git(plain, 'rm', '-rq', '--cached', '.oma');
