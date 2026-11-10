@@ -135,7 +135,7 @@ test('prompt hint: one line of names, skipped for short prompts, /commands and r
   assert.strictEqual(ask('help me plan a reverse engineering job again'), null, 'same line as last time');
   assert.match(ask('help me plan a reverse engineering job', 's2'), /^Routed matches/);
   assert.strictEqual(ask('short'), null);
-  assert.strictEqual(ask('/oh-my-context-mod status please'), null);
+  assert.strictEqual(ask('/omc status please'), null);
   out.tools = [];
   assert.strictEqual(ask('a different and long enough prompt'), 'Routed matches for this prompt: skills superpowers:brainstorming');
   out.skills = [];
