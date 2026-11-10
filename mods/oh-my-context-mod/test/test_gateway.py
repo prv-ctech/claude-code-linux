@@ -707,8 +707,8 @@ class ResultFidelityTest(unittest.TestCase):
         finally:
             gw.close()
 
-    def test_compression_default_off(self):
-        self.assertEqual(mconfig.compression_mode(), "off")
+    def test_compression_default_on(self):
+        self.assertEqual(mconfig.compression_mode(), "on")
 
 
 class InspectTest(unittest.TestCase):

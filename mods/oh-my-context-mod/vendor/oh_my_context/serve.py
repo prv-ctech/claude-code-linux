@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# Modified by oh-my-context-mod (github.com/prv-ctech/claude-code-linux), 2026-10-30: stdio only (no HTTP, background or autostart mode, no plugin-skill prompts, health method, footer or presence lines); its own initialize instructions; alwaysLoad meta; `call` takes only an original Claude tool name or server plus tool, the two forms permit.js maps; lazy server instructions; per-server timeout; no danger block for a resolved call route; upstream isError and content blocks pass through; tools/call runs off the stdio reader with cancellation; cache-only cold index; routed prompts/resources pass through; compression only with the `compress` setting; renamed to oh-my-context: package, commands, tool, environment and path names (see vendor/NOTICE).
+# Modified by oh-my-context-mod (github.com/prv-ctech/claude-code-linux), 2026-10-30: stdio only (no HTTP, background or autostart mode, no plugin-skill prompts, health method, footer or presence lines); its own initialize instructions; alwaysLoad meta; `call` takes only an original Claude tool name or server plus tool, the two forms permit.js maps; lazy server instructions; per-server timeout; no danger block for a resolved call route; upstream isError and content blocks pass through; tools/call runs off the stdio reader with cancellation; cache-only cold index; routed prompts/resources pass through; compression by shape with the `compress` setting (on by default); renamed to oh-my-context: package, commands, tool, environment and path names (see vendor/NOTICE).
 
 """
 oh-my-context serve — stdio bridge MCP server (ADR 0004)
@@ -1000,7 +1000,7 @@ class MCPServerBridge:
                 # as an already-wrapped result and return that same object, so
                 # attaching structuredContent would nest the result inside itself.
                 result = dict(envelope)
-                compressed = self._compress_result(payload, server, tool)
+                compressed = self._compress_result(payload, server, tool, envelope)
                 if compressed is not payload or not isinstance(result.get("content"), list):
                     # A compression format re-renders the text view; otherwise keep
                     # the upstream content blocks and only synthesise them if absent.
@@ -1017,7 +1017,7 @@ class MCPServerBridge:
                                       else [{"type": "text", "text": "MCP tool returned error"}]),
                           "isError": True, "resultType": "complete"}
             else:
-                compressed = self._compress_result(payload, server, tool)
+                compressed = self._compress_result(payload, server, tool, envelope)
                 if (compressed is payload and isinstance(envelope, dict)
                         and isinstance(envelope.get("content"), list)):
                     # oh-my-context-mod: nothing was compressed; hand on the upstream blocks as
@@ -1114,28 +1114,26 @@ class MCPServerBridge:
     # Helpers
     # ═══════════════════════════════════════════════════
 
-    def _compress_result(self, result: Any, server: str, tool: str) -> Any:
-        """The `compress` setting: "smart" compresses (see `_smart_compress`), "off" (the
-        default) returns the result untouched."""
-        if config.compression_mode() == "smart":
-            return self._smart_compress(result, server, tool)
-        return result
-
-    def _smart_compress(self, result: Any, server: str, tool: str) -> Any:
-        """Structure-aware compression + CCR (see compressor.py / ccr.py).
-
-        The compressed payload is the summary; the *original* goes to the CCR
-        store and its handle rides along in a one-line notice, so a model that
-        needs a dropped detail can call ``retrieve`` instead of being
-        stuck. A result that was not shrunk is returned untouched. A result that
-        *was* shrunk but could not be stored still comes back compressed — with a
-        notice that says so — because the one thing this path must never produce
-        is a trimmed view with no way back and no explanation.
-        """
+    def _compress_result(self, result: Any, server: str, tool: str, envelope: Any = None) -> Any:
+        """The `compress` setting: "on" (default) compresses the text of a routed result
+        by shape (see compressor.py), keeping the exact original for `retrieve`; "off"
+        returns it untouched. Returns the input object itself when nothing changed."""
+        if config.compression_mode() != "on":
+            return result
         try:
             from . import compressor as _compressor
-            text, _stats = _compressor.compress_with_ccr(result, server=server, tool=tool)
-            return text if text is not None else result
+            text = None
+            if isinstance(envelope, dict) and envelope.get("structuredContent") is None:
+                blocks = envelope.get("content")
+                if isinstance(blocks, list):
+                    texts = [c.get("text") for c in blocks
+                             if isinstance(c, dict) and c.get("type") == "text"]
+                    if texts and all(isinstance(t, str) for t in texts):
+                        text = "".join(texts)
+            if text is None:
+                text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+            out = _compressor.compress_text(text)
+            return result if out is None else out
         except Exception:
             return result
 

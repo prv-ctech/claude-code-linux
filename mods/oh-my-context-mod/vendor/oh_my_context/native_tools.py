@@ -16,7 +16,7 @@
 """oh-my-context's own tools — the gateway's first-party surface.
 
 They read state the bridge already holds (the tool index, the config, the skill
-index, the usage counter, the CCR store, the knowledge base); only `call` reaches
+index, the usage counter, the recovery store, the knowledge base); only `call` reaches
 an upstream server, through the bridge. On a name collision the upstream
 definition wins (see serve._handle_list_tools).
 
@@ -495,21 +495,18 @@ def native_tools() -> list[dict]:
                     "handle": {
                         "type": "string",
                         "description": (
-                            "The handle from a result's 'retrieve handle=...' "
-                            "line, e.g. ab12cd34ef56."
+                            "The handle from a result's <<omc:HANDLE>> marker line."
+                        ),
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Optional words: return only the sections of the original "
+                            "that contain them, not the whole text."
                         ),
                     },
                 },
                 "required": ["handle"],
-            },
-            "outputSchema": {
-                "type": "object",
-                "properties": {
-                    "found": {"type": "boolean"},
-                    "handle": {"type": "string"},
-                    "original": {},
-                },
-                "required": ["found", "handle"],
             },
             "annotations": {
                 "title": "Retrieve a compressed result",
@@ -1025,36 +1022,18 @@ def _session(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform si
 
 
 def _retrieve(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform signature
-    """Fetch the original behind a compression handle (the CCR read half).
+    """Original text behind a compression handle, whole or only the sections matching `query`."""
+    from . import recovery
 
-    The write half lives in ``serve._smart_compress``: it stores the untruncated
-    result and puts the handle in a notice line. This handler is the model's way
-    back to that original, which is what makes compression reversible rather
-    than a dead end.
-
-    Unknown handles answer ``found: false`` — not an error, because "that summary
-    is all there is now" is a valid outcome. But the *reason* is reported, from a
-    closed set: ``bad-handle`` (you mistyped it) and ``never-stored`` (it was
-    evicted, or never written) call for different next moves, and collapsing all
-    of them into one empty answer is how a model ends up retrying the same typo
-    forever.
-    """
     handle = _as_str(arguments.get("handle"))
-    from . import ccr as _ccr
-    if not handle:
-        # "You passed nothing" and "you passed a malformed handle" are the same
-        # failure from the reader's side, so they get the same sentence.
-        return {"found": False, "status": _ccr.STATUS_BAD_HANDLE, "handle": "",
-                "notice": _ccr.retrieve_notice(_ccr.STATUS_BAD_HANDLE)}
+    query = _as_str(arguments.get("query")) or None
     try:
-        status, original = _ccr.retrieve_status(handle)
+        status, text = recovery.fetch(handle, query)
     except Exception:  # pragma: no cover - defensive
-        status, original = "unreadable", None
+        status, text = "corrupt", ""
     if status == "ok":
-        return {"found": True, "status": status, "handle": handle,
-                "original": original}
-    return {"found": False, "status": status, "handle": handle,
-            "notice": _ccr.retrieve_notice(status)}
+        return {"_text": text, "_error": False}
+    return {"_text": f"retrieve {status}: {handle or '(empty handle)'}", "_error": True}
 
 
 _HANDLERS = {

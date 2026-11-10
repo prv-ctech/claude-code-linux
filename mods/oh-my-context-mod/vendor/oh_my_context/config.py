@@ -67,10 +67,11 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 #
 #   exposure: compact (default) lists only the gateway's own tools; full also lists
 #             every upstream tool with a simplified schema.
-#   compress: off (default) passes results through verbatim; smart compresses
-#             redundant shapes and keeps the original for `retrieve` (compressor.py).
-SETTING_DEFAULTS = {"exposure": "compact", "compress": "off"}
-COMPRESS_MODES = ("off", "smart")
+#   compress: on (default) shrinks routed results by shape and keeps the exact
+#             original for `retrieve` (compressor.py); off passes them through
+#             verbatim. "smart" is read as on.
+SETTING_DEFAULTS = {"exposure": "compact", "compress": "on"}
+COMPRESS_MODES = ("off", "on")
 
 
 # ─── Server name aliases ───
@@ -282,6 +283,6 @@ def compact_exposure() -> bool:
 
 
 def compression_mode() -> str:
-    """How tool results are compressed: "off" (default) or "smart"."""
+    """How tool results are compressed: "on" (default) or "off". "smart" reads as "on"."""
     value = get_setting("compress").strip().lower()
-    return value if value in COMPRESS_MODES else COMPRESS_MODES[0]
+    return value if value in COMPRESS_MODES else "on"
