@@ -9,6 +9,15 @@
             "timeout": 120
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/reply.js\" session",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SubagentStart": [
@@ -22,6 +31,11 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt.js\" subagent",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/reply.js\" subagent",
             "timeout": 5
           }
         ]
@@ -47,6 +61,15 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/reply.js\" prompt",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -56,6 +79,18 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/permit.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/reply.js\" tool",
             "timeout": 5
           }
         ]
