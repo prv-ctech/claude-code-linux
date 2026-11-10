@@ -1,3 +1,4 @@
+# Added by oh-my-context-mod (ticket 005): own implementation, not from upstream mcptoon.
 """code (Python only): function bodies become `...`."""
 import ast
 

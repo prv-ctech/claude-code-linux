@@ -1,3 +1,4 @@
+# Added by oh-my-context-mod (ticket 005): own implementation, not from upstream mcptoon.
 """diff: keep changed lines, headers and 2 lines of context either side."""
 _ANCHORS = ("diff --git ", "index ", "--- ", "+++ ", "@@ ", "rename ", "copy ", "old mode",
             "new mode", "new file", "deleted file", "Binary files", "GIT binary patch",

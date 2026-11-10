@@ -115,7 +115,7 @@ node mods/oh-my-context-mod/test/live-reply.mjs
 
 `/omc compress <file>` shrinks a prose file (CLAUDE.md, notes, docs) to fewer tokens. Types: `.md`, `.markdown`, `.txt`, `.rst`, `.typ`, `.typst`, `.tex` or no extension, up to 1 MiB, UTF-8, no symlinks. Flow: `scripts/doc.js prepare` backs up the original and prints the rewrite rules, the session model writes a candidate, `scripts/doc.js apply` checks it (frontmatter, headings, code blocks, inline code, URLs, paths, numbers, table rows identical; not/never/no/only/except not fewer; strictly shorter) and only then replaces the file. A failed check lists the problems; Claude fixes them and retries twice, then `abort` leaves the file unchanged. Nothing goes over the network.
 
-Backups live in `${XDG_DATA_HOME:-~/.local/share}/oh-my-context-mod/backups/<hash>-<folder>/<name>.original`. A second compress is refused while a backup exists. `/omc restore <file>` copies the backup back and deletes it.
+Backups live in `${XDG_DATA_HOME:-~/.local/share}/oh-my-context-mod/backups/<hash>-<folder>/<name>.original`. A second compress is refused while a backup exists. `/omc restore <file>` copies the backup back and deletes it, but refuses (backup kept) if the file was edited after the compress.
 
 ## Tool-result compression
 

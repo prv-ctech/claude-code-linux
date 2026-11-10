@@ -1,3 +1,4 @@
+# Added by oh-my-context-mod (ticket 005): own implementation, not from upstream mcptoon.
 """text: keep notable paragraphs; long runs of the rest collapse."""
 import re
 

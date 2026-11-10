@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# Rewritten for oh-my-context-mod ticket 005: shape compressors plus a recovery store (see vendor/NOTICE).
+# Modified by oh-my-context-mod (ticket 005). Rewritten for oh-my-context-mod ticket 005: shape compressors plus a recovery store (see vendor/NOTICE).
 
 """oh-my-context compressor: shrink routed tool results by shape, never lose data.
 
@@ -136,6 +136,9 @@ def compress_text(text: str) -> str | None:
         shape = detect_shape(text)
         out = REGISTRY[shape](text)
         if out is None or len(out.encode("utf-8")) >= size or not _valid(shape, text, out):
+            return None
+        # oh-my-context-mod: the marker counts; pass through unless the final text is shorter.
+        if len(out.encode("utf-8")) + len(recovery.marker("omc_" + "0" * 32).encode("utf-8")) + 1 >= size:
             return None
         handle = recovery.store(text)
         if not handle:

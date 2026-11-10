@@ -155,3 +155,20 @@ test('fenced block nested in a list at deep indent is protected', () => {
   fs.writeFileSync(cand, '- item\n\n    ```sh\n    echo a\n    ```\n\nEnd.\n');
   assert.match(e.run('apply').stdout, /fenced/);
 });
+
+test('restore refuses after an edit made post-compress; untouched compress restores byte-equal', () => {
+  const e = env(); const { backup, cand } = e.prep();
+  fs.writeFileSync(cand, GOOD);
+  assert.strictEqual(e.run('apply').status, 0);
+  fs.writeFileSync(e.file, GOOD + '\nmy edit\n');
+  const r = e.run('restore');
+  assert.strictEqual(r.status, 1);
+  assert.match(r.stdout, /^refused:.*changed since/);
+  assert.strictEqual(fs.readFileSync(e.file, 'utf8'), GOOD + '\nmy edit\n');
+  assert.strictEqual(fs.readFileSync(backup, 'utf8'), ORIG);
+  const f = env(); const q = f.prep();
+  fs.writeFileSync(q.cand, GOOD);
+  assert.strictEqual(f.run('apply').status, 0);
+  assert.strictEqual(f.run('restore').status, 0);
+  assert.strictEqual(fs.readFileSync(f.file, 'utf8'), ORIG);
+});

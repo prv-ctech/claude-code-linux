@@ -1,3 +1,4 @@
+# Added by oh-my-context-mod (ticket 005): own implementation, not from upstream mcptoon.
 """testreport: pytest JSON, Jest JSON, JUnit XML -> summary plus trimmed failures."""
 import json
 import xml.etree.ElementTree as ET

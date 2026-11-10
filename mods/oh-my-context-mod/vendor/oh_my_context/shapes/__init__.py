@@ -1,3 +1,4 @@
+# Added by oh-my-context-mod (ticket 005): own implementation, not from upstream mcptoon.
 """Shape compressors: each is fn(text) -> str | None (None = no gain)."""
 from . import code, diff, jsonshape, log, tabular, testreport, text
 

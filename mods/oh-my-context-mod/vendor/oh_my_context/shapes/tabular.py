@@ -1,3 +1,4 @@
+# Added by oh-my-context-mod (ticket 005): own implementation, not from upstream mcptoon.
 """tabular: CSV/TSV/Markdown tables; head, tail and notable rows, or TOON for CSV."""
 import csv
 import json

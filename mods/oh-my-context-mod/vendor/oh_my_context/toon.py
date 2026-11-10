@@ -1,3 +1,4 @@
+# Added by oh-my-context-mod (ticket 005): own implementation, not from upstream mcptoon.
 """TOON encoder (and a decoder for tests): compact text for uniform arrays of objects.
 
 Own implementation of the rules in specs/tickets/005. `encode_json(text)` returns the

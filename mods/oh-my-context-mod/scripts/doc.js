@@ -33,7 +33,7 @@ function paths(file) {
   const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
   const dir = path.join(base, 'oh-my-context-mod', 'backups', `${hash}-${path.basename(parent)}`);
   const name = path.basename(file);
-  return { dir, backup: path.join(dir, `${name}.original`), candidate: path.join(dir, `${name}.candidate`) };
+  return { dir, backup: path.join(dir, `${name}.original`), candidate: path.join(dir, `${name}.candidate`), applied: path.join(dir, `${name}.applied-sha`) };
 }
 
 function decode(buf) {
@@ -157,6 +157,7 @@ function apply(file) {
   const tmp = `${file}.omc-tmp-${process.pid}`;
   const mode = fs.statSync(file).mode & 0o7777;
   fs.writeFileSync(tmp, cand, { mode });
+  fs.writeFileSync(p.applied, sha(fs.readFileSync(tmp)), { mode: 0o600 });
   fs.chmodSync(tmp, mode);
   fs.renameSync(tmp, file);
   fs.rmSync(p.candidate, { force: true });
@@ -173,14 +174,20 @@ function abort(file) {
   }
   fs.rmSync(p.candidate, { force: true });
   fs.rmSync(p.backup, { force: true });
+  fs.rmSync(p.applied, { force: true });
   console.log(`left unchanged: ${file}`);
 }
 
 function restore(file) {
   const p = paths(file);
   if (!fs.existsSync(p.backup)) fail(`no backup for ${file}`);
+  // Only undo what apply wrote: a file edited since would lose those edits.
+  if (fs.existsSync(p.applied) && fs.existsSync(file) && sha(fs.readFileSync(file)) !== fs.readFileSync(p.applied, 'utf8')) {
+    fail(`refused: ${file} changed since /omc compress; backup kept at ${p.backup}. Copy your edits out, then delete the backup or revert the file by hand.`);
+  }
   fs.writeFileSync(file, fs.readFileSync(p.backup));
   fs.rmSync(p.backup, { force: true });
+  fs.rmSync(p.applied, { force: true });
   fs.rmSync(p.candidate, { force: true });
   console.log(`restored: ${file}`);
 }

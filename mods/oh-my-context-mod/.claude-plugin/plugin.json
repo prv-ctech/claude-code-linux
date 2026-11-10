@@ -1,6 +1,6 @@
 {
   "name": "oh-my-context-mod",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Routes every plugin and user MCP server through one oh-my-context gateway (bundled, nothing downloaded) and lists skills by name only (or hides them from Claude's own list with hide_skills, found through the gateway's resolve_skills and load_skill), so tool names and skill descriptions stop filling the context while every tool and skill still works. Sets itself up at session start and puts everything back when it is disabled or uninstalled. /oh-my-context-mod shows what moved and turns it off. Also adds terse reply modes (off, lite, full, ultra, max), set with /omc mode; compresses large tool results with the exact original kept in a recovery store; /omc compress shrinks a prose file; /omc status shows the whole mod.",
   "author": { "name": "prv-ctech" },
   "license": "MIT AND Apache-2.0",

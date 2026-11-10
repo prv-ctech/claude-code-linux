@@ -143,6 +143,13 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(recovery.fetch(h), ("ok", t))
         self.assertEqual(usage.saved_tokens(), usage.count_tokens(t) - usage.count_tokens(out))
 
+    def test_marker_counts_toward_size(self):
+        from unittest import mock
+        t = "word " * 400
+        shape = compressor.detect_shape(t)
+        with mock.patch.dict(compressor.REGISTRY, {shape: lambda s: s[:-20]}):
+            self.assertIsNone(compressor.compress_text(t))
+
     def test_testreport_pytest(self):
         tests = [{"nodeid": f"t::t{i}", "outcome": "passed"} for i in range(19)]
         tb = [{"path": f"f{i}.py", "lineno": i, "message": f"m{i}"} for i in range(12)]
