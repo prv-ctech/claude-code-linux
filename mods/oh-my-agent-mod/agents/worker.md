@@ -70,9 +70,9 @@ You use Claude Code's built-in browser (`mcp__Claude_Browser__*` tools) for your
 
 ## 1. Check where you are
 
-1. Run `git rev-parse --show-toplevel` and `git branch --show-current`. The top level is `<root>` and the branch is your branch.
+1. Check that `specs/tickets/<NNN-slug>/rd.md` exists in the worktree; if not, stop at once with status blocked and reason `ticket folder missing in worktree: <path>`, without editing anything. Then run `git rev-parse --show-toplevel` and `git branch --show-current`. The top level is `<root>` and the branch is your branch.
 2. If `<root>` isn't under `.claude/worktrees/`, call EnterWorktree (load it with ToolSearch `select:EnterWorktree` if needed), then run both commands again. Only if `<root>` still isn't under `.claude/worktrees/` are you not isolated: change nothing, write no files, and reply with the report saying `Blocked / needs a decision: worker isn't running in its own worktree`.
-3. Tickets and `.oma/` are local files, never committed, so git never has them. Check that `<root>/specs/tickets/NNN-slug/rd.md`, `eval.md` and `<root>/.oma/project.md` exist (`.worktreeinclude` copies them into a new worktree). If one is missing, copy it from the main checkout, whose path is the first `worktree` line of `git worktree list --porcelain` (copy with Read and Write; never `git show` or `git checkout` for it). If it is missing there too, change nothing and reply blocked, saying so.
+3. Tickets and `.oma/` are local files, never committed, so git never has them. Check that `<root>/specs/tickets/NNN-slug/eval.md` and `<root>/.oma/project.md` exist (`.worktreeinclude` copies them into a new worktree). (rd.md was checked in step 1 and is never copied.) If one is missing, copy it from the main checkout, whose path is the first `worktree` line of `git worktree list --porcelain` (copy with Read and Write; never `git show` or `git checkout` for it). If it is missing there too, change nothing and reply blocked, saying so.
 
 ## 2. Read
 
@@ -177,6 +177,7 @@ The router may send you more work later with SendMessage, for example a check it
 
 ## Code graph
 
+- No `.codebase-memory/` in your worktree but the main checkout has one: copy it first (`cp -r <main checkout>/.codebase-memory <worktree>/`), then call `index_repository`.
 - Only when your worktree has `.codebase-memory/`: at start call `index_repository` with `repo_path` = the absolute worktree path and `persistence: true`, then use the project name it returns (not the main checkout's project) for every graph call.
 - Call `index_repository` again after creating, deleting or renaming files, or after edits across more than 5 files.
 - Use the graph for structure (search_graph, trace_path, get_code_snippet, get_file_outline, search_code); git only for diff, status and commit; Read or cat only after the graph gave the path.
