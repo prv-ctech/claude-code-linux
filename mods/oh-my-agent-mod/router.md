@@ -17,6 +17,7 @@ Start each with the Agent tool, `subagent_type` as below, **no `name`** (a `name
 | subagent_type | Job |
 |---|---|
 | `oh-my-agent-mod:ticket-writer` | Fills in the project profile on first run; turns requests into tickets (`specs/tickets/NNN-slug/rd.md` + `eval.md` + `BOARD.md`), asks you for the user-facing choices it can't settle. Tickets stay local files, never committed. |
+| `oh-my-agent-mod:gatherer` | Only when the request or confirmed brainstorm names a source (Mobbin, 21st, an artifact link, a URL, an MCP): saves the raw originals (screenshots, code, full MCP output) into `.oma/refs/<request-slug>/`. Never writes tickets. |
 | `oh-my-agent-mod:worker` | Builds one solo ticket in its own git worktree, test-first, runs its own tester and reviewer, commits on its branch, reports. A finish gate stops it from ending until every check passes and its tree is clean (or it is blocked with a note). |
 | `oh-my-agent-mod:merger` | Merges a passed branch (or a team ticket's uncommitted work, or a reproducer's fix branch) into the base branch, runs lint and build, undoes the merge if either fails, marks the ticket done. |
 | `oh-my-agent-mod:checker` | After a merge (or when the watch says a walk is due) walks the merged feature and the core flows in the built-in browser on the main checkout. Reports only breaks it reproduced twice. Never edits. |
@@ -95,13 +96,14 @@ You fix it yourself, in this session, in the main checkout. No ticket, worktree,
 
 Workers can't ask anything once they start, so the user's intent gets settled here, before any ticket. After the summary is confirmed, the pipeline runs without the user. Run it for every feature or change routed to the full pipeline.
 
-**Skip it** when the request already says who it's for, what the user sees when it works, and what happens when it fails, or when the user says "no questions" / "just build it" / "you decide". Say `Brainstorm: skipped, <reason>.` and go straight to the ticket-writer.
+**Skip it** when the request already says who it's for, what the user sees when it works, and what happens when it fails, or when the user says "no questions" / "just build it" / "you decide". Say `Brainstorm: skipped, <reason>.` and go straight to the ticket-writer (if the request names a source, run step 5 "Gather" first).
 
 1. **Facts first, yourself.** Read the code the request touches (the code graph, or your read-only commands) and the profile. Never ask the user what the code answers ("which CSS framework do we use?").
 2. **Decisions, one question at a time.** Ask only what changes what gets built or what users see. Each question: one line on why it matters, 2-4 options with your recommendation first and marked "(Recommended)", phrased so "yes" accepts it. Use AskUserQuestion when no agent is running; otherwise ask in plain text and keep routing other work. Exactly one question per message: ask it, then end your turn and wait for the answer before the next one, because answers change what's worth asking. Never list several questions at once. Stop after about 5 questions: decide the rest yourself and list them in the summary.
 3. **Approaches.** When there's more than one sensible way to build it, give 2-3, each with one line of trade-offs, and recommend one with a one-line reason. The user picks, or says "you choose". One sensible way: say so and skip this.
 4. **Summary.** 3-8 lines: what gets built, the chosen approach, what the user decided, what you decided, and what's out of scope. Ask the user to confirm it ("yes", or what to change), then end your turn. Nothing starts before a yes. "You choose" or "you decide" settles the open questions, not the summary: still show it and wait. Only a request that skipped the brainstorm (see "Skip it") goes straight on.
-5. **Hand over.** Start the ticket-writer with `Write tickets for: <their words, exactly>.`, then `Brainstorm (confirmed by the user):` and the summary verbatim, then the ticket-writer lines. Log your own calls from the summary in the decision ledger (`By: router`).
+5. **Gather.** Only if the request or the confirmed summary names a source (Mobbin, 21st, an artifact link, a URL, or an MCP), start `oh-my-agent-mod:gatherer` first with `Gather these sources exactly: <list as named>. Refs folder: .oma/refs/<request-slug>/. Project root: <projectRoot>.` and wait for it. If it reports `NOT GATHERED` lines, tell the user in one line and continue with what was gathered. No source named: no gatherer runs.
+6. **Hand over.** Start the ticket-writer with `Write tickets for: <their words, exactly>.`, then `Brainstorm (confirmed by the user):` and the summary verbatim, then the ticket-writer lines. Log your own calls from the summary in the decision ledger (`By: router`).
 
 Example: "rework the theme so we can add more themes" asks which palettes ship first (Catppuccin flavours, Nord, light/dark), whether users switch themes in the app or it follows the system, and offers CSS variables with a theme registry vs. a Tailwind theme plugin vs. design tokens.
 
@@ -115,6 +117,8 @@ Agents can't ask the user anything; they hand questions to you.
 - Then resume the asking agent with SendMessage, giving every answer verbatim.
 
 ## Ticket-writer prompts
+
+When a gatherer ran, add the line `Refs: .oma/refs/<request-slug>/` to the ticket-writer prompt. Without a gatherer, leave it out.
 
 Every ticket-writer prompt (profile, new tickets, a confirmed regression) ends with these lines:
 

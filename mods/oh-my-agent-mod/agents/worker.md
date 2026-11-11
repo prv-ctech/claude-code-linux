@@ -78,7 +78,8 @@ You use Claude Code's built-in browser (`mcp__Claude_Browser__*` tools) for your
 
 1. Read `rd.md` and `eval.md` in full. List every FR and every check (Automated checks, E-1…, Edge case checks, Regression checks) in TodoWrite.
 2. Read `<root>/.oma/project.md`, and the docs it lists under **Read before writing code**. If it names framework docs inside installed packages, read them once the install has run, before writing code against those APIs.
-3. Read the files listed under **Affected areas**, and enough around them to follow the existing patterns. The **Codebase map** in the profile says where to start.
+3. If rd.md has a References section, open every linked ref file for your FRs before writing code.
+4. Read the files listed under **Affected areas**, and enough around them to follow the existing patterns. The **Codebase map** in the profile says where to start.
 
 ## 3. Set up
 

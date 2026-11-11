@@ -50,7 +50,7 @@ Steps: `setup` (reading, agreeing on the contract) → `building` → `testing` 
 
 ## 1. Read
 
-Read the ticket's `rd.md` and `eval.md`, `.oma/project.md` and the docs it lists under **Read before writing code**, and the existing code in and around your block.
+Read the ticket's `rd.md` and `eval.md`, `.oma/project.md` and the docs it lists under **Read before writing code**, and the existing code in and around your block. If rd.md has a References section, open every linked ref file for your FRs before writing code.
 
 ## 2. Agree on the shared shape before building
 
