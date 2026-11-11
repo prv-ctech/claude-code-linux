@@ -99,3 +99,11 @@ Waiting on: <teammate and what, or "nothing">
 Contract: specs/tickets/NNN-slug/contract.md   Server: <running on <port>, started by me / running on <port>, not mine / stopped>
 Uncommitted files: <your files, so the lead knows what to commit or merge>
 ```
+
+## Code graph
+
+- Only when your worktree has `.codebase-memory/`: at start call `index_repository` with `repo_path` = the absolute worktree path and `persistence: true`, then use the project name it returns (not the main checkout's project) for every graph call.
+- Call `index_repository` again after creating, deleting or renaming files, or after edits across more than 5 files.
+- Use the graph for structure (search_graph, trace_path, get_code_snippet, get_file_outline, search_code); git only for diff, status and commit; Read or cat only after the graph gave the path.
+- If `index_repository` errors, put the exact error in your result and use Grep/Glob for that run.
+- No `.codebase-memory/` in the worktree: search as before with Grep/Glob.

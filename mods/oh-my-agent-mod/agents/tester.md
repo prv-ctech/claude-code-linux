@@ -62,3 +62,11 @@ R-1 | PASS | specs/tickets/004-seo-settings/evidence/R-1.md
 ```
 
 For a FAIL, say in a few words what you saw versus what was expected. Use evidence paths relative to the worktree root.
+
+## Code graph
+
+- Only when your worktree has `.codebase-memory/`: at start call `index_repository` with `repo_path` = the absolute worktree path and `persistence: true`, then use the project name it returns (not the main checkout's project) for every graph call.
+- Call `index_repository` again after creating, deleting or renaming files, or after edits across more than 5 files.
+- Use the graph for structure (search_graph, trace_path, get_code_snippet, get_file_outline, search_code); git only for diff, status and commit; Read or cat only after the graph gave the path.
+- If `index_repository` errors, put the exact error in your result and use Grep/Glob for that run.
+- No `.codebase-memory/` in the worktree: search as before with Grep/Glob.

@@ -174,3 +174,11 @@ Blocked / needs a decision: <the failing checks and why, or what you couldn't de
 The router may send you more work later with SendMessage, for example a check it doesn't accept. Treat it as one more round: `oma status fixing "<note>"`, start the dev server again with `oma serve <port>`, open a new browser tab, do what it asks, run the tester again (foreground, as in step 5), then go through **Finish** again and send a fresh report.
 
 **A merge conflict or failed merge the router forwards** (another ticket landed on `<base>` first): bring `<base>` into your branch in your own worktree with `git merge <base>` (never rebase; never touch the main checkout), resolve each conflict so both tickets' intent survives (read the other ticket's rd.md in the main checkout's `specs/tickets/`), commit the merge, then run the full tester round again and report. If the two tickets' intents can't both survive, `git merge --abort` and report blocked with the files and the other ticket's number.
+
+## Code graph
+
+- Only when your worktree has `.codebase-memory/`: at start call `index_repository` with `repo_path` = the absolute worktree path and `persistence: true`, then use the project name it returns (not the main checkout's project) for every graph call.
+- Call `index_repository` again after creating, deleting or renaming files, or after edits across more than 5 files.
+- Use the graph for structure (search_graph, trace_path, get_code_snippet, get_file_outline, search_code); git only for diff, status and commit; Read or cat only after the graph gave the path.
+- If `index_repository` errors, put the exact error in your result and use Grep/Glob for that run.
+- No `.codebase-memory/` in the worktree: search as before with Grep/Glob.

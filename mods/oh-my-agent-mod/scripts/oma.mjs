@@ -22,6 +22,7 @@ const KEEP_SESSIONS = 50;
 // Everything oma writes in a project. Never committed, never sent into a Docker build context.
 export const IGNORE_LINES = ['/.oma/', '/specs/tickets/', '/.claude/worktrees/'];
 // Ignored files that every new worktree still needs (Claude Code copies what .worktreeinclude lists).
+const GRAPH_DIR = '.codebase-memory';
 const WORKTREE_LINES = ['/.oma/', '/specs/tickets/'];
 
 export function paths(env = process.env, home = os.homedir()) {
@@ -192,7 +193,7 @@ export function onSubagent(input, opts) {
   return `${local}\noh-my-agent code search: codebase-memory-mod is on and ${cwd} has a graph, so Grep, Glob and shell grep/rg/ag/ack/find/git grep on code are blocked here. `
     + 'Use the codebase-memory tools (load them with ToolSearch: mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_graph, search_code, get_code_snippet, trace_path, get_file_outline) '
     + `with project "${g.project}". Piping command output into grep stays allowed. `
-    + `A worktree under .claude/worktrees/ has no graph of its own: there Grep, Glob and grep work as usual, and the graph shows ${cwd}, not your branch.`;
+    + `A worktree under .claude/worktrees/ gets its own copy of the graph and is its own project once indexed: call index_repository there with repo_path set to the worktree path and persistence: true, and use the project name it returns, not "${g.project}".`;
 }
 
 // --- project bootstrap -------------------------------------------------------------------------------
@@ -227,6 +228,14 @@ export function ensureOmaIgnores(root) {
   // .worktreeinclude is the user's file (usually committed): lines are only appended, never ignored or untracked.
   const wti = ensureLines(path.join(root, '.worktreeinclude'), WORKTREE_LINES, '# oh-my-agent: files workers need');
   if (wti.length) changed.push(`.worktreeinclude (+ ${wti.join(', ')})`);
+  // Graph: copy it into worktrees, and keep it uncommitted so .worktreeinclude (ignored files only) can copy it.
+  // A graph git already tracks is left alone: checkout brings it to worktrees, and an ignore line would do nothing.
+  if (fs.existsSync(path.join(root, GRAPH_DIR)) && !git(root, ['ls-files', '--', GRAPH_DIR]).stdout.trim()) {
+    for (const name of ['.gitignore', '.worktreeinclude']) {
+      const added = ensureLines(path.join(root, name), [`/${GRAPH_DIR}/`], '# oh-my-agent: code graph');
+      if (added.length) changed.push(`${name} (+ ${added.join(', ')})`);
+    }
+  }
   // An ignore line does nothing for a file git already tracks: drop those from the index, keep them on disk.
   const tracked = git(root, ['ls-files', '--', '.oma', 'specs/tickets']).stdout.split('\n').filter(Boolean);
   if (tracked.length && git(root, ['rm', '-r', '--cached', '-q', '--', ...tracked]).status === 0) {

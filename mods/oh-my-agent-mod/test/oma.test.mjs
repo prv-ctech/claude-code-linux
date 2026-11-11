@@ -239,3 +239,24 @@ test('session start writes a user-level /oma alias pointing at this plugin, neve
   assert.strictEqual(ensureAlias(p), false);
   assert.strictEqual(fs.readFileSync(file, 'utf8'), 'my own command');
 });
+
+test('init lists the codebase graph in .worktreeinclude and .gitignore only when it exists and is untracked', () => {
+  const count = (dir, f) => (fs.existsSync(path.join(dir, f)) ? fs.readFileSync(path.join(dir, f), 'utf8').split('\n').filter(l => l === '/.codebase-memory/').length : 0);
+  const init = dir => assert.strictEqual(run('node', [path.join(ROOT, 'scripts', 'oma.mjs'), 'init'], { cwd: dir }).status, 0);
+  const withGraph = repo();
+  write(path.join(withGraph, '.codebase-memory', 'graph.db.zst'), '');
+  init(withGraph);
+  init(withGraph);
+  assert.deepStrictEqual([count(withGraph, '.worktreeinclude'), count(withGraph, '.gitignore')], [1, 1]);
+  assert.strictEqual(git(withGraph, 'status', '--porcelain', '--', '.codebase-memory'), '');
+  const without = repo();
+  init(without);
+  assert.deepStrictEqual([count(without, '.worktreeinclude'), count(without, '.gitignore')], [0, 0]);
+  const tracked = repo();
+  write(path.join(tracked, '.codebase-memory', 'graph.db.zst'), '');
+  git(tracked, 'add', '.codebase-memory');
+  git(tracked, 'commit', '-q', '-m', 'graph');
+  init(tracked);
+  assert.deepStrictEqual([count(tracked, '.worktreeinclude'), count(tracked, '.gitignore')], [0, 0]);
+  assert.strictEqual(git(tracked, 'ls-files', '.codebase-memory'), '.codebase-memory/graph.db.zst');
+});
