@@ -1,3 +1,6 @@
 # oh-my-agent: files workers need
 /.oma/
 /specs/tickets/
+
+# oh-my-agent: code graph
+/.codebase-memory/

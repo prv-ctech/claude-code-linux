@@ -29,3 +29,7 @@ claude-code-state/
 # oh-my-agent: local plans, tickets and job files (never commit)
 /.oma/
 /specs/tickets/
+
+# deepseek-harnes external audit
+
+.deja/
