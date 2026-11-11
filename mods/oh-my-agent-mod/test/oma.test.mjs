@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { ROOT, tmp, repo, git, write, run } from './helpers.mjs';
-import { paths, onPrompt, onSession, projectState, guardIgnores, ensureAlias } from '../scripts/oma.mjs';
+import { paths, onPrompt, onSession, projectState, guardIgnores, ensureAlias, ensureOmaIgnores, omaOnlyDiff } from '../scripts/oma.mjs';
 
 const OMA_ON = { 'oh-my-agent-mod@claude-code-linux': true };
 
@@ -259,4 +259,25 @@ test('init lists the codebase graph in .worktreeinclude and .gitignore only when
   init(tracked);
   assert.deepStrictEqual([count(tracked, '.worktreeinclude'), count(tracked, '.gitignore')], [0, 0]);
   assert.strictEqual(git(tracked, 'ls-files', '.codebase-memory'), '.codebase-memory/graph.db.zst');
+});
+
+test('omaOnlyDiff: oma lines allowed, user lines, other files and removals block', () => {
+  const d = repo();
+  git(d, 'rm', '-r', '--cached', '-q', '.oma');
+  write(path.join(d, 'src.txt'), 'a\n');
+  write(path.join(d, '.worktreeinclude'), 'keep\n');
+  git(d, 'add', 'src.txt', '.worktreeinclude');
+  git(d, 'commit', '-q', '-m', 'files');
+  fs.mkdirSync(path.join(d, '.codebase-memory'));
+  write(path.join(d, '.codebase-memory', 'g'), 'x');
+  ensureOmaIgnores(d);
+  assert.deepStrictEqual(omaOnlyDiff(d), []);
+  fs.appendFileSync(path.join(d, '.worktreeinclude'), '/.deja/\n');
+  assert.deepStrictEqual(omaOnlyDiff(d), ['.worktreeinclude']);
+  git(d, 'checkout', '--', '.worktreeinclude', '.gitignore');
+  fs.appendFileSync(path.join(d, 'src.txt'), 'b\n');
+  assert.deepStrictEqual(omaOnlyDiff(d), ['src.txt']);
+  git(d, 'checkout', '--', 'src.txt');
+  write(path.join(d, '.gitignore'), '/.claude/worktrees/\n');
+  assert.deepStrictEqual(omaOnlyDiff(d), ['.gitignore']);
 });

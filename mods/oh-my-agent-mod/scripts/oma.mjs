@@ -7,6 +7,7 @@
 //   oma.mjs init [--dir <p>]   /oma init: same setup as start, no router; ignores oma files in git and Docker
 //   oma.mjs start [--dir <p>]  /oma bootstrap: sets the project up (idempotent) and prints its state for the router
 //   oma.mjs status [--dir <p>] the same state, changing nothing
+//   oma.mjs dirty [--dir <p>]  prints tracked modified files that are not oma's own ignore lines; exit 1 if any, 2 on git failure
 //   oma.mjs subagent           SubagentStart hook: tells oma agents which code-search tools work (codebase-memory-mod)
 //
 // Hooks keep stdout to the hook protocol and never fail the session: any error prints nothing and exits 0.
@@ -269,6 +270,30 @@ export function ensureOmaIgnores(root) {
   return changed;
 }
 
+// Tracked modified files that are not just oma's own lines added to .gitignore, .dockerignore or .worktreeinclude.
+export function omaOnlyDiff(root) {
+  const st = git(root, ['status', '--porcelain', '--untracked-files=no']);
+  if (st.status !== 0) throw new Error(`git status failed in ${root}: ${st.stderr.trim()}`);
+  const ok = new Set([...IGNORE_LINES, ...WORKTREE_LINES, `/${GRAPH_DIR}/`]);
+  const allowed = new Set(['.gitignore', '.dockerignore', '.worktreeinclude']);
+  const bad = [];
+  for (const l of st.stdout.split('\n').filter(Boolean)) {
+    const f = l.slice(3).replace(/^"|"$/g, '');
+    let clean = false;
+    if (allowed.has(f)) {
+      const d = git(root, ['diff', '-U0', 'HEAD', '--', f]);
+      if (d.status !== 0) throw new Error(`git diff failed for ${f}: ${d.stderr.trim()}`);
+      clean = d.stdout.split('\n').filter(x => x && !/^(diff |index |@@|--- |\+\+\+ )/.test(x)).every(x => {
+        if (x[0] !== '+') return false;
+        const t = x.slice(1).trim();
+        return t === '' || t.startsWith('# oh-my-agent:') || ok.has(t);
+      });
+    }
+    if (!clean) bad.push(f);
+  }
+  return bad;
+}
+
 function board(root) {
   const file = path.join(root, 'specs', 'tickets', 'BOARD.md');
   let text;
@@ -436,11 +461,22 @@ function main() {
     }
     return;
   }
+  if (mode === 'dirty') {
+    try {
+      const bad = omaOnlyDiff(dir);
+      if (bad.length) console.log(bad.join('\n'));
+      process.exitCode = bad.length ? 1 : 0;
+    } catch (e) {
+      console.error(`oh-my-agent: ${e.message}`);
+      process.exitCode = 2;
+    }
+    return;
+  }
   if (mode === 'start' || mode === 'status' || mode === 'init') {
     console.log(JSON.stringify(projectState(dir, { write: mode !== 'status' }), null, 2));
     return;
   }
-  console.error('usage: oma.mjs <session|prompt|subagent|init|start|status> [--dir <project>]');
+  console.error('usage: oma.mjs <session|prompt|subagent|dirty|init|start|status> [--dir <project>]');
   process.exitCode = 2;
 }
 
