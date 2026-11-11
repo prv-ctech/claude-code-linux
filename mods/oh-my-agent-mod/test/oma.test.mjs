@@ -280,4 +280,10 @@ test('omaOnlyDiff: oma lines allowed, user lines, other files and removals block
   git(d, 'checkout', '--', 'src.txt');
   write(path.join(d, '.gitignore'), '/.claude/worktrees/\n');
   assert.deepStrictEqual(omaOnlyDiff(d), ['.gitignore']);
+  git(d, 'checkout', '--', '.gitignore');
+  fs.appendFileSync(path.join(d, '.worktreeinclude'), '/.deja/\n');
+  git(d, 'add', '.worktreeinclude');
+  assert.deepStrictEqual(omaOnlyDiff(d), ['.worktreeinclude']);
+  const cli = run('node', [path.join(ROOT, 'scripts', 'oma.mjs'), 'dirty', '--dir', d]);
+  assert.strictEqual(cli.status, 1);
 });
