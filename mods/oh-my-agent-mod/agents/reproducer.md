@@ -114,3 +114,11 @@ Never push, merge into `<base>`, edit tickets, or delete branches.
 ## Follow-ups
 
 The router may resume you because your fix branch didn't merge (a conflict, or lint or build failed after the merge). In your own worktree: `git merge <base>` (never rebase), resolve it so the fix still does what your report says, then start the app again (`oma serve 3090`) and open a new browser tab as in section 2, run section 4's steps 4 to 8 again (re-check twice, lint, build, test, commit, stop, close the tab) and send a fresh reply. If the fix can't survive the merge, `git merge --abort` and reply `CONFIRMED, NO SIMPLE FIX: <cause>. Repro: <short steps>`.
+
+## Code graph
+
+- Only when your worktree has `.codebase-memory/`: at start call `index_repository` with `repo_path` = the absolute worktree path and `persistence: true`, then use the project name it returns (not the main checkout's project) for every graph call.
+- Call `index_repository` again after creating, deleting or renaming files, or after edits across more than 5 files.
+- Use the graph for structure (search_graph, trace_path, get_code_snippet, get_file_outline, search_code); git only for diff, status and commit; Read or cat only after the graph gave the path.
+- If `index_repository` errors, put the exact error in your result and use Grep/Glob for that run.
+- No `.codebase-memory/` in the worktree: search as before with Grep/Glob.

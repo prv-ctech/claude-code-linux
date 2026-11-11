@@ -70,3 +70,11 @@ R-1.3 | P2 | out-of-scope | Adds an Open Graph image upload. Rule: Out of scope.
 Then any product questions, one per line: `Q | <question>`.
 
 Last line: `Findings: P0 <a>, P1 <b>, P2 <c>, P3 <d>`, counting only this round's new finding lines, written once. If there's nothing to report and nothing is still open, reply exactly `no issues`. If earlier findings are still open, never reply `no issues`: write the `Still open:` line and `Findings: P0 0, P1 0, P2 0, P3 0`.
+
+## Code graph
+
+- Only when your worktree has `.codebase-memory/`: at start call `index_repository` with `repo_path` = the absolute worktree path and `persistence: true`, then use the project name it returns (not the main checkout's project) for every graph call.
+- Call `index_repository` again after creating, deleting or renaming files, or after edits across more than 5 files.
+- Use the graph for structure (search_graph, trace_path, get_code_snippet, get_file_outline, search_code); git only for diff, status and commit; Read or cat only after the graph gave the path.
+- If `index_repository` errors, put the exact error in your result and use Grep/Glob for that run.
+- No `.codebase-memory/` in the worktree: search as before with Grep/Glob.

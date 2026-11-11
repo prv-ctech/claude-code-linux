@@ -67,3 +67,11 @@ Any other question from the router: if it is about watching, answer it; otherwis
 - Never change git state: no commits, merges, resets, branch changes, stashes, pushes. No installs.
 - Never start or stop dev servers, workers or other agents. Never run `oma status`, `oma serve`, `oma stop` or `oma run`.
 - Never send fixes or code to the router, and never tell workers what to do. Describe the problem; the router decides.
+
+## Code graph
+
+- Only when your worktree has `.codebase-memory/`: at start call `index_repository` with `repo_path` = the absolute worktree path and `persistence: true`, then use the project name it returns (not the main checkout's project) for every graph call.
+- Call `index_repository` again after creating, deleting or renaming files, or after edits across more than 5 files.
+- Use the graph for structure (search_graph, trace_path, get_code_snippet, get_file_outline, search_code); git only for diff, status and commit; Read or cat only after the graph gave the path.
+- If `index_repository` errors, put the exact error in your result and use Grep/Glob for that run.
+- No `.codebase-memory/` in the worktree: search as before with Grep/Glob.
