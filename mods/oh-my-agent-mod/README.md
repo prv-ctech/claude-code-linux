@@ -50,7 +50,7 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 
 ## Agents
 
-`oh-my-agent-mod:` `ticket-writer`, `worker`, `tester`, `reviewer`, `merger`, `checker`, `reproducer`, `teammate`, `inspector`, `first-timer`. The router is your own session, following `router.md` after `/oma`.
+`oh-my-agent-mod:` `ticket-writer`, `worker`, `tester`, `reviewer`, `merger`, `checker`, `reproducer`, `teammate`, `inspector`, `first-timer`, `gatherer`. The router is your own session, following `router.md` after `/oma`.
 
 ## What changed from the original pack
 
@@ -64,6 +64,10 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 | `lsof`, `date -u`, hand-written JSON | the `oma` helper on the Bash PATH: `oma status`, `oma serve/up/stop/port`, `oma run lint|build|test|install`, `oma cfg` |
 | interview one question at a time, draft → ready by hand | batched questions only for user-facing choices; ready by default |
 | `main`, port 3000 | your checked-out branch, the profile's `mainPort` |
+
+## References (gatherer)
+
+When a request names a source (Mobbin, 21st, an artifact link, a URL, an MCP), the router starts the `gatherer` agent. It saves the raw originals into `.oma/refs/<request-slug>/` (`index.md`, `images/`, `code/`, `raw/`), git-ignored like the rest of `.oma/`. Tickets link the files in a References section; workers open them, the tester compares against them and the reviewer flags contradictions.
 
 ## Settings
 

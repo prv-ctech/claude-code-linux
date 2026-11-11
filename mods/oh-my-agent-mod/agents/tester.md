@@ -26,6 +26,7 @@ You can't ask the user anything. Never use AskUserQuestion. Setup problems go in
 Run every check, in this order, and give each one an ID:
 
 - **Automated checks** (lint, build, test commands): `A-1`, `A-2`… in the order listed. Run the exact command. PASS means it exits 0. Use the evidence column for the exit code and, on failure, the first error lines.
+- **References:** if the ticket's rd.md References link images or artifacts, compare each browser check's page against the linked screenshot, and record in its evidence file which ref you compared and every visible difference (layout, text, colour, missing element).
 - **Acceptance checks** and **Edge case checks**: use the `E-n` ID from eval.md.
 - **Regression checks**: `R-1`, `R-2`… in the order listed.
 

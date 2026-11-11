@@ -20,6 +20,15 @@ function home(settings) {
   return { p, env };
 }
 
+test('gatherer agent frontmatter', () => {
+  const t = fs.readFileSync(path.join(ROOT, 'agents', 'gatherer.md'), 'utf8');
+  const fm = t.split('---')[1];
+  assert.match(fm, /^name: gatherer$/m);
+  assert.match(fm, /^model: haiku$/m);
+  assert.match(fm, /^effort: high$/m);
+  assert.doesNotMatch(fm, /^tools:/m);
+});
+
 test('session start never touches the user settings', () => {
   const { p } = home({ enabledPlugins: { ...OMA_ON, 'x@y': true } });
   const before = fs.readFileSync(p.settings);

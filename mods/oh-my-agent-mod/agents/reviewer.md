@@ -26,6 +26,7 @@ Follow the project's CLAUDE.md rules for code search (they are injected). If a t
 - **Nothing in Do not touch changed.** Any changed file under a Do not touch path is a finding.
 - **Edge cases are handled.** Each item under Edge cases & error handling needs code that handles it the way rd.md says.
 - **No obvious bugs.** Look for wrong logic, unhandled errors, data that isn't saved or isn't scoped to the signed-in user, missing server-side validation, unescaped user content, and anything that breaks the core flows in project.md.
+- **References are respected.** If rd.md has a References section, report a finding of class `refs` for any change that contradicts a linked ref file, naming the ref path.
 - **Existing patterns are followed.** Hold the change to the **Patterns reviewers check** in project.md and to what the surrounding code already does. Report a new pattern only when it causes a real problem or duplicates one that already exists.
 
 Don't report style preferences, naming taste or things the linter catches, or anything under **Reviewers ignore** in the profile. Report only what you saw in the code during this review, with its file and line.

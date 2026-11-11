@@ -116,6 +116,8 @@ The folder name is `NNN-short-kebab-slug`. Find the highest number already in `s
 
 ### 5. Write rd.md
 
+If your prompt has a `Refs:` line, read that folder's `index.md` first and add a `## References` section to rd.md (right after Affected areas) listing, per FR, the ref file paths it relies on. Without a `Refs:` line, leave the section out.
+
 Use this template. Leave out a section only if it really has nothing to say. Write "None" rather than padding a section with filler.
 
 ```markdown
@@ -147,6 +149,10 @@ The problem it solves or the value it adds. This tells the builder what to favou
 
 ## Affected areas
 - `path/to/file-or-dir`: <what changes there>
+
+## References
+<Only for tickets with refs.>
+- FR-1: `.oma/refs/<request-slug>/images/x.png`, `.oma/refs/<request-slug>/code/y.tsx`
 
 ## Do not touch
 - `path/to/file-or-dir`: <areas the worker must leave alone, especially ones another ticket owns>
