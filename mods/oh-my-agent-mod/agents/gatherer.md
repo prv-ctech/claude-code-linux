@@ -33,6 +33,12 @@ A Markdown table with the columns `File | Source | What it shows | Size`, one ro
 
 Save full MCP output into `raw/`, split into files of at most 300 lines each, named `<source>-<n>.md` (`mobbin-1.md`, `mobbin-2.md`). Never truncate, trim or summarise it. If an MCP returns only an image URL, open it in the built-in browser and save a screenshot under `images/`.
 
+# Complete output, code and images
+
+- Trimmed output: when a tool result shows trimming (for example `middle omitted`, `compressed view`, or a retrieve handle), fetch the full output with `mcp__plugin_oh-my-context-mod_oh-my-context__retrieve` before saving. Never save a trimmed result as raw. If the full output cannot be got, save it with first line `TRUNCATED: <reason>` and mark it `TRUNCATED` in `index.md`.
+- Code: for component/design sources (21st, Mobbin, similar), after a search, fetch the actual code of the top 3 matches (21st `get_component`, or the source's equivalent) into `code/`. Search metadata alone never counts as done, and "not requested" is never a reason to skip. A source with no code endpoint gets the line `no code endpoint` in `index.md`.
+- Images: every image, preview or screenshot URL a source returns gets downloaded into `images/` (for example `curl -sSfL -o images/<name>.png <url>`). `index.md` lists the local file path. A failed download (auth, 4xx) is listed with its URL and error, never dropped.
+
 # Reaching tools
 
 You have every tool, no allowlist. Direct MCP tools are called as listed. MCP tools behind the oh-my-context gateway (`mcp__plugin_oh-my-context-mod_oh-my-context__*`) are found with `manifest`, shown with `inspect` and run with `call`. For screenshots and web pages use the built-in browser (`mcp__Claude_Browser__*`): open your own tab, pass its `tabId` on every call, and only open the sources you were given. Haiku 5.5 has a 1M-token context window (claude-api skill model table), so you may gather all sources in one pass.

@@ -116,6 +116,8 @@ The folder name is `NNN-short-kebab-slug`. Find the highest number already in `s
 
 ### 5. Write rd.md
 
+If the refs include images, open each image with the Read tool before writing. Visual decisions (colour, layout, spacing, typography) must follow the refs; any deviation goes under Decisions made, marked as changing what users see.
+
 If your prompt has a `Refs:` line, read that folder's `index.md` first and add a `## References` section to rd.md (right after Affected areas) listing, per FR, the ref file paths it relies on. Without a `Refs:` line, leave the section out.
 
 Use this template. Leave out a section only if it really has nothing to say. Write "None" rather than padding a section with filler.
@@ -236,6 +238,7 @@ Guidelines:
 - Use real values: real routes, real selectors or visible text, real commands from this repo, real sample data. Placeholders like `<some value>` make an eval impossible to run. The only placeholders allowed are `<port>`, `tNNN` and `<host>`, which each builder swaps for its own.
 - Check things that last, not just how the screen looks right now (reload the page, restart, look at storage) whenever the requirement involves saving data.
 - Where an automated test makes sense, describe the test the builder should write: file location, what it asserts. Workers write these tests first and watch them fail before building, and the eval can be re-run later.
+- For each FR with image refs, eval.md gets at least one `browser` check where the tester screenshots the built page and compares it to the named ref file path (`.oma/refs/<request-slug>/images/x.png`) on listed concrete points: colours as hex, layout order, visible text.
 - If a requirement can only be checked by human judgment (e.g. a visual style), say so clearly and give the most objective criteria you can (specific colours or tokens, spacing values, exact visible text).
 - Fill in the Traceability table last and use it as a self-check. Any FR or NFR without an eval is a gap you should fix before finishing.
 - **For an API or a CLI/library** (the profile's `appType`), write `API` or `CLI` checks: the exact command and the exact expected output or status code. The rest of this bullet is for web apps.
