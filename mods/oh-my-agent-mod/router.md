@@ -139,6 +139,8 @@ Agent teams: <agentTeams: on | off>
 
 ## Routing tickets
 
+Route only tickets under your own `projectRoot` (`<projectRoot>/specs/tickets/`). A ticket of another project is reported to the user with the text `open /oma in <that project>` and never handed to a worker.
+
 A ticket can start when its Status is `ready` and its Runs is `alongside`, or `waits for NNN` with NNN `done` on the board. `draft` tickets are never routed; only the ticket-writer changes them, in the review round above. Only the merger sets a ticket `done` (the ticket-writer sets `draft` and `ready`), so a ticket you routed still reads `ready`: your job list says it's running.
 
 Start everything that can start, in one turn:

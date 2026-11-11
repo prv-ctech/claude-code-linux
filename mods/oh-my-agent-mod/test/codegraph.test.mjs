@@ -91,3 +91,39 @@ test('subagent hook text for oma agents, silence otherwise', () => {
   assert.match(off, /^oh-my-agent local files:/);
   assert.ok(!off.includes('code search'));
 });
+
+// A main checkout (temp git repo) with a graph, plus one worktree under .claude/worktrees/.
+function wt(graph = "main-graph") {
+  const m = fs.realpathSync(repo());
+  if (graph) write(path.join(m, ".codebase-memory", "graph.db.zst"), graph);
+  const w = path.join(m, ".claude", "worktrees", "w");
+  run("git", ["worktree", "add", "-q", w], { cwd: m });
+  return { m, w };
+}
+const hook = cwd => onSubagent({ agent_type: "oh-my-agent-mod:worker", cwd }, { env: { CLAUDE_CONFIG_DIR: path.join(tmp(), "x") }, home: tmp() });
+const gz = p => path.join(p, ".codebase-memory", "graph.db.zst");
+
+test("graph copy: a worktree without a graph gets the main checkout bytes", () => {
+  const { m, w } = wt();
+  assert.ok(!hook(w).includes("graph copy failed"));
+  assert.deepStrictEqual(fs.readFileSync(gz(w)), fs.readFileSync(gz(m)));
+});
+
+test("graph copy: an existing worktree graph is never overwritten", () => {
+  const { w } = wt();
+  write(gz(w), "mine");
+  hook(w);
+  assert.strictEqual(fs.readFileSync(gz(w), "utf8"), "mine");
+});
+
+test("graph copy: cwd = main checkout copies nothing and does not fail", () => {
+  const { m } = wt();
+  assert.ok(!hook(m).includes("graph copy failed"));
+  assert.ok(!fs.existsSync(path.join(m, ".codebase-memory", ".codebase-memory")));
+});
+
+test("graph copy: main checkout without a graph leaves the worktree without one", () => {
+  const { w } = wt(null);
+  hook(w);
+  assert.ok(!fs.existsSync(path.join(w, ".codebase-memory")));
+});

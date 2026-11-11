@@ -181,16 +181,41 @@ export function codeGraph(dir, { env = process.env, home = os.homedir() } = {}) 
 }
 
 // What the SubagentStart hook adds for an oma agent, or null.
+// JS-only recursive copy: fs.cpSync can abort the process with a native error on unreadable dirs.
+function copyDir(src, dst) {
+  fs.mkdirSync(dst, { recursive: true });
+  for (const e of fs.readdirSync(src, { withFileTypes: true })) {
+    const a = path.join(src, e.name), b = path.join(dst, e.name);
+    if (e.isDirectory()) copyDir(a, b); else fs.copyFileSync(a, b);
+  }
+}
+
+// A worktree under <main>/.claude/worktrees/ without a graph gets a copy of the main checkout's. Returns an error message or null.
+function copyGraph(cwd) {
+  try {
+    const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' });
+    if (r.status !== 0) return null;
+    const main = path.dirname(r.stdout.trim());
+    const src = path.join(main, '.codebase-memory');
+    const dst = path.join(cwd, '.codebase-memory');
+    if (!cwd.startsWith(path.join(main, '.claude', 'worktrees') + path.sep) || !fs.existsSync(src) || fs.existsSync(dst)) return null;
+    copyDir(src, dst);
+    return null;
+  } catch (e) { return e.message; }
+}
+
 export function onSubagent(input, opts) {
   if (typeof input.agent_type !== 'string' || !input.agent_type.startsWith(`${ME}:`)) return null;
   // The first-timer must know nothing about the code or files.
   if (input.agent_type === `${ME}:first-timer`) return null;
   const cwd = path.resolve(input.cwd || process.cwd());
+  const copyErr = copyGraph(cwd);
   const g = codeGraph(cwd, opts);
   const local = 'oh-my-agent local files: plans, tickets (specs/tickets/), results, evidence and .oma/ are git-ignored and never committed or pushed. Read and write them on disk, never with git (no git show, add or commit for them). A worktree gets copies through .worktreeinclude; if one is missing there, copy it from the main checkout.';
-  if (g.reason === 'plugin not enabled') return local;
-  if (!g.active) return `${local}\noh-my-agent code search: codebase-memory-mod is on but no graph applies in ${cwd} (${g.reason}), so Grep, Glob and grep work as usual here.`;
-  return `${local}\noh-my-agent code search: codebase-memory-mod is on and ${cwd} has a graph, so Grep, Glob and shell grep/rg/ag/ack/find/git grep on code are blocked here. `
+  const warn = copyErr ? `\noma: graph copy failed: ${copyErr}` : '';
+  if (g.reason === 'plugin not enabled') return local + warn;
+  if (!g.active) return `${local}${warn}\noh-my-agent code search: codebase-memory-mod is on but no graph applies in ${cwd} (${g.reason}), so Grep, Glob and grep work as usual here.`;
+  return `${local}${warn}\noh-my-agent code search: codebase-memory-mod is on and ${cwd} has a graph, so Grep, Glob and shell grep/rg/ag/ack/find/git grep on code are blocked here. `
     + 'Use the codebase-memory tools (load them with ToolSearch: mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_graph, search_code, get_code_snippet, trace_path, get_file_outline) '
     + `with project "${g.project}". Piping command output into grep stays allowed. `
     + `A worktree under .claude/worktrees/ gets its own copy of the graph and is its own project once indexed: call index_repository there with repo_path set to the worktree path and persistence: true, and use the project name it returns, not "${g.project}".`;

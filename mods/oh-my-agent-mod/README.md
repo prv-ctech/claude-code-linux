@@ -90,6 +90,8 @@ When a request names a source (Mobbin, 21st, an artifact link, a URL, an MCP), t
 - The `.env` rule covers the graph tools too: `file_pattern`, `path_filter` and `file_path` may not target env files.
 - Where there is no graph, or the plugin is off, oma leaves Grep, Glob and grep alone.
 - When the main checkout has an untracked `.codebase-memory/`, init lists it in `.worktreeinclude` and `.gitignore`, so every worktree gets a copy; worktree agents index their own worktree as their own project (`index_repository`, `persistence: true`). A graph git already tracks is left alone.
+- The SubagentStart hook also copies the main checkout's `.codebase-memory/` into a worktree that lacks one, so no `oma start` is needed after a plugin upgrade.
+- Project guard: the router routes only tickets under its own project root, and a worker whose worktree lacks its ticket folder blocks at once.
 
 ## Development
 
