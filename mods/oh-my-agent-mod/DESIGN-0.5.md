@@ -1,6 +1,6 @@
 # oh-my-agent 0.5 design (draft for review)
 
-Status: draft, nothing built yet. Sources studied: deepseek-superagent (our base), obra/superpowers, mattpocock/skills, Anthropic code-review loop (`.reference/code-review`), Google EGM Lite (`.reference/egm`), Vercel CEO pack (`.reference/vercel-ceo`).
+Status: steps 1-5 built (step 1 in 0.5.0, steps 2-5 in 0.6.0). Sources studied: deepseek-superagent (our base), obra/superpowers, mattpocock/skills, Anthropic code-review loop (`.reference/code-review`), Google EGM Lite (`.reference/egm`), Vercel CEO pack (`.reference/vercel-ceo`).
 
 ## Problems to solve
 
@@ -76,6 +76,14 @@ The checker gains a `first-timer` mode: no code, specs or git access, only the a
 ### 6. Decision ledger
 
 Every decision an agent makes without the user goes to `.oma/decisions.md` as one line: date, ticket, decision, reason, `By: agent`. The router shows new lines in its next report, so the user can audit instead of being asked.
+
+## As built (differences from the plan above)
+
+- No separate skills: the quick path and the brainstorm are sections of `router.md`.
+- The first-timer is its own agent (`agents/first-timer.md`), not a checker mode. `scripts/guard.mjs` keeps it blind: browser tools on local URLs only, Bash only `oma up/serve/stop/port`, Write only under `.oma/job/first-timer/`.
+- The router is the only writer of `.oma/decisions.md`; lines say who decided (`By: human | router | ticket-writer | worker NNN | reproducer`).
+- First-timer runs on `/oma explore` and once at the end of a run that changed a web app.
+- The quick path commits on the current branch.
 
 ## Not taking (and why)
 

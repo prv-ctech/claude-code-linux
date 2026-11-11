@@ -119,8 +119,10 @@ Start both helpers in ONE message (two Agent calls) so they run in parallel, eac
   Worktree: <root>
   Ticket: specs/tickets/NNN-slug   (review the diff against rd.md)
   Base: <the output of `git merge-base HEAD <base>`>
+  Round: <1 for the first review, then 2, 3, 4 after each fix round>
   The work is not committed yet. Include uncommitted and untracked files in the review.
   ```
+  From round 2 on, add `Changed since last round: <the files you changed while fixing>` and `Already reported:` followed by every finding line from earlier rounds, so it reviews only what changed and doesn't repeat itself.
 
 When the tester reports, run `oma status <step> "<note>" --evals <passed>/<failed>/<total> --round next`.
 
@@ -130,10 +132,14 @@ If any check failed or the reviewer found something:
 
 1. `oma status fixing "<what's failing>"`.
 2. Fix the cause in the code. Don't edit eval.md or game a check. A check that "can't be run as written" is a FAIL: work out whether your build or the environment is the reason and fix that.
-3. Verify each reviewer finding against the code before changing anything. If a finding is wrong, don't change the code for it. Note why in one line; it goes under "Decisions I made...".
+3. Triage each reviewer finding against the code before changing anything, P0 first, then P1, P2, P3 (by the severity column, whatever order they came in), and give it one action. Check the severity too: if the impact the finding describes fits a higher level (see the reviewer's scale: lost or leaked data, lockout or a security hole is P0; a broken FR or lost input is P1), treat it at that level:
+   - **FIX:** it's real. Fix its class everywhere it shows up, not just the line named. P0 and P1 must be fixed or rejected; fix a P2 when it's small, else note it; a P3 never costs a round (note it).
+   - **REJECT:** it's wrong. Only with evidence: the `file:line` or rd.md text that shows it. It goes under "Decisions I made..." as `rejected R-n: <evidence>`.
+   - Each `Q |` line from the reviewer is a product question: settle it from rd.md if it answers it, else it goes under "Blocked / needs a decision".
+   - **ESCALATE:** it needs a product decision, or it's a P0/P1 you rejected and the reviewer raised again in the next round. Don't change code for it; it goes under "Blocked / needs a decision" with your recommended answer.
 4. Run the tester again (all checks) and the reviewer again on the new diff. Set step `testing` first.
 
-Stop after 3 fix rounds, even if checks still fail. The report then says FAIL.
+Stop after 3 fix rounds, even if checks still fail. Stop sooner when you're stuck: the same finding or failing check is still open after two rounds (the reviewer's `Still open:` line names them), or the count of open checks plus open P0-P2 findings didn't go down between two rounds (count the findings yourself: each new line, plus each `Still open:` id at the severity it had when first reported). Then don't start another rewrite; the report says FAIL and names what stayed open.
 
 ## 7. Finish
 
