@@ -193,6 +193,8 @@ function gitSub(seg) {
   while (j < w.length && w[j].startsWith('-')) j += GIT_OPTS_WITH_VALUE.has(w[j]) ? 2 : 1;
   return w[j] || '';
 }
+// Tools whose own `push` is not a git push (docker push $IMG next to git add "$f").
+const OTHER_PUSHERS = new Set(['docker', 'podman', 'buildah', 'skopeo', 'helm', 'oras']);
 const READ_ONLY_GIT = new Set(['log', 'grep', 'show', 'diff', 'blame', 'status', 'shortlog', 'rev-list', 'ls-files', 'merge-base', 'rev-parse', 'branch', 'remote', 'tag']);
 
 export function stagesOmaFiles(cmd) {
@@ -241,7 +243,7 @@ export function decide(input) {
     const cmd = String(ti.command || '').replace(/\\\r?\n/g, ''); // backslash-newline joins lines
     // Catch-all for what the parser can't follow (variables, here-strings, xargs, source <(...)): git and push in one command.
     // Leave out commit messages and read-only git segments (git log --grep push, git grep push "$DIR").
-    const bare = segments(dropMessages(cmd)).filter(seg => !READ_ONLY_GIT.has(gitSub(seg)) && gitSub(seg) !== 'stash').join(' ; ');
+    const bare = segments(dropMessages(cmd)).filter(seg => !READ_ONLY_GIT.has(gitSub(seg)) && gitSub(seg) !== 'stash' && !OTHER_PUSHERS.has(basename(words(seg)[0] || ''))).join(' ; ');
     // Only when the command runs text indirectly ($var, here-strings, xargs, source, eval, a nested shell).
     const indirect = /\$|`|<<<|\bxargs\b|(^|[;&|]\s*)(source|\.)\s|\beval\b|\b(ba|z|da|k)?sh\b/.test(bare + ' ' + dropMessages(cmd));
     // bash <<EOF ... EOF: the heredoc body is what the shell runs.

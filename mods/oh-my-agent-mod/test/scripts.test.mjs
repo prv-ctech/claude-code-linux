@@ -245,6 +245,11 @@ test('guard keeps the first-timer blind: browser only, oma up/serve/stop/port, w
   assert.match(d('Bash', { command: 'git push' }) || '', /blind/);
 });
 
+test('guard leaves docker push next to git alone', () => {
+  const out = decide({ agent_type: 'oh-my-agent-mod:worker', tool_name: 'Bash', tool_input: { command: 'git add "$f" && docker push $IMG' } });
+  assert.equal(out, null);
+});
+
 test('guard catches git push behind shell keywords and eval, and untyped Agent calls', () => {
   const bash = command => decide({ agent_type: W, tool_name: 'Bash', tool_input: { command } });
   for (const c of ['if true; then git push; fi', '{ git push; }', '! git push', 'eval git push', 'eval "git push"', 'G=git; $G push', 'P=push; git $P origin main', 'env -u FOO git push', 'sudo -u root git push', 'timeout -s KILL 5 git push', 'bash -c "cat .env.local"', "env -S 'git push origin main'", "git -c alias.u='push origin HEAD' u", 'cat .env>/dev/stdout', 'git {push,} origin main', 'cat .{env,}', 'git send-pack origin main', 'setsid git push origin HEAD', 'flock /tmp/l git push origin HEAD', 'git {pu,x}sh origin HEAD', 'cat .e{nv,x}', 'grep -f .env src/app.ts', "cat .$'env'", 'grep -eKEY .env', 'git subtree push --prefix x origin main', 'git lfs push origin --all', "git config alias.u 'push origin HEAD'", "git rebase --exec 'git push origin HEAD' HEAD~1", 'git submodule foreach git push', 'git --attr-source HEAD push origin main', 'bash <<EOF\ngit push origin HEAD\nEOF', 'find . -maxdepth 0 -exec git push origin HEAD \\;', 'rg --hidden -g .env KEY .', 'git \\\npush origin main', 'cat .en\\\nv', 'git-send-pack origin main', '/usr/lib/git-core/git-push', "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.u GIT_CONFIG_VALUE_0='push origin HEAD' git u", 'cat config/app.env.local', 'grep -- -x .env', '$(which git) push origin main', 'bash <<< "git push"', 'source <(echo git push)', 'cat .env*', 'cat .e?v', 'cat .en[v]', 'echo .env | xargs cat', '{git,} push origin HEAD', 'git http-push http://example.invalid/r.git HEAD', 'function f { git push origin main; }; f', '>/dev/null git push origin main', '> /tmp/x.log git push origin main', 'cat $(echo .env)', 'git commit -m fix;git push origin HEAD', 'echo -m a;cat .env', 'f() { git push; }; f', `git -c alias.u='!git pu""sh origin HEAD' u`]) assert.ok(bash(c), c);
