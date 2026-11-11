@@ -43,3 +43,8 @@ claude-code-state
 .idea
 *.swp
 .DS_Store
+
+# oh-my-agent: local plans, tickets and job files (never commit)
+/.oma/
+/specs/tickets/
+/.claude/worktrees/
