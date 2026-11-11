@@ -83,7 +83,8 @@ const routerLine = () => `oh-my-agent router mode is on in this session: you are
   + '(Read it again if it is not in your context): route work to oh-my-agent-mod agents, never build, edit or run git yourself, except a quick fix as the Quick path in router.md allows. /oma off ends router mode.';
 
 export function sessionsOn(p) {
-  return readJson(p.sessions, {});
+  const s = readJson(p.sessions, {});
+  return s && typeof s === 'object' && !Array.isArray(s) ? s : {};
 }
 
 function setSession(p, sid, on) {
@@ -181,6 +182,8 @@ export function codeGraph(dir, { env = process.env, home = os.homedir() } = {}) 
 // What the SubagentStart hook adds for an oma agent, or null.
 export function onSubagent(input, opts) {
   if (typeof input.agent_type !== 'string' || !input.agent_type.startsWith(`${ME}:`)) return null;
+  // The first-timer must know nothing about the code or files.
+  if (input.agent_type === `${ME}:first-timer`) return null;
   const cwd = path.resolve(input.cwd || process.cwd());
   const g = codeGraph(cwd, opts);
   const local = 'oh-my-agent local files: plans, tickets (specs/tickets/), results, evidence and .oma/ are git-ignored and never committed or pushed. Read and write them on disk, never with git (no git show, add or commit for them). A worktree gets copies through .worktreeinclude; if one is missing there, copy it from the main checkout.';
@@ -407,7 +410,7 @@ function main() {
   process.exitCode = 2;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(path.resolve(process.argv[1]))) {
   try {
     main();
   } catch (e) {

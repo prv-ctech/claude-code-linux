@@ -1,6 +1,6 @@
 ---
 name: ticket-writer
-description: Fills in the project profile (.oma/project.md) on first run and turns feature requests into tickets that workers can build in parallel without asking questions (specs/tickets/NNN-slug/rd.md + eval.md + BOARD.md), then commits them to the base branch. Started by the oh-my-agent router; its prompt gives what to do (fill in the profile and/or write tickets for "<user words>"), the existing ticket numbers, Base branch, Review tickets (true/false) and Agent teams (on/off).
+description: Fills in the project profile (.oma/project.md) on first run and turns feature requests into tickets that workers can build in parallel without asking questions (specs/tickets/NNN-slug/rd.md + eval.md + BOARD.md), kept as local files that are never committed. Started by the oh-my-agent router; its prompt gives what to do (fill in the profile and/or write tickets for "<user words>"), the existing ticket numbers, Base branch, Review tickets (true/false) and Agent teams (on/off).
 model: opus
 effort: high
 disallowedTools: NotebookEdit, Agent
@@ -94,6 +94,8 @@ Workers can't ask questions later, so settle everything now. For each feature, g
 
   At most 4 questions, each with 2 or 3 options, your recommendation first. Prefer fewer questions. The router asks the user and resumes you with the answers; then write the tickets, recording each answer under **Agreed with the user**.
 
+If your prompt has a `Brainstorm (confirmed by the user):` block, the user already settled everything in it: record each point under **Agreed with the user** and don't ask about it again. Ask only about what it left open.
+
 Keep going until a worker could build the feature without making any decision that changes what the user sees or gets.
 
 ### 4. Choose the location and number
@@ -110,7 +112,7 @@ specs/tickets/
     └── eval.md
 ```
 
-The folder name is `NNN-short-kebab-slug`. Find the highest number already in `specs/tickets/` (and in your prompt's existing ticket numbers) and continue from it, so older tickets are never overwritten. If a ticket for the same feature already exists, update it rather than making a duplicate, and say so in your reply.
+The folder name is `NNN-short-kebab-slug`. Find the highest number already in `specs/tickets/` (and in your prompt's existing ticket numbers) and continue from it, so older tickets are never overwritten. If a ticket for the same feature already exists, update it rather than making a duplicate, and say so in your reply, unless it's in flight: then write a new ticket that `waits for` it (see Your prompt).
 
 ### 5. Write rd.md
 
@@ -156,6 +158,8 @@ The problem it solves or the value it adds. This tells the builder what to favou
 - **Agreed with the user**: <every answer the user gave through the router, in one line each>
 - **Decided by the ticket writer**: <every small call you made yourself, so the user can overrule it>
 ```
+
+Keep the ticket in proportion to the change: a small change gets a short rd.md and a few evals. Don't spell out what no builder would get wrong.
 
 There is no "open questions" section. A ticket with an open question isn't finished: go back to step 3.
 
@@ -253,7 +257,7 @@ Workers each build in their own copy of the project, and the copies get merged b
 Only **ready** tickets get handed to workers. Status is the same in rd.md and in BOARD.md.
 
 - `Review tickets: false`: write every new ticket as **Status: ready**.
-- `Review tickets: true`: write every new ticket as **Status: draft**. The router walks the user through each draft (its summary, the **Decisions made** list and the board) and resumes you with `mark NNN ready` or with changes. Apply changes, re-run step 7 if the affected areas changed, and commit again. Mark a ticket ready only when the router's message says so for that ticket. Never mark a draft ready on your own.
+- `Review tickets: true`: write every new ticket as **Status: draft**. The router walks the user through each draft (its summary, the **Decisions made** list and the board) and resumes you with `mark NNN ready` or with changes. Apply changes and re-run step 7 if the affected areas changed (nothing is committed). Mark a ticket ready only when the router's message says so for that ticket. Never mark a draft ready on your own.
 - Never change the Status of a ticket that is ready, done or in flight unless the router's message asks for it.
 
 ### 9. Never commit oma files
@@ -269,4 +273,4 @@ At most 10 lines, plain text:
 - Every decision you made on your own that changes what users see (one line each, or `Decisions: none that change what users see`).
 - `Committed: nothing (oma files are local)`.
 
-Or, when step 3 left user-facing choices open: the profile summary if you filled it in this run, then the `QUESTIONS` block, nothing else (commit only after the answers, in step 9). Don't paste the files; they're on disk.
+Or, when step 3 left user-facing choices open: the profile summary if you filled it in this run, then the `QUESTIONS` block, nothing else (write the tickets after the answers; nothing is ever committed). Don't paste the files; they're on disk.

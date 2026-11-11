@@ -66,6 +66,8 @@ test('subagent hook text for oma agents, silence otherwise', () => {
   const W = 'oh-my-agent-mod:worker';
   const name = proj.replace(/\//g, '-').replace(/^-+/, '');
 
+  const blind = sub({ agent_type: 'oh-my-agent-mod:first-timer', cwd: proj });
+  assert.strictEqual(blind.stdout, '', 'the first-timer gets no code or file context');
   const on = sub({ agent_type: W, cwd: proj });
   assert.strictEqual(on.status, 0);
   const o = JSON.parse(on.stdout).hookSpecificOutput;

@@ -18,7 +18,7 @@ You can't ask the user anything. Anything that needs a decision goes in your rep
 ## 1. Check before merging
 
 1. `git branch --show-current` must print `<base>`. If not, stop and reply FAILED.
-2. Tracked files must be clean: `git status --porcelain --untracked-files=no` must print nothing. Untracked files (`.oma/job/` and the other never-commit paths) don't count, and neither do the "Files tools rewrite on their own" from `.oma/project.md` when a dev server is running (`oma port <mainPort>` prints a pid; leave those files alone, they're not yours to commit or discard). If tracked files are modified, stop and reply FAILED with the file list. Don't stash or discard anyone's changes.
+2. Tracked files must be clean: `git status --porcelain --untracked-files=no` must print nothing. Untracked files (`.oma/job/` and the other never-commit paths) don't count, and neither do the "Files tools rewrite on their own" from `.oma/project.md` when a dev server is running (`oma port <mainPort>` prints a pid; leave those files alone, they're not yours to commit or discard). Nor do `.gitignore`, `.dockerignore` and `.worktreeinclude` when `git diff` on them only adds oh-my-agent's own lines (`/.oma/`, `/specs/tickets/`, `/.claude/worktrees/` and its comment line): setup writes those and leaves them for the user to commit; leave them alone. If other tracked files are modified, stop and reply FAILED with the file list. Don't stash or discard anyone's changes.
 3. The branch must exist: `git rev-parse --verify <branch>`. Show what it brings: `git log --oneline <base>..<branch>` and `git diff --stat <base>...<branch>`. If it has no commits beyond `<base>`, reply FAILED: nothing to merge.
 4. Find the ticket folder in the main checkout, on disk (tickets are never committed, so never use git for them): `ls -d specs/tickets/NNN-*`. Read its `rd.md` (Affected areas, Do not touch, Decisions made).
 5. Record the current head: run `git rev-parse HEAD` and keep the full sha as PRE. You need it to undo the merge. Shell variables don't survive between commands, so write the sha itself wherever PRE appears below.
@@ -48,8 +48,8 @@ Record the merge commit: run `git rev-parse HEAD` and keep the full sha as MERGE
 ## 3. Lint and build
 
 1. If the merge changed a dependency manifest or lockfile (`git diff --name-only <PRE> <MERGE>`), run Install first. Otherwise the build fails on missing packages that aren't the branch's fault.
-2. Run Lint, then Build. If `.oma/project.md` says the build and dev server can't run together in one folder and `oma port <mainPort>` prints a pid, reply FAILED: `dev server on <mainPort> blocks the build` rather than stopping someone else's server. If the build says another build is already running, wait 1 minute and retry once.
-3. If either fails, undo the merge:
+2. Run Lint, then Build. If `.oma/project.md` says the build and dev server can't run together in one folder and `oma port <mainPort>` prints a pid, undo the merge as in point 3 and reply FAILED: `dev server on <mainPort> blocks the build` rather than stopping someone else's server. If the build says another build is already running, wait 1 minute and retry once.
+3. If Install, Lint or Build fails, undo the merge:
    - Check that `git rev-parse HEAD` still equals MERGE. If it doesn't, stop and report that `<base>` moved.
    - `git reset --keep <PRE>`. It moves the branch back and refuses rather than overwrite a tracked file someone changed while you ran lint and build (the user may be editing in this checkout). If it refuses, leave everything as it is and reply `FAILED NNN-slug: build failed and main has local edits, merge left in place at <MERGE short sha>: <the files git named>`, so the router can ask the user. Don't use `git reset --hard`, and don't use `git revert -m 1`: a reverted merge stops git from bringing those changes back when the fixed branch is merged later.
    - Confirm `git rev-parse HEAD` equals PRE.
@@ -88,7 +88,7 @@ The work is uncommitted in the main checkout, so the tree is meant to be dirty. 
 
 1. `git branch --show-current` must print `<base>`. Record PRE (`git rev-parse HEAD`).
 2. Read `specs/tickets/NNN-slug/rd.md` (every Affected areas block) and `specs/tickets/NNN-slug/contract.md`.
-3. List the changes: `git status --porcelain`. Every changed or new file must be either in the ticket's Affected areas or under `specs/tickets/NNN-slug/` (ignored, so `git status` never lists them). Ignore `.oma/job/`, the never-commit paths and the files tools rewrite on their own (`.oma/project.md` lists both). If any other file changed, stop and reply FAILED, listing those files. Someone else's work may be mixed in.
+3. List the changes: `git status --porcelain`. Every changed or new file must be either in the ticket's Affected areas, a test file next to one of those files, or under `specs/tickets/NNN-slug/` (ignored, so `git status` never lists them). Ignore `.oma/job/`, the never-commit paths and the files tools rewrite on their own (`.oma/project.md` lists both). If any other file changed, stop and reply FAILED, listing those files. Someone else's work may be mixed in.
 4. If a dependency manifest changed, run Install. Then run Lint and Build (the dev-server check in step 3.2 applies here too). If either fails, commit nothing, leave every file as it is, and reply FAILED with the error, so the router can send it back to the teammates.
 5. Stage exactly the files from point 3, by path (never `git add -A` or `git add .`), and commit with `git commit -m "NNN-slug: <ticket title> (team)"`. Check with `git status` that nothing outside that list was staged.
 6. Do step 4 (Mark the ticket done) as usual.

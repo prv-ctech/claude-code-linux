@@ -217,3 +217,50 @@ test('check says app-not-running once per streak and still calls walks', async (
   assert.deepStrictEqual(kinds(), ['tick', 'walk-due']);
   assert.deepStrictEqual(kinds(), ['tick']);
 });
+
+test('guard keeps the first-timer blind: browser only, oma up/serve/stop/port, writes under .oma/job/first-timer', () => {
+  const F = 'oh-my-agent-mod:first-timer';
+  const d = (tool_name, tool_input) => decide({ agent_type: F, tool_name, tool_input, cwd: '/p' });
+  for (const command of ['oma up 3000', 'oma serve 3000', 'oma stop 3000', 'oma port 3000', 'node /p/oh-my-agent-mod/bin/oma up 3000', 'cd /work/app', "cd '/work/my app' && oma up 3000", 'node "/x/oh-my-agent-mod/bin/oma" up 3000', 'oma up 3000 > /dev/null 2>&1']) {
+    assert.strictEqual(d('Bash', { command }), null, command);
+  }
+  for (const command of ['cat README.md', 'oma serve 3000 && cat src/a.js', 'oma cfg', 'git log', 'ls src', 'oma up 3000; ls', 'node /tmp/evil/bin/oma up 3000', 'node /w/oh-my-agent-mod/../../usr/bin/oma up 3000']) {
+    assert.match(d('Bash', { command }) || '', /stays blind/, command);
+  }
+  assert.strictEqual(d('Write', { file_path: '/p/.oma/job/first-timer/report.md' }), null);
+  assert.match(d('Write', { file_path: '/p/src/x.md' }), /stays blind/);
+  assert.match(d('Write', { file_path: '/p/.oma/job/first-timer/../../../src/x.md' }), /stays blind/);
+  assert.match(d('Write', { file_path: '/elsewhere/.oma/job/first-timer/x.md' }), /stays blind/, 'only this project');
+  assert.strictEqual(d('Bash', { command: 'cd "/work/my app"' }), null);
+  for (const url of ['file:///etc/passwd', 'https://example.com', 'http://localhost.example.com/']) {
+    assert.match(d('mcp__Claude_Browser__navigate', { url }) || '', /stays blind/, url);
+  }
+  assert.strictEqual(d('mcp__Claude_Browser__navigate', { url: 'http://checker.localhost:3000/a' }), null);
+  assert.match(d('mcp__context7__query-docs', {}) || '', /stays blind/);
+  for (const tool of ['Read', 'Edit', 'Grep', 'Glob', 'Agent', 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_code', 'mcp__plugin_oh-my-context-mod_oh-my-context__call']) {
+    assert.match(d(tool, { file_path: '/p/a.js', pattern: 'x' }) || '', /stays blind/, tool);
+  }
+  assert.strictEqual(d('mcp__Claude_Browser__navigate', { url: 'http://localhost:3000' }), null);
+  assert.strictEqual(decide({ agent_type: W, tool_name: 'Read', tool_input: { file_path: '/p/src/a.js' } }), null, 'other agents unaffected');
+  assert.match(d('Bash', { command: 'git push' }) || '', /blind/);
+});
+
+test('guard leaves docker push next to git alone', () => {
+  const out = decide({ agent_type: 'oh-my-agent-mod:worker', tool_name: 'Bash', tool_input: { command: 'git add "$f" && docker push $IMG' } });
+  assert.equal(out, null);
+});
+
+test('guard catches git push behind shell keywords and eval, and untyped Agent calls', () => {
+  const bash = command => decide({ agent_type: W, tool_name: 'Bash', tool_input: { command } });
+  for (const c of ['if true; then git push; fi', '{ git push; }', '! git push', 'eval git push', 'eval "git push"', 'G=git; $G push', 'P=push; git $P origin main', 'env -u FOO git push', 'sudo -u root git push', 'timeout -s KILL 5 git push', 'bash -c "cat .env.local"', "env -S 'git push origin main'", "git -c alias.u='push origin HEAD' u", 'cat .env>/dev/stdout', 'git {push,} origin main', 'cat .{env,}', 'git send-pack origin main', 'setsid git push origin HEAD', 'flock /tmp/l git push origin HEAD', 'git {pu,x}sh origin HEAD', 'cat .e{nv,x}', 'grep -f .env src/app.ts', "cat .$'env'", 'grep -eKEY .env', 'git subtree push --prefix x origin main', 'git lfs push origin --all', "git config alias.u 'push origin HEAD'", "git rebase --exec 'git push origin HEAD' HEAD~1", 'git submodule foreach git push', 'git --attr-source HEAD push origin main', 'bash <<EOF\ngit push origin HEAD\nEOF', 'find . -maxdepth 0 -exec git push origin HEAD \\;', 'rg --hidden -g .env KEY .', 'git \\\npush origin main', 'cat .en\\\nv', 'git-send-pack origin main', '/usr/lib/git-core/git-push', "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.u GIT_CONFIG_VALUE_0='push origin HEAD' git u", 'cat config/app.env.local', 'grep -- -x .env', '$(which git) push origin main', 'bash <<< "git push"', 'source <(echo git push)', 'cat .env*', 'cat .e?v', 'cat .en[v]', 'echo .env | xargs cat', '{git,} push origin HEAD', 'git http-push http://example.invalid/r.git HEAD', 'function f { git push origin main; }; f', '>/dev/null git push origin main', '> /tmp/x.log git push origin main', 'cat $(echo .env)', 'git commit -m fix;git push origin HEAD', 'echo -m a;cat .env', 'f() { git push; }; f', `git -c alias.u='!git pu""sh origin HEAD' u`]) assert.ok(bash(c), c);
+  for (const c of ['git status', 'echo then', 'eval echo ok', 'git commit -m "push notifications"', 'git add push/handler.ts', 'npm run push-notifications', 'cat src/*.ts', 'cat .env.example', 'git log --oneline --grep push', 'git grep -n "push" -- src', 'grep "a[" README.md', 'ls *', 'git grep -n push "$DIR"', 'git grep -n push -- lib/source', 'git commit -m "docs: explain .oma/ layout"', 'git log --oneline --grep=commit -- specs/tickets/', 'grep -n "\\.env" src/config.ts']) assert.strictEqual(bash(c), null, c);
+  for (const c of ['grep KEY .env', 'rg -n token .env.local']) assert.ok(bash(c), c);
+  for (const c of ['git -C . add specs/tickets/a', 'git commit specs/tickets/a -m x']) assert.ok(bash(c), c);
+  const cm = 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_code';
+  for (const fp of ['.*env', '[.]env']) assert.ok(decide({ agent_type: W, tool_name: cm, tool_input: { file_pattern: fp } }), fp);
+  assert.strictEqual(decide({ agent_type: W, tool_name: cm, tool_input: { file_pattern: '*.ts' } }), null);
+  assert.ok(decide({ agent_type: W, tool_name: 'Task', tool_input: { subagent_type: 'general-purpose' } }));
+  assert.ok(decide({ agent_type: 'oh-my-agent-mod:first-timer', tool_name: 'mcp__Claude_Browser__javascript_tool', tool_input: { text: '1' }, cwd: '/p' }));
+  assert.ok(decide({ agent_type: W, tool_name: 'Agent', tool_input: { prompt: 'x' } }), 'no subagent_type means the default agent');
+  assert.strictEqual(decide({ agent_type: W, tool_name: 'Agent', tool_input: { subagent_type: 'oh-my-agent-mod:tester' } }), null);
+});

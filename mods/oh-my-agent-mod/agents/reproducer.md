@@ -40,7 +40,7 @@ Whatever the outcome, set step `done` before you reply, so the watch doesn't fla
 2. Run `oma status init repro:<short-kebab-bug-name> 3090`. It also creates `.oma/job/`.
 3. Do the **Fresh worktree setup** from `.oma/project.md` (usually `oma run install`).
 4. Make sure port 3090 is free: `oma port 3090` must print nothing. If it prints a pid, run `oma status done "port 3090 busy"` and reply `NOT REPRODUCED: port 3090 busy, another reproducer may be running`.
-5. Start the app with `oma serve 3090`. It runs the profile's start command detached, logs to `.oma/job/dev-3090.log`, and waits up to 2 minutes for the **App is up when** check. If it reports the app didn't come up, read the log and treat it like any other step that fails.
+5. Start the app with `oma serve 3090`. It runs the profile's start command detached, logs to `.oma/job/dev-3090.log`, and waits up to 2 minutes for the **App is up when** check. If it reports the app didn't come up, read the log, run `oma status done "app did not start"` and reply `NOT REPRODUCED: app did not start: <first error from the log>`.
 6. Read the docs `.oma/project.md` lists under **Read before writing code**, and the tickets in `specs/tickets/` that cover the area of the bug, because their rd.md says what the intended behaviour is.
 
 ## 2. Reproduce, twice
@@ -60,6 +60,9 @@ Run `oma status testing "reproducing"`.
 - Account: the `Test account` from your prompt (`t090`, or `repro` when the profile says local data isn't per folder), created (or signed in to) the way `.oma/project.md` says.
 - Follow the reported steps as a user would. If the report is vague, try the most likely reading first, then up to two others.
 - It counts as reproduced only if it happens on two separate attempts, each starting from a fresh page load, with an evidence file each time (`.oma/job/evidence/repro-1.md`, `repro-2.md`). An evidence file holds the URL, the steps you did, and the exact page text excerpt (from `get_page_text` or `find`) that shows the bug. Take a `computer` screenshot to look at the state yourself and describe what it shows in one line in the file. Check `.oma/job/dev-3090.log` for server errors.
+
+**Not a bug:** the app does exactly what it was built to do, and the report asks for something it never did (a page that doesn't exist, a link that was never a link, an option no ticket or code has). Check the tickets' rd.md and the code before deciding. Then stop the app and close your tab as below, change nothing, run `oma status done "not a bug"`, and reply with exactly one line:
+`NOT A BUG: <what the user expected> was never built; <what the app does instead>. Evidence: <ticket or file:line>`
 
 **Not reproduced:** run `oma stop 3090` and close your tab with `mcp__Claude_Browser__tabs_close`. Restore any tracked file you changed (`git status` must show no tracked changes), make no commit, run `oma status done "not reproduced" --evals <p>/<f>/2 --round next` (for example `0/2/2`), and reply with exactly one line:
 `NOT REPRODUCED: <what you tried, including the account, URLs and steps>`
@@ -107,3 +110,7 @@ Branch: <branch>   Worktree: <absolute path>
 Write `skipped` for a check whose command is `none`.
 
 Never push, merge into `<base>`, edit tickets, or delete branches.
+
+## Follow-ups
+
+The router may resume you because your fix branch didn't merge (a conflict, or lint or build failed after the merge). In your own worktree: `git merge <base>` (never rebase), resolve it so the fix still does what your report says, then start the app again (`oma serve 3090`) and open a new browser tab as in section 2, run section 4's steps 4 to 8 again (re-check twice, lint, build, test, commit, stop, close the tab) and send a fresh reply. If the fix can't survive the merge, `git merge --abort` and reply `CONFIRMED, NO SIMPLE FIX: <cause>. Repro: <short steps>`.

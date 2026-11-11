@@ -58,7 +58,7 @@
         ]
       },
       {
-        "matcher": "Bash|Monitor|Read|Edit|Write|NotebookEdit|Grep|Agent|mcp__plugin_codebase-memory-mod_codebase-memory-mcp__.*",
+        "matcher": "Bash|Monitor|Read|Edit|Write|NotebookEdit|Grep|Glob|Agent|Task|mcp__.*",
         "hooks": [
           {
             "type": "command",

@@ -63,6 +63,13 @@ Project rules the reviewer holds every change to. Only ones that cause real bugs
 
 - {{…}}
 
+## Reviewers ignore
+
+Things that look like bugs but are deliberate or owned elsewhere. The reviewer never reports them.
+
+- Generated files and lockfiles; anything under `.oma/` or `specs/tickets/`.
+- {{deliberate product decisions that look like bugs, e.g. "light theme only", or "none"}}
+
 ## Files
 
 - **Never commit:** `.oma/`, `specs/tickets/`, `.claude/worktrees/`, {{e.g. `node_modules/`, `.next/`, `.env*`}}

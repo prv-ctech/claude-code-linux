@@ -22,6 +22,7 @@ In any project (a git repository), in a normal Claude Code chat:
 /oma 004                  start one ticket
 /oma fix <bug>            quick fix here: repro, root cause, test, fix, commit
 /oma build <feature>      force the full ticket pipeline
+/oma explore              blind first-time-user walk of a web app
 /oma status               board and running jobs, changes nothing
 /oma off                  end router mode in this session
 ```
@@ -31,12 +32,15 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 ## What happens
 
 1. **First `/oma` in a project** sets it up (idempotent): `.oma/project.md` (the profile every agent reads) and `.oma/watchdog-rules.md` from templates, `/.oma/`, `/specs/tickets/` and `/.claude/worktrees/` in `.gitignore` and `.dockerignore`, `/.oma/` and `/specs/tickets/` in `.worktreeinclude`, and `worktree.baseRef: "head"` in the session folder's `.claude/settings.local.json` (git-ignored) so workers branch from your checked-out commit. Everything lands on the branch checked out in the session (a desktop session running in its own worktree uses that worktree's branch); a detached HEAD or a repository with no commits is refused with a one-line reason.
-2. The **ticket-writer** (Opus) fills the profile in (checks the start command really serves on a spare port), reads the code, and writes `specs/tickets/NNN-slug/rd.md` + `eval.md` and `BOARD.md`. Questions only for choices that change what users see, batched (at most 4), asked by the router. Tickets stay local files (git-ignored, never committed) and are built straight away (set *Review tickets* to keep them draft until you approve).
-3. **Solo ticket** → a **worker** (Sonnet) in its own worktree on port 3100 + NNN builds it test-first, has the **tester** run every eval check and the **reviewer** check the diff, fixes up to 3 rounds, writes `results.md` and evidence (local files), commits its code on its branch. A finish gate (SubagentStop hook) won't let it end until every check passes and its tree is clean, or it reports blocked with a note.
-4. The router checks `results.md` against `eval.md` itself; follow-ups go to the same worker. On a pass the **merger** merges (`--no-ff`), runs lint and build, undoes the merge if either fails, marks the ticket done; the **checker** walks the feature and the core flows in the built-in browser.
-5. **Team tickets** (agent teams on: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) get one **teammate** per block of the ticket, agreeing on a `contract.md`. Without agent teams they run as solo tickets.
-6. Bugs go to the **reproducer**: reproduced twice, root cause first, fixed on its own branch when the fix is small, merged by the merger.
-7. **The watch.** The router runs `scripts/check.mjs --watch` under its Monitor tool: every 10 minutes it flags workers that went quiet, loop, are blocked or touch files outside their ticket, checks the main app answers, and says when a browser walk is due. Quiet rounds print nothing. The **inspector** (Haiku) answers "why did X fail".
+2. **Triage and brainstorm.** The router sizes each request: a single small bug is fixed right in the session (repro, root cause, failing test, fix, verify, commit). Anything bigger goes to the pipeline, and a vague feature first gets a short brainstorm with you: facts it can read itself are never asked, decisions come one question at a time with a recommended answer, then 2-3 approaches and a summary you confirm. After that it runs without you.
+3. The **ticket-writer** (Opus) fills the profile in (checks the start command really serves on a spare port), reads the code, and writes `specs/tickets/NNN-slug/rd.md` + `eval.md` and `BOARD.md`. Questions only for choices that change what users see, batched (at most 4), asked by the router. Tickets stay local files (git-ignored, never committed) and are built straight away (set *Review tickets* to keep them draft until you approve).
+4. **Solo ticket** → a **worker** (Sonnet) in its own worktree on port 3100 + NNN builds it test-first, has the **tester** run every eval check and the **reviewer** check the diff (findings rated P0-P3, each with the rule it breaks, a repro and file:line; the worker fixes, rejects with evidence or escalates each one, and stops early when it's stuck), fixes up to 3 rounds, writes `results.md` and evidence (local files), commits its code on its branch. A finish gate (SubagentStop hook) won't let it end until every check passes and its tree is clean, or it reports blocked with a note.
+5. The router checks `results.md` against `eval.md` itself; follow-ups go to the same worker. On a pass the **merger** merges (`--no-ff`), runs lint and build, undoes the merge if either fails, marks the ticket done; the **checker** walks the feature and the core flows in the built-in browser.
+6. **Team tickets** (agent teams on: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) get one **teammate** per block of the ticket, agreeing on a `contract.md`. Without agent teams they run as solo tickets.
+7. Bugs go to the **reproducer**: reproduced twice, root cause first, fixed on its own branch when the fix is small, merged by the merger.
+8. **The first-timer** walks a web app blind, as a new visitor (it can't read the code; a hook enforces it), after a run that changed what users see or on `/oma explore`. Blockers go to the reproducer, the rest is listed for you.
+9. **Decision ledger.** Every call an agent made without asking you is one line in `.oma/decisions.md`, so you can audit them instead of being asked each one.
+10. **The watch.** The router runs `scripts/check.mjs --watch` under its Monitor tool: every 10 minutes it flags workers that went quiet, loop, are blocked or touch files outside their ticket, checks the main app answers, and says when a browser walk is due. Quiet rounds print nothing. The **inspector** (Haiku) answers "why did X fail".
 
 ## Before a hands-off run
 
@@ -46,7 +50,7 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 
 ## Agents
 
-`oh-my-agent-mod:` `ticket-writer`, `worker`, `tester`, `reviewer`, `merger`, `checker`, `reproducer`, `teammate`, `inspector`. The router is your own session, following `router.md` after `/oma`.
+`oh-my-agent-mod:` `ticket-writer`, `worker`, `tester`, `reviewer`, `merger`, `checker`, `reproducer`, `teammate`, `inspector`, `first-timer`. The router is your own session, following `router.md` after `/oma`.
 
 ## What changed from the original pack
 
@@ -55,7 +59,7 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 | copy `.claude/` into each project, `claude --agent router` | install the plugin once; `/oma` in any session, any project |
 | agent-browser (not installed here) | Claude Code's built-in browser: one tab per agent, `http://<name>.localhost:<port>` per agent so cookies never mix; evidence as text files |
 | background watchdog agent + SendMessage | the router's own Monitor on `check.mjs --watch`; inspector for questions |
-| `settings.json` deny rules | a PreToolUse hook denying `git push` and `.env` reads for oma agents only (your own sessions keep pushing PRs) |
+| `settings.json` deny rules | a PreToolUse hook denying `git push` and `.env` reads for oma agents only (your own sessions keep pushing PRs), and keeping the first-timer blind (browser on local URLs only, no file or code access) |
 | frontmatter Stop hook (ignored for plugin agents) | SubagentStop hook in `hooks/hooks.json` |
 | `lsof`, `date -u`, hand-written JSON | the `oma` helper on the Bash PATH: `oma status`, `oma serve/up/stop/port`, `oma run lint|build|test|install`, `oma cfg` |
 | interview one question at a time, draft → ready by hand | batched questions only for user-facing choices; ready by default |
