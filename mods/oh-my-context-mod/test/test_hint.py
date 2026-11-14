@@ -95,6 +95,10 @@ class CardOutput(unittest.TestCase):
         self.TOOLS = None
         self.assertIn("(tools not listed yet)", self.card())
 
+    def test_a_server_with_one_tool_named_after_itself_shows_that_name(self):
+        self.TOOLS = [{"name": "ak"}]
+        self.assertIn("- mcp__plugin_authentik-mod_authentik__* (1 tool): ak", self.card().split("\n"))
+
     def test_empty_catalog_prints_nothing_and_a_huge_one_stays_under_the_cap(self):
         from oh_my_context import card
         self.assertEqual(self.card(index={}, servers={}), "")

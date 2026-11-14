@@ -80,7 +80,9 @@ def _server_lines(used: dict) -> list:
         # Most common first, then by name, so the line is the same on every run.
         top = [w for w, _ in sorted(words.items(), key=lambda p: (-p[1], p[0]))[:_WORDS]]
         if tools:
-            line = f"- {name}__* ({len(tools)} tools): {', '.join(top)}"
+            # A server whose tool names carry no topic word (one tool named after the server) shows the names.
+            top = top or sorted(str(t["name"]) for t in tools)[:_USED_TOOLS]
+            line = f"- {name}__* ({len(tools)} tool{'s' if len(tools) > 1 else ''}): {', '.join(top)}"
         elif failed:
             line = f"- {name}__* (failed to start: {' '.join(failed.split())[:100]})"
         else:
