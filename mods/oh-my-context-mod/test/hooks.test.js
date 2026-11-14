@@ -108,6 +108,19 @@ test('permit reads managed drop-ins, and project rules from the project root, no
   assert.strictEqual(JSON.parse(run.stdout).hookSpecificOutput.permissionDecision, 'deny');
 });
 
+test('direct: a routed server\'s own tool is denied and pointed at call; others pass', () => {
+  const { direct } = require('../hooks/permit.js');
+  const servers = { context7: { claude_prefix: 'mcp__context7' }, other: { claude_prefix: 'mcp__other' }, gone: { claude_prefix: 'mcp__gone', cwd_except: [dir] } };
+  const records = { other: { cwd: '/some/other/project' } };
+  const at = name => direct({ tool_name: name }, servers, records, dir);
+  assert.match(at('mcp__context7__resolve-library-id'), /call tool: tool "mcp__context7__resolve-library-id"/);
+  assert.strictEqual(at('mcp__plugin_21st_21st__search'), null); // a direct server
+  assert.strictEqual(at('mcp__context7x__a'), null); // another server whose name starts the same
+  assert.strictEqual(at('mcp__other__a'), null); // routed for another project only
+  assert.strictEqual(at('mcp__gone__a'), null); // not served in this project
+  assert.strictEqual(at('Bash'), null);
+});
+
 test('permit rule forms', () => {
   assert.ok(ruleMatches('mcp__b', 'mcp__b__x'));
   assert.ok(!ruleMatches('mcp__b', 'mcp__bb__x'));

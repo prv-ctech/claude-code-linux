@@ -90,9 +90,43 @@ function ruleFiles(p, root) {
     path.join(root, '.claude', 'settings.json'), path.join(root, '.claude', 'settings.local.json')];
 }
 
+// A routed server's own tool, called directly: the reason to deny it with, or null. Claude can still
+// hold such a tool when the app started the session in another folder first, where the project's
+// switch for that server does not apply. An entry not served in this project (cwd_except, or kept
+// for another project) is left alone: there the direct tool is the real one.
+function direct(input, servers, records, root) {
+  const name = typeof input.tool_name === 'string' ? input.tool_name : '';
+  let real = root;
+  try {
+    real = fs.realpathSync(root);
+  } catch (e) {
+    /* not on disk */
+  }
+  for (const [n, e] of Object.entries(servers || {})) {
+    if (!e || !e.claude_prefix || !name.startsWith(`${e.claude_prefix}__`)) continue;
+    if ((e.cwd_except || []).includes(real)) continue;
+    const scope = ((records || {})[n] || {}).cwd;
+    if (scope && root !== scope && !root.startsWith(scope + path.sep)) continue;
+    return `${name} is routed through oh-my-context. Run it with the gateway's call tool: tool "${name}", arguments as you would pass them here.`;
+  }
+  return null;
+}
+
 function main() {
   const input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}');
   const p = paths();
+  if (process.argv[2] === 'direct') {
+    if (p.pluginData && fs.existsSync(path.join(p.pluginData, 'off'))) return;
+    const st = readJson(path.join(p.state, 'state.json')) || {};
+    const gw = readJson((st.paths && st.paths.gateway) || p.gateway) || {};
+    const reason = direct(input, gw.servers, st.servers, process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd());
+    if (reason) {
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason },
+      }));
+    }
+    return;
+  }
   // input.cwd follows a Bash `cd`; Claude reads project settings from the project root, which it
   // exports to command hooks as CLAUDE_PROJECT_DIR.
   const root = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
@@ -113,4 +147,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { originalName, ruleMatches, decide, ruleFiles };
+module.exports = { originalName, ruleMatches, decide, ruleFiles, direct };
