@@ -70,7 +70,12 @@ function codeSearches(command, cwd, home = os.homedir()) {
   for (let m; (m = re.exec(bare));) {
     const rest = bare.slice(m.index + m[0].length).split(/[;&|\n)]/)[0];
     const words = rest.split(/\s+/).filter(Boolean).map(w => w.replace(/\u0000(\d+)\u0000/g, (_, i) => held[i]));
-    const paths = words.filter(w => /^(\/|~\/|~$|\$HOME\b)/.test(w)).map(w => w.replace(/^(~|\$HOME)/, home));
+    // A path is an absolute or home word, or a relative word that exists (src, ., ../logs). A relative
+    // word that names nothing is the pattern; one that happens to name a file counts as a path, which
+    // errs toward the gate.
+    const paths = words.filter(w => !w.startsWith('-')).map(w => (/^(\/|~\/|~$|\$HOME\b)/.test(w)
+      ? w.replace(/^(~|\$HOME)/, home)
+      : fs.existsSync(path.resolve(cwd, w)) ? path.resolve(cwd, w) : null)).filter(Boolean);
     if (paths.length && paths.every(p => !inside(cwd, p))) continue;
     found.push(m[2]);
   }

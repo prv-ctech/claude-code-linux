@@ -56,6 +56,11 @@ test('text in quotes and here-documents is not a search, and neither is a search
   assert.ok(bash('grep -rn foo'));
   assert.ok(bash('grep -rn "foo bar" src'));
   assert.ok(bash(`grep foo ${ws}/src /etc/hosts`), 'one path inside is enough');
+  // A relative path that exists is inside too, also next to an outside one.
+  fs.mkdirSync(path.join(ws, 'src'), { recursive: true });
+  assert.ok(bash('grep -rn foo src /etc/hosts'));
+  assert.ok(bash('grep -rn foo . /etc/hosts'));
+  assert.strictEqual(bash('grep -rn foo ../ /etc/hosts'), null, 'a relative path that leaves the workspace is outside');
   assert.ok(bash('echo "x" && rg foo'));
   assert.ok(bash('python3 - <<E\nprint(1)\nE\ngrep -rn foo .'), 'after the here-document ends');
 });
