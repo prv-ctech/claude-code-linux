@@ -20,7 +20,7 @@
     {
       "name": "oh-my-context-mod",
       "source": "./mods/oh-my-context-mod",
-      "description": "Routes every plugin and user MCP server through one oh-my-context gateway and hides skills behind it, so they stop filling the context while everything still works; each new context is told once what is behind it. Includes the codebase-memory code graph (binary installed on first use). Sets itself up on enable and puts everything back on disable or uninstall. /omc shows what moved and turns it off."
+      "description": "Routes every plugin and user MCP server through one oh-my-context gateway and hides skills behind it, so they stop filling the context while everything still works; each new context is told once what is behind it. Includes the codebase-memory code graph and the deja-vu session memory (pinned upstream binaries, fetched at the first session start). Sets itself up on enable and puts everything back on disable or uninstall. /omc shows what moved and turns it off."
     },
     {
       "name": "oh-my-agent-mod",

@@ -1,5 +1,5 @@
 #!/bin/sh
-# codebase-memory-mcp, as oh-my-context-mod runs it (behind the gateway, and for the first index). The binary is not in the image. On first use
+# codebase-memory-mcp, as oh-my-context-mod runs it (behind the gateway, and for the first index). The binary is not in the image. At the first session start (hooks/sync.js fetchBuiltins), or on first use,
 # this wrapper downloads the pinned release archive into ${CLAUDE_PLUGIN_DATA}, checks its
 # SHA256 and member list, installs it, and then runs it. Updating the plugin changes VERSION
 # and the checksums here, so the next start fetches the new build. Old builds are left alone.
