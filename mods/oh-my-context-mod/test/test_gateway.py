@@ -477,16 +477,17 @@ class HintTest(unittest.TestCase):
         self.assertEqual([t["claude_name"] for t in out["tools"]], ["mcp__github__create_issue"])
         self.assertEqual(out["tools"][0]["server"], "gh")
         self.assertLess(self.elapsed, 5)
-        out = self.hint("brainstorm design options for a new feature before building it")
+        out = self.hint("use brainstorming on design options for a new feature before building it")
         self.assertEqual([s["name"] for s in out["skills"]], ["superpowers:brainstorming"])
         out = self.hint("read the file from the GitHub repository")
         self.assertEqual([t["tool"] for t in out["tools"]], ["get.file"])
         self.assertEqual(out["tools"][0]["claude_name"], "mcp__github__get_file")
 
     def test_tool_name_alone_is_not_enough(self):
-        # A tool named after one common word needs a second term from its description.
+        # A tool named after one common word needs its server named and a second term from its description.
         self.assertEqual(self.hint("search the codebase for the session token")["tools"], [])
-        out = self.hint("search the indexed documents for this phrase")
+        self.assertEqual(self.hint("search the indexed documents for this phrase")["tools"], [])
+        out = self.hint("search the indexed documents on GitHub for this phrase")
         self.assertEqual([t["tool"] for t in out["tools"]], ["search"])
 
     def test_nothing_when_unrelated_or_disabled(self):

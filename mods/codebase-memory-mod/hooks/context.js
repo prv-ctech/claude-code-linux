@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Context hook for codebase-memory-mod. Argument: session, prompt or subagent.
+// Context hook for codebase-memory-mod. Argument: session or subagent.
 // Prints one JSON object with hookSpecificOutput.additionalContext. Claude Code adds that text
-// to the model's context for SessionStart, UserPromptSubmit and SubagentStart alike.
+// to the model's context for SessionStart and SubagentStart alike. Nothing is added per prompt:
+// the gate's denial names the graph tools at the moment a search is tried.
 // Plain stdout is not used: SubagentStart ignores it.
 const fs = require('fs');
 const os = require('os');
@@ -9,7 +10,7 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
-const EVENTS = { session: 'SessionStart', prompt: 'UserPromptSubmit', subagent: 'SubagentStart' };
+const EVENTS = { session: 'SessionStart', subagent: 'SubagentStart' };
 const mode = process.argv[2];
 
 const cacheDir = path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'codebase-memory-mcp');
@@ -57,13 +58,6 @@ function main() {
   const cwd = payload.cwd || process.cwd();
   const indexed = fs.existsSync(path.join(cwd, '.codebase-memory', 'graph.db.zst'));
   const started = !indexed && mode === 'session' && startIndex(cwd);
-
-  if (mode === 'prompt') {
-    emit(indexed
-      ? 'codebase-memory: this workspace has a graph. Code discovery goes through the codebase-memory tools (search_graph, trace_path, get_code_snippet, search_code). Grep and Glob on code are blocked by a hook.'
-      : 'codebase-memory: this workspace has no graph yet.');
-    return;
-  }
 
   const status = indexed
     ? 'Status: this workspace is indexed (.codebase-memory/graph.db.zst).'

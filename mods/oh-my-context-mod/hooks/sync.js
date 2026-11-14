@@ -789,18 +789,8 @@ function hiddenCounts(state, cwd) {
 }
 
 function sessionContext(r) {
-  const fwd = r.servers.filter(s => s.forward && s.here).length;
   const direct = r.servers.filter(s => !s.forward && s.here && s.reason !== GATEWAY).map(s => `${s.key} (${s.reason})`);
-  const files = r.state.files.filter(f => inScope(f.cwd, r.cwd));
-  const skills = files.filter(f => f.kind === 'skill').length + Object.keys(r.state.overrides).length;
-  const cmds = files.filter(f => f.kind === 'command').length;
-  const hid = hiddenCounts(r.state, r.cwd).all;
-  const skillText = hid
-    ? `${hid} skill(s) hidden from Claude's own skill list (find one with the gateway's resolve_skills tool, then read it with its load_skill tool; the Skill tool does not list them), `
-      + `${Math.max(skills - hid, 0)} other skill(s) and ${cmds} plugin command(s) listed by name only (still invocable); `
-    : `${skills} skill(s) and ${cmds} plugin command(s) listed by name only (still invocable; its resolve_skills tool finds them); `;
-  let line = `oh-my-context-mod: ${fwd} MCP server(s) routed through oh-my-context (its manifest and call tools), `
-    + `${skillText}direct: ${direct.join(', ') || 'none'}.`;
+  let line = `oh-my-context-mod: direct MCP servers (in your own tool list): ${direct.join(', ') || 'none'}.`;
   if (r.changed) line += ' Changes made at this start count from the next session.';
   if (!r.indexed) line += ' The skill index did not rebuild.';
   if (r.problems.length) line += ` ${r.problems.length} file(s) left as is (/omc status).`;
@@ -880,6 +870,21 @@ function status(p, cwd, env, run) {
   return out.join('\n');
 }
 
+// What is behind the gateway, for a context that has not seen it. Saved for the SubagentStart hook,
+// which must answer in milliseconds and so reads the file instead of starting Python.
+function card(p, run) {
+  const file = path.join(p.state, 'card.txt');
+  try {
+    const r = run(['card']);
+    if (r.status !== 0) return '';
+    const text = String(r.stdout).trim();
+    writeFileAtomic(file, text, 0o600, false);
+    return text;
+  } catch (e) {
+    return '';
+  }
+}
+
 // The SessionStart hook: apply (or put everything back when the CLI cannot run).
 const OFF_LINE = 'oh-my-context-mod: off; every MCP server and skill loads directly. /omc on routes them again.';
 
@@ -899,7 +904,7 @@ function session(p, cwd, env, run) {
       return { additionalContext: `oh-my-context-mod: the oh-my-context CLI did not run, so every MCP server and skill is direct again (${R.describe(r)}); this shows fully from the next session.` };
     }
     const r = applyLocked(p, cwd, env, run);
-    return { additionalContext: sessionContext(r), ...(r.filesChanged && { reloadSkills: true }) };
+    return { additionalContext: [card(p, run), sessionContext(r)].filter(Boolean).join('\n\n'), ...(r.filesChanged && { reloadSkills: true }) };
   });
   dropEmptyState(p);
   return out;
@@ -907,6 +912,19 @@ function session(p, cwd, env, run) {
 
 // A fresh context (/clear, compaction, a subagent starting or handing back) has not seen any routed
 // server's instructions; the gateway hands them over again once this file's mtime changes.
+// A context that starts over (any SessionStart) has not seen the prompt hints of the one before.
+function forgetHints(p, sid) {
+  const file = path.join(p.state, 'hints.json');
+  try {
+    const seen = JSON.parse(readText(file) || '{}');
+    if (!sid || !(sid in seen)) return;
+    delete seen[sid];
+    writeFileAtomic(file, JSON.stringify(seen), 0o600, false);
+  } catch (e) {
+    /* hints are optional */
+  }
+}
+
 function touchEpoch(p) {
   const file = path.join(path.dirname(p.gateway), 'instructions-epoch');
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -930,6 +948,7 @@ function main() {
     } catch (e) {
       /* no payload */
     }
+    forgetHints(p, payload.session_id);
     if (payload.source === 'clear' || payload.source === 'compact') {
       try {
         touchEpoch(p);

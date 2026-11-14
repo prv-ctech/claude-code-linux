@@ -31,17 +31,21 @@ starts an MCP server and never touches the network. It writes nothing of its own
 the one exception is shared code: when the gateway config does not parse,
 load_config keeps one config.json.bak of it, the same as the gateway does on start.
 
-Only clear matches are printed. Both buckets use the same BM25 as `skills
-resolve` and the same three gates, because a wrong hint costs context on every
-prompt while a missing one costs nothing:
+Only clear matches are printed, because a wrong hint costs context on every
+prompt while a missing one costs nothing. The first gate is the name: a skill is
+hinted only when the prompt holds its own name or its plugin's (pdf, authentik),
+a tool only when the prompt holds its server's name. Measured on a 70-skill
+catalog, word overlap alone put pdf first for "create a new authentik user" and
+a UI review skill first for "the nginx error log": skill text is full of common
+words. What a prompt means without naming is left to the model, which has the
+card (card.py). After the name gate, both buckets use the same BM25 as `skills
+resolve` and these gates:
 
   * score >= _MIN_SCORE (1.5): with b=0.5, one rare term matched once scores about
     1 in a 3-document catalog and 3-4 in a 100-document one, so a lone common word
     never passes, while two distinctive terms do at any catalog size;
   * at least _MIN_TERMS (2) distinct informative prompt terms in the document
-    (stopwords and 1-2 letter ASCII words do not count), or the skill's own name
-    written in the prompt (skills only: a tool's name is often one common word such
-    as search, comment or get);
+    (stopwords and 1-2 letter ASCII words do not count), for tools only;
   * score >= _REL_CUT (0.5) x the best score in its bucket, so a long tail of
     weak matches behind a clear winner is dropped.
 """
@@ -85,8 +89,11 @@ def _informative(tokens) -> set:
             if t not in _STOPWORDS and not (t.isascii() and len(t) < 3)}
 
 
-def _rank(bm25, prompt: str, k: int, names: dict) -> list:
-    """[(lower slug, score)] that pass the gates, best first. names: lower slug -> own name."""
+def _rank(bm25, prompt: str, k: int, names: dict, min_terms: int = _MIN_TERMS) -> list:
+    """[(lower slug, score)] that pass the gates, best first.
+
+    names: lower slug -> the names (lower case) of which one must be a word of the prompt.
+    """
     from .skills import _tokenize
 
     if k <= 0 or not bm25.n:
@@ -99,8 +106,9 @@ def _rank(bm25, prompt: str, k: int, names: dict) -> list:
         score = bm25._score(q_all, doc)
         if score <= 0:
             continue
-        named = (names.get(slug) or "").lower() in q_set
-        if score < _MIN_SCORE or (len(q_terms & doc.keys()) < _MIN_TERMS and not named):
+        if not (q_set & names.get(slug, set())):
+            continue
+        if score < _MIN_SCORE or len(q_terms & doc.keys()) < min_terms:
             continue
         scored.append((score, slug))
     if not scored:
@@ -129,12 +137,24 @@ def _skill_hints(prompt: str, k: int) -> list:
     if not index or k <= 0:
         return []
     original = {s["slug"].lower(): s["slug"] for s in index.get("skills", []) if s.get("slug")}
-    # The name a person types is the part after "plugin:" (superpowers:brainstorming).
-    names = {low: slug.rsplit(":", 1)[-1] for low, slug in original.items()}
+    # The name a person types: the part after "plugin:" (superpowers:brainstorming), or the plugin
+    # itself without a -mod ending (authentik-mod:authentik).
+    names = {}
+    for low in original:
+        plugin, _, own = low.rpartition(":")
+        names[low] = {own, plugin, plugin.removesuffix("-mod")} - {""}
     descs = {s["slug"].lower(): s.get("desc") for s in index.get("skills", []) if s.get("slug")}
-    return [{"id": original.get(slug, slug), "name": original.get(slug, slug),
-             "desc": _one_line(descs.get(slug)), "score": score}
-            for slug, score in _rank(_BM25(index), prompt, k, names)]
+    out, seen = [], set()
+    # A skill named in the prompt needs no second matching word.
+    for slug, score in _rank(_BM25(index), prompt, len(original), names, min_terms=1):
+        # The desktop app lists a synced skill twice (pdf and anthropic-skills:pdf): one hint.
+        own = slug.rsplit(":", 1)[-1]
+        if own in seen or len(out) >= k:
+            continue
+        seen.add(own)
+        out.append({"id": original.get(slug, slug), "name": original.get(slug, slug),
+                    "desc": _one_line(descs.get(slug)), "score": score})
+    return out
 
 
 def _tool_hints(prompt: str, k: int) -> list:
@@ -146,6 +166,7 @@ def _tool_hints(prompt: str, k: int) -> list:
         return []
     entries = []
     rows = {}
+    names = {}
     for server, cfg in sorted(load_config().items()):
         tools = cache_mod.get_cached_tools_any_age(server)
         prefix = cfg.get("claude_prefix") if isinstance(cfg, dict) else None
@@ -160,11 +181,14 @@ def _tool_hints(prompt: str, k: int) -> list:
             claude = (f"{prefix}__{re.sub(r'[^A-Za-z0-9_-]', '_', tool)}"
                       if isinstance(prefix, str) and prefix else None)
             rows[slug.lower()] = {"server": server, "tool": tool, "claude_name": claude}
+            # The server's name as the person knows it: its gateway name or Claude's (mcp__github).
+            names[slug.lower()] = set(re.split(r"[_\-.]+", f"{server} {prefix or ''}".lower().replace(" ", "_"))) - {
+                "", "mod", "mcp", "plugin"}
     if not entries:
         return []
-    # oh-my-context-mod: no own-name bypass for tools; a tool's name is often one common word.
+    # A tool's own name is often one common word (search, get), so the name that counts is its server's.
     return [{**rows[slug], "score": score}
-            for slug, score in _rank(_BM25({"skills": entries}), prompt, k, {})]
+            for slug, score in _rank(_BM25({"skills": entries}), prompt, k, names)]
 
 
 def run_hint(args: list) -> int:

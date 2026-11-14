@@ -7,7 +7,6 @@ Installs codebase-memory-mcp 0.12.1 on first use, registers its MCP server, and 
 | Event | Hook | Effect |
 |---|---|---|
 | SessionStart | `hooks/context.js session` | Adds `AGENTS.md` to the context. If the workspace is a git root with no graph yet, starts the first index in the background. |
-| UserPromptSubmit | `hooks/context.js prompt` | One-line reminder on every message. |
 | SubagentStart | `hooks/context.js subagent` | Adds `AGENTS.md` to each subagent. |
 | PreToolUse on `Grep\|Glob\|Bash` | `hooks/gate.js` | While `.codebase-memory/graph.db.zst` exists, denies Grep, Glob, and grep, rg, ag, ack, find or git grep as commands. The denial names the graph tools to use. |
 

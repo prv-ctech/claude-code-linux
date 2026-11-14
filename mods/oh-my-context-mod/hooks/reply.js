@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Reply modes for oh-my-context-mod. Hook modes: session, prompt, tool, subagent.
+// Reply modes for oh-my-context-mod. Hook modes: session, prompt, subagent.
 // Command modes: mode [level], status (used by /omc mode and later /omc status).
-// session and subagent get the level's full rules; prompt a short reminder; tool a one-line one.
+// session and subagent get the level's full rules; prompt a one-line reminder.
 // Output is one JSON object with hookSpecificOutput.additionalContext. State lives next to the
 // Claude config because Bash commands have no CLAUDE_PLUGIN_DATA.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const EVENTS = { session: 'SessionStart', prompt: 'UserPromptSubmit', tool: 'PostToolUse', subagent: 'SubagentStart' };
+const EVENTS = { session: 'SessionStart', prompt: 'UserPromptSubmit', subagent: 'SubagentStart' };
 const LEVELS = ['off', 'lite', 'full', 'ultra', 'max'];
 const DEFAULT_MODE = 'ultra';
 const CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -20,19 +20,9 @@ const STYLE_PREFIX = 'oh-my-context-mod:reply-';
 const styleOf = level => STYLE_PREFIX + level;
 const isOurs = s => typeof s === 'string' && LEVELS.some(l => l !== 'off' && s === styleOf(l));
 
+// One line per prompt. The level's full rules are the output style, which is in the system prompt on
+// every turn, so nothing is repeated after tool calls.
 const REMINDERS = {
-  lite: 'REPLY MODE LITE applies to this whole turn, including the final answer after tool calls. Full sentences, but no greetings, recaps, offers, hedging or filler words. '
-    + 'Start with the answer. Code, paths, errors, numbers and negations stay exact.',
-  full: 'REPLY MODE FULL applies to this whole turn, including the final answer after tool calls. Short sentences, one idea each; articles may drop. '
-    + 'Answer first, then the reason, then the next step. No greetings, recaps, offers or filler. Code, paths, errors, numbers and negations stay exact.',
-  ultra: 'REPLY MODE ULTRA applies to this whole turn, including the final answer, summaries and "in detail" requests. Overrides other styles. '
-    + 'Fragments, not sentences: zero a/an/the, is/are outside code; no filler, recap, offers. Each fact once; detailed means complete, still fragments. '
-    + 'Code, paths, errors, numbers and negations stay exact; plain sentences only for security, irreversible steps, questions. Reread, cut every a/an/the/is/are. Like: "Cache miss, fetch origin, store result."',
-  max: 'REPLY MODE MAX applies to this whole turn, including the final answer. Only `label: value` lines and comma lists: no sentences, zero a/an/the, is/are outside code. '
-    + 'Silent between tool calls unless direction changes, confirmation is needed, or a security or irreversible issue appears. '
-    + 'Code, paths, errors, numbers and negations stay exact; plain sentences only for security, irreversible steps, questions. Reread, cut every a/an/the/is/are. Like: "Cache miss, fetch origin, store result."',
-};
-const TOOL_REMINDERS = {
   lite: 'REPLY MODE LITE: final answer too. No filler, no recap.',
   full: 'REPLY MODE FULL: final answer too. Short, answer first.',
   ultra: 'REPLY MODE ULTRA: final answer too. Fragments, no a/an/the, is/are.',
@@ -101,7 +91,7 @@ function hookFire(mode) {
     state.mode = level;
     writeState(state);
   }
-  const context = mode === 'prompt' ? REMINDERS[level] : mode === 'tool' ? TOOL_REMINDERS[level] : rulesOf(level);
+  const context = mode === 'prompt' ? REMINDERS[level] : rulesOf(level);
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: EVENTS[mode], additionalContext: context } }));
 }
 

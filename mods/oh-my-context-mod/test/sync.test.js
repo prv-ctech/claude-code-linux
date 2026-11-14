@@ -522,7 +522,10 @@ test('session: applies, asks for a skill reload; off and a broken CLI', () => {
   assert.strictEqual(r(m.p.settings).skillOverrides['user-skill'], 'name-only');
   assert.deepStrictEqual(r(m.p.claudeJson).projects['/w'].disabledMcpServers, ['by-hand', 'ctx', 'plugin:alpha:alpha']);
   assert.strictEqual(out.reloadSkills, true);
-  assert.match(out.additionalContext, /^oh-my-context-mod: 2 MCP server\(s\) routed through oh-my-context .* 3 skill\(s\) and 0 plugin command\(s\) listed by name only .*direct: plugin:beta:beta \(needs user_config.token\), plugin:gamma:gamma \(in direct_servers\)\. Changes made at this start count from the next session\.$/);
+  // The card (here the stub's stdout) comes first and is saved for the SubagentStart hook; then the direct servers.
+  assert.strictEqual(out.additionalContext, 'oh-my-context 0.9.0\n\noh-my-context-mod: direct MCP servers (in your own tool list): '
+    + 'plugin:beta:beta (needs user_config.token), plugin:gamma:gamma (in direct_servers). Changes made at this start count from the next session.');
+  assert.strictEqual(t(path.join(m.p.state, 'card.txt')), 'oh-my-context 0.9.0');
 
   // A broken CLI puts everything back.
   const bad = () => ({ status: 127, stdout: '' });
@@ -798,10 +801,8 @@ test('hide_skills on: plugin skills get disable-model-invocation, user skills us
   assert.strictEqual(entry, `---\nname: alpha:do-a\nsource: ${fs.realpathSync(path.dirname(m.skillA))}\ndescription: A\n---\nbody\n`);
   assert.match(t(path.join(m.p.state, 'catalog', 'helper', 'SKILL.md')), new RegExp(`source: ${fs.realpathSync(path.join(m.p.skills, 'helper')).replace(/[/.]/g, '\\$&')}\n`));
 
-  // Wording says hidden, found with resolve_skills then load_skill.
-  const ctx = session(m.p, '/w', m.env, ok).additionalContext;
-  assert.match(ctx, /3 skill\(s\) hidden from Claude's own skill list \(find one with the gateway's resolve_skills tool, then read it with its load_skill tool/);
-  assert.doesNotMatch(ctx, /still invocable; its resolve_skills/);
+  // How to reach a hidden skill is in the card, not in the session line.
+  assert.doesNotMatch(session(m.p, '/w', m.env, ok).additionalContext, /hidden from Claude/);
   assert.match(status(m.p, '/w', m.env, ok), /Skills: 1 plugin skill\(s\) and 2 user skill\(s\) hidden from Claude .*load_skill/);
   assert.match(status(m.p, '/w', m.env, ok), /hide_skills = "true"/);
   assert.ok(res.filesChanged);
