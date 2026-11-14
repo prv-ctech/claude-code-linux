@@ -50,6 +50,9 @@ test('text in quotes and here-documents is not a search, and neither is a search
   assert.strictEqual(bash('node hooks/sync.js status 2>&1 | grep graph'), null);
   // Paths that all lie outside the workspace: config and logs, not this code.
   assert.strictEqual(bash('grep -n mod ~/.claude/settings.json'), null);
+  assert.strictEqual(bash('grep -c . /etc/hostname'), null, 'the first plain word is the pattern, not the folder');
+  assert.ok(bash('find . /etc -name x'), 'find has no pattern word: . is a path');
+  assert.ok(bash('grep -rn . src'), 'a pattern of . on a workspace path is still a search');
   assert.strictEqual(bash('find /var/log -name "*.log"'), null);
   assert.strictEqual(bash('rg token "$HOME/.config/app" /etc/app.conf'), null);
   // Still searches of this code.

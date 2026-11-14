@@ -32,13 +32,16 @@ const NOT_TYPED = /<(task-notification|agent-message|side-sessions-event|ci-moni
 
 function runHint(prompt) {
   const bin = path.join(__dirname, '..', 'bin', 'oh-my-context');
-  return spawnSync(bin, ['hint', '--k-skills', '3', '--k-tools', '3'], { input: prompt, encoding: 'utf8', timeout: 2000 });
+  // Skills only. A server named in the prompt is already on the card with its tools, and find returns the
+  // right one with its parameters; three tools picked by word overlap from a long prompt were noise.
+  return spawnSync(bin, ['hint', '--k-skills', '3', '--k-tools', '0'], { input: prompt, encoding: 'utf8', timeout: 2000 });
 }
 
 // The context line, or null.
 // dataDir: plugin data, which holds the off switch (sync.js offFile). hide: hide mode is on.
 function hint(input, { run, stateDir, dataDir, hide }) {
-  const prompt = String(input.prompt || '');
+  // Pasted text (a log, a report, another agent's output) names many things nobody is asking for.
+  const prompt = String(input.prompt || '').replace(/<pasted_content\b[^>]*>[\s\S]*?<\/pasted_content[^>]*>/g, ' ');
   if (prompt.trim().length < 12 || prompt.trimStart().startsWith('/') || NOT_TYPED.test(prompt)) return null;
   if (dataDir && fs.existsSync(path.join(dataDir, 'off'))) return null;
   const r = run(prompt);

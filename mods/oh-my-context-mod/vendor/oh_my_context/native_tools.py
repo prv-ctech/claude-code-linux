@@ -994,7 +994,7 @@ def resolve_claude_name(name: str, servers: dict, index: dict) -> tuple[str, str
                           and cfg["claude_prefix"])
         listed = ", ".join(p + "__*" for p in prefixes) if prefixes else "none"
         return "", "", (f"Unknown tool '{name}': no routed MCP server has that name prefix. "
-                        f"Routed prefixes: {listed}. Call manifest to list the tools.")
+                        f"Routed prefixes: {listed}. Call find with the task to get the tool name.")
     rest = name[len(best) + 2:]
     tools = [info.get("tool", "") for info in index.values() if info.get("server") == server]
     if rest in tools:

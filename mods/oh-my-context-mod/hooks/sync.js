@@ -868,11 +868,11 @@ function status(p, cwd, env, run) {
     '  * forward on the next session start in this project',
     '',
     (hid.all
-      ? `Skills: ${hid.plugin} plugin skill(s) and ${hid.user} user skill(s) hidden from Claude (find them with resolve_skills, read one with load_skill); `
+      ? `Skills: ${hid.plugin} plugin skill(s) and ${hid.user} user skill(s) hidden from Claude (find them with find, read one with load_skill); `
         + `${files.filter(f => f.kind === 'skill' && !f.hidden).length + Object.keys(state.overrides).length - hid.user} other skill(s) listed by name only; `
       : `Skills: ${files.filter(f => f.kind === 'skill').length} plugin skill(s) and ${Object.keys(state.overrides).length} user skill(s) listed by name only; `)
       + `${sk.items.filter(i => i.kind === 'skill' && i.route && (i.scope || all)).length + sk.users.filter(u => all && u.route && !u.dmi).length} would be on the next start; `
-      + `${sk.others.filter(o => !o.dmi).length} skill(s) from other agents' folders (.agents, .github, .cursor ...) indexed for resolve_skills.`,
+      + `${sk.others.filter(o => !o.dmi).length} skill(s) from other agents' folders (.agents, .github, .cursor ...) indexed for find.`,
     `Commands: ${files.filter(f => f.kind === 'command').length} plugin command(s) listed by name only, still invocable; `
       + `${sk.items.filter(i => i.kind === 'command' && i.route && (i.scope || all)).length} would be on the next start.`,
     `Skills by name: direct: ${names(sk.items.filter(i => i.kind === 'skill' && (i.scope || all) && !i.dmi && !i.route).map(i => i.id).concat(sk.users.filter(u => all && !u.dmi && !u.route).map(u => u.name)))}; `
@@ -883,7 +883,9 @@ function status(p, cwd, env, run) {
     `Filters (plugin settings): direct_servers = "${opts.direct_servers}", direct_skills = "${opts.direct_skills}", hide_skills = "${opts.hide_skills}"`,
     `Paths: state ${p.state}, gateway config ${state.paths.gateway || p.gateway}, settings ${p.settings}`,
   ];
-  return out.join('\n');
+  // The legend only when a line carries the star it explains.
+  const legend = '  * forward on the next session start in this project';
+  return out.filter(l => l !== legend || out.some(x => x.includes('forward*'))).join('\n');
 }
 
 // What is behind the gateway, for a context that has not seen it. Saved for the SubagentStart hook,

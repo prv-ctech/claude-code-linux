@@ -76,7 +76,7 @@ def _server_lines(used: dict) -> list:
         # Most common first, then by name, so the line is the same on every run.
         top = [w for w, _ in sorted(words.items(), key=lambda p: (-p[1], p[0]))[:_WORDS]]
         line = (f"- {name}__* ({len(tools)} tools): {', '.join(top)}" if tools
-                else f"- {name}__* (tools not listed yet; see manifest)")
+                else f"- {name}__* (tools not listed yet)")
         mine = (used.get(server) or [])[:_USED_TOOLS]
         lines.append(line + (f"; used here: {', '.join(mine)}" if mine else ""))
     return lines

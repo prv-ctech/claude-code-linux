@@ -142,6 +142,10 @@ test('prompt hint: one line of names, each id once per context; skipped for shor
   assert.strictEqual(fed, null, 'the hint CLI is not even started');
   assert.strictEqual(ask('short'), null);
   assert.strictEqual(ask('/omc status please'), null);
+  // Pasted text is not what the person asks for: it never reaches the hint CLI.
+  fed = null;
+  ask('look at this report <pasted_content id="a1">pdf authentik rea 21st</pasted_content id="a1"> and tell me', 's5');
+  assert.strictEqual(fed, 'look at this report   and tell me');
   out.tools = [];
   assert.strictEqual(ask('a different and long enough prompt', 's4'), 'Routed matches for this prompt: skills superpowers:brainstorming');
   out.skills = [];

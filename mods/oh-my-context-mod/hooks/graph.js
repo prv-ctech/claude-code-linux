@@ -73,9 +73,13 @@ function codeSearches(command, cwd, home = os.homedir()) {
     // A path is an absolute or home word, or a relative word that exists (src, ., ../logs). A relative
     // word that names nothing is the pattern; one that happens to name a file counts as a path, which
     // errs toward the gate.
-    const paths = words.filter(w => !w.startsWith('-')).map(w => (/^(\/|~\/|~$|\$HOME\b)/.test(w)
+    // grep, rg, ag and ack take the pattern as their first plain word: `grep -c . /etc/hostname` searches
+    // /etc/hostname for ".", not the folder. find takes only paths before its first option.
+    const plain = words.filter(w => !w.startsWith('-'));
+    const paths = (/^find$/.test(m[2]) ? plain : plain.slice(1)).map(w => (/^(\/|~\/|~$|\$HOME\b)/.test(w)
       ? w.replace(/^(~|\$HOME)/, home)
       : fs.existsSync(path.resolve(cwd, w)) ? path.resolve(cwd, w) : null)).filter(Boolean);
+    // No path at all: grep reads stdin or, with -r, the folder; find searches the folder. Both stay gated.
     if (paths.length && paths.every(p => !inside(cwd, p))) continue;
     found.push(m[2]);
   }
