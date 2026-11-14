@@ -92,9 +92,9 @@ def _instructions(servers: dict) -> str:
         "tool's parameters. Any routed tool is called with this gateway's `call` tool, "
         "using its original Claude tool name (mcp__...) as `tool`, or `server` plus "
         "`tool`. A routed server's own instructions are returned with its first call, "
-        "and again after /clear, compaction or a subagent. Skills are hidden from "
-        "Claude's native listing: load one with `load_skill` (full id), and do not use "
-        "the Skill tool for them."
+        "and again after /clear, compaction or a subagent. A skill that is not in "
+        "your own skill list is read with `load_skill` (full id); one that is listed "
+        "there still runs through the Skill tool."
     )
     if not names:
         return "No MCP servers are routed through this gateway right now. " + tail
@@ -626,9 +626,13 @@ class MCPServerBridge:
         Each tool name is namespaced: {server}_{tool} (ADR 0007).
         Thread-safe: reads from _tool_index under RLock.
         """
-        self._ensure_initialized()
-
         compact = config.compact_exposure()
+        if not compact:
+            # oh-my-context-mod: the compact list is the gateway's own tools and needs no
+            # upstream server. Starting them all here made one hung or unreachable server hold
+            # the list, and with it find, call and load_skill, for up to 60 s at every session
+            # start. They start on the first call instead.
+            self._ensure_initialized()
 
         with self._tool_index_lock:
             tools: list[dict] = []
@@ -861,13 +865,15 @@ class MCPServerBridge:
         budget (the bug that made a legitimate 10-agent × 2-call fan-out look like
         a flood in the project this guard is modelled on).
         """
-        if name not in ("kb_search", "resolve_skills", "find"):
+        # oh-my-context-mod: find is not throttled. Every request runs on its own thread and
+        # thread ids are reused, so the bucket was shared by all callers: the 25th find within
+        # a minute was refused, also across parallel subagents.
+        if name != "resolve_skills":
             return None
         # One bucket per tool, so a burst of skill lookups cannot spend kb_search's budget.
         key = f"{self._client_name or 'unknown'}:{threading.get_ident()}:{name}"
-        # find is a skill lookup too, so it gets resolve_skills' budget.
         decision = self._flood.record(key, int(time.time() * 1000),
-                                      BLOCK_AFTER_BY_TOOL.get("resolve_skills" if name == "find" else name, BLOCK_AFTER))
+                                      BLOCK_AFTER_BY_TOOL.get(name, BLOCK_AFTER))
         if decision.blocked:
             return _make_tool_error(decision.message(name))
         return None

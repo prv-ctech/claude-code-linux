@@ -562,6 +562,27 @@ function applyLocked(p, cwd, env, run) {
   state.paths = { settings: p.settings, claudeJson: p.claudeJson, installed: p.installed, gateway: p.gateway };
   delete state.off; // 0.2's off flag, now kept in plugin data; apply runs only while the mod is on
   if (!state.cwds.includes(cwd)) state.cwds.push(cwd);
+  // Folders that no longer exist (temp and scratch folders mostly): their switches and records go, so
+  // the state does not grow with every folder a session ever started in.
+  const dead = [...new Set([...state.cwds, ...Object.keys(state.projects)])].filter(d => d !== cwd && !(p.exists || fs.existsSync)(d)); // p.exists: tests name folders that are not on disk
+  let pruned = false;
+  for (const d of dead) {
+    const rec = state.projects[d];
+    const proj = (cj.projects || {})[d];
+    if (rec && proj && Array.isArray(proj.disabledMcpServers)) {
+      const next = proj.disabledMcpServers.filter(k => !rec.keys.includes(k));
+      if (!next.length && rec.created) delete proj.disabledMcpServers;
+      else proj.disabledMcpServers = next;
+      if (rec.newProject && !Object.keys(proj).length) delete cj.projects[d];
+      pruned = true;
+    }
+    delete state.projects[d];
+    fs.rmSync(G.cardFile(p, d), { force: true });
+  }
+  state.cwds = state.cwds.filter(d => !dead.includes(d));
+  for (const [n, r] of Object.entries(state.servers)) if (r.cwd && dead.includes(r.cwd)) { if (gw.servers && gw.servers[n] && gw.servers[n].claude_key === r.key) delete gw.servers[n]; delete state.servers[n]; }
+  state.files = state.files.filter(r => !(r.cwd && dead.includes(r.cwd)));
+  if (pruned) writeJson(p.claudeJson, cj, 0o600);
   save();
 
   const opts = options(settings, env);
@@ -744,7 +765,9 @@ function applyLocked(p, cwd, env, run) {
       return path.dirname(file);
     }
   };
-  for (const it of sk.items.filter(x => x.orig !== null && !x.dmi && x.id)) entries.set(it.id, { text: it.orig, source: it.kind === 'skill' ? folder(it.file) : undefined });
+  // Skills only. A command is run by Claude as /name, which fills in $ARGUMENTS and ${CLAUDE_PLUGIN_ROOT};
+  // read through load_skill it came back with those unfilled.
+  for (const it of sk.items.filter(x => x.kind === 'skill' && x.orig !== null && !x.dmi && x.id)) entries.set(it.id, { text: it.orig, source: folder(it.file) });
   for (const u of sk.users.filter(x => x.text !== null && !x.dmi)) entries.set(u.name, { text: u.text, source: folder(u.file) });
   for (const o of sk.others.filter(x => x.text !== null && !x.dmi && x.route)) if (!entries.has(o.name)) entries.set(o.name, { text: o.text, source: folder(o.file) });
   const safe = id => id.replace(/[^A-Za-z0-9._-]/g, '_');
@@ -868,11 +891,11 @@ function status(p, cwd, env, run) {
     '  * forward on the next session start in this project',
     '',
     (hid.all
-      ? `Skills: ${hid.plugin} plugin skill(s) and ${hid.user} user skill(s) hidden from Claude (find them with resolve_skills, read one with load_skill); `
+      ? `Skills: ${hid.plugin} plugin skill(s) and ${hid.user} user skill(s) hidden from Claude (find them with find, read one with load_skill); `
         + `${files.filter(f => f.kind === 'skill' && !f.hidden).length + Object.keys(state.overrides).length - hid.user} other skill(s) listed by name only; `
       : `Skills: ${files.filter(f => f.kind === 'skill').length} plugin skill(s) and ${Object.keys(state.overrides).length} user skill(s) listed by name only; `)
       + `${sk.items.filter(i => i.kind === 'skill' && i.route && (i.scope || all)).length + sk.users.filter(u => all && u.route && !u.dmi).length} would be on the next start; `
-      + `${sk.others.filter(o => !o.dmi).length} skill(s) from other agents' folders (.agents, .github, .cursor ...) indexed for resolve_skills.`,
+      + `${sk.others.filter(o => !o.dmi).length} skill(s) from other agents' folders (.agents, .github, .cursor ...) indexed for find.`,
     `Commands: ${files.filter(f => f.kind === 'command').length} plugin command(s) listed by name only, still invocable; `
       + `${sk.items.filter(i => i.kind === 'command' && i.route && (i.scope || all)).length} would be on the next start.`,
     `Skills by name: direct: ${names(sk.items.filter(i => i.kind === 'skill' && (i.scope || all) && !i.dmi && !i.route).map(i => i.id).concat(sk.users.filter(u => all && !u.dmi && !u.route).map(u => u.name)))}; `
@@ -883,13 +906,15 @@ function status(p, cwd, env, run) {
     `Filters (plugin settings): direct_servers = "${opts.direct_servers}", direct_skills = "${opts.direct_skills}", hide_skills = "${opts.hide_skills}"`,
     `Paths: state ${p.state}, gateway config ${state.paths.gateway || p.gateway}, settings ${p.settings}`,
   ];
-  return out.join('\n');
+  // The legend only when a line carries the star it explains.
+  const legend = '  * forward on the next session start in this project';
+  return out.filter(l => l !== legend || out.some(x => x.includes('forward*'))).join('\n');
 }
 
 // What is behind the gateway, for a context that has not seen it. Saved for the SubagentStart hook,
 // which must answer in milliseconds and so reads the file instead of starting Python.
 function card(p, run, cwd) {
-  const file = path.join(p.state, 'card.txt');
+  const file = G.cardFile(p, cwd);
   try {
     const r = run(['card', '--cwd', cwd]);
     if (r.status !== 0) return '';
@@ -930,19 +955,6 @@ function session(p, cwd, env, run, startIndex = G.startIndex) {
 
 // A fresh context (/clear, compaction, a subagent starting or handing back) has not seen any routed
 // server's instructions; the gateway hands them over again once this file's mtime changes.
-// A context that starts over (any SessionStart) has not seen the prompt hints of the one before.
-function forgetHints(p, sid) {
-  const file = path.join(p.state, 'hints.json');
-  try {
-    const seen = JSON.parse(readText(file) || '{}');
-    if (!sid || !(sid in seen)) return;
-    delete seen[sid];
-    writeFileAtomic(file, JSON.stringify(seen), 0o600, false);
-  } catch (e) {
-    /* hints are optional */
-  }
-}
-
 function touchEpoch(p) {
   const file = path.join(path.dirname(p.gateway), 'instructions-epoch');
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -966,7 +978,6 @@ function main() {
     } catch (e) {
       /* no payload */
     }
-    forgetHints(p, payload.session_id);
     if (payload.source === 'clear' || payload.source === 'compact') {
       try {
         touchEpoch(p);
@@ -978,7 +989,9 @@ function main() {
     try {
       out = session(p, payload.cwd || process.cwd(), env, runGateway);
     } catch (e) {
-      out = { additionalContext: `oh-my-context-mod: ${e.message}` };
+      // What was routed by earlier sessions is still routed, so the saved card still holds.
+      const saved = (readText(G.cardFile(p, payload.cwd || process.cwd())) || '').trim();
+      out = { additionalContext: [saved, `oh-my-context-mod: ${e.message}`].filter(Boolean).join('\n\n') };
     }
     if (out) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', ...out } }));
     return;

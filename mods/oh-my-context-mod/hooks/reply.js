@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Reply modes for oh-my-context-mod. Hook modes: session, prompt, subagent.
 // Command modes: mode [level], status (used by /omc mode and later /omc status).
-// session and subagent get the level's full rules; prompt a one-line reminder.
+// session switches the output style once and adds nothing; subagent gets the level's full rules;
+// prompt a one-line reminder.
 // Output is one JSON object with hookSpecificOutput.additionalContext. State lives next to the
 // Claude config because Bash commands have no CLAUDE_PLUGIN_DATA.
 const fs = require('fs');
@@ -91,6 +92,9 @@ function hookFire(mode) {
     state.mode = level;
     writeState(state);
   }
+  // The main context has the rules as its output style, in the system prompt on every turn: sending
+  // them again at session start paid for them twice. A subagent has no output style, so it gets them.
+  if (mode === 'session') return;
   const context = mode === 'prompt' ? REMINDERS[level] : rulesOf(level);
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: EVENTS[mode], additionalContext: context } }));
 }

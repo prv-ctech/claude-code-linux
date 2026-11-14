@@ -13,75 +13,20 @@
 # limitations under the License.
 # Added by oh-my-context-mod (github.com/prv-ctech/claude-code-linux), 2026-10-30: `oh-my-context hint`.
 
-"""oh-my-context hint — which skills and routed tools fit a prompt.
+"""Helpers shared by the card and the gateway's find tool.
 
-    echo "<prompt>" | oh-my-context hint [--k-skills N] [--k-tools N]
-
-Prints one JSON object and exits 0, also when nothing matches or nothing is built:
-
-    {"skills": [{"id", "name", "desc", "score"}],
-     "tools":  [{"server", "tool", "claude_name", "score"}]}
-
-A skill's ``id`` is the full slug (``ecc:docker-patterns``), the one ``load_skill``
-takes; ``name`` repeats it for older callers and ``desc`` is a one-line summary.
-
-Meant for a UserPromptSubmit hook, so it is read-only and fast: skills come from
-the skills index, tools from the gateway's cached manifests (any age). It never
-starts an MCP server and never touches the network. It writes nothing of its own;
-the one exception is shared code: when the gateway config does not parse,
-load_config keeps one config.json.bak of it, the same as the gateway does on start.
-
-Only clear matches are printed, because a wrong hint costs context on every
-prompt while a missing one costs nothing. The first gate is the name: a skill is
-hinted only when the prompt holds its own name or its plugin's (pdf, authentik),
-a tool only when the prompt holds its server's name. Measured on a 70-skill
-catalog, word overlap alone put pdf first for "create a new authentik user" and
-a UI review skill first for "the nginx error log": skill text is full of common
-words. What a prompt means without naming is left to the model, which has the
-card (card.py). After the name gate, both buckets use the same BM25 as `skills
-resolve` and these gates:
-
-  * score >= _MIN_SCORE (1.5): with b=0.5, one rare term matched once scores about
-    1 in a 3-document catalog and 3-4 in a 100-document one, so a lone common word
-    never passes, while two distinctive terms do at any catalog size;
-  * at least _MIN_TERMS (2) distinct informative prompt terms in the document
-    (stopwords and 1-2 letter ASCII words do not count), for tools only;
-  * score >= _REL_CUT (0.5) x the best score in its bucket, so a long tail of
-    weak matches behind a clear winner is dropped.
+This module was `oh-my-context hint`, a word-overlap hint added to every prompt. It is
+gone: in live use it named skills and tools nobody asked for, and the card (card.py)
+plus `find` do the job without a line on every prompt. What stays is what those two use.
 """
 
 from __future__ import annotations
 
-import json
 import re
-import sys
 
-_MIN_SCORE = 1.5
-_MIN_TERMS = 2
+# A hit below this share of the best score is the weak tail behind a clear winner.
 _REL_CUT = 0.5
-_MAX_PROMPT = 20000
-
-_STOPWORDS = frozenset("""
-a an and are as at be been but by can could do does for from had has have how i if in
-into is it its let me my no not of on or our please should so that the their them then
-there these this those to us use using was we what when where which who why will with
-would you your just also any some all get make want need like help run show tell give
-""".split())
-
-
-def _int_flag(args: list, flag: str, default: int) -> int:
-    for i, a in enumerate(args):
-        value = None
-        if a == flag and i + 1 < len(args):
-            value = args[i + 1]
-        elif a.startswith(flag + "="):
-            value = a.split("=", 1)[1]
-        if value is not None:
-            try:
-                return max(0, int(value))
-            except ValueError:
-                return default
-    return default
+_DESC_MAX = 100
 
 
 def synced_twin(slug: str, slugs) -> bool:
@@ -89,43 +34,6 @@ def synced_twin(slug: str, slugs) -> bool:
     the long one of such a pair. Two plugins with a skill of the same name are not a pair."""
     plugin, _, own = slug.lower().rpartition(":")
     return plugin == "anthropic-skills" and own in slugs
-
-
-def _informative(tokens) -> set:
-    return {t for t in tokens
-            if t not in _STOPWORDS and not (t.isascii() and len(t) < 3)}
-
-
-def _rank(bm25, prompt: str, k: int, names: dict, min_terms: int = _MIN_TERMS) -> list:
-    """[(lower slug, score)] that pass the gates, best first.
-
-    names: lower slug -> the names (lower case) of which one must be a word of the prompt.
-    """
-    from .skills import _tokenize
-
-    if k <= 0 or not bm25.n:
-        return []
-    q_all = _tokenize(prompt)
-    q_terms = _informative(q_all)
-    q_set = set(q_all)
-    scored = []
-    for slug, doc in bm25.docs.items():
-        score = bm25._score(q_all, doc)
-        if score <= 0:
-            continue
-        if not (q_set & names.get(slug, set())):
-            continue
-        if score < _MIN_SCORE or len(q_terms & doc.keys()) < min_terms:
-            continue
-        scored.append((score, slug))
-    if not scored:
-        return []
-    scored.sort(key=lambda p: (-p[0], p[1]))
-    best = scored[0][0]
-    return [(slug, round(score, 3)) for score, slug in scored[:k] if score >= _REL_CUT * best]
-
-
-_DESC_MAX = 100
 
 
 def _one_line(desc) -> str:
@@ -137,35 +45,11 @@ def _one_line(desc) -> str:
     return text if len(text) <= _DESC_MAX else text[:_DESC_MAX - 1].rstrip() + "…"
 
 
-def _skill_hints(prompt: str, k: int) -> list:
-    from .skills import _BM25, load_index
-
-    index = load_index()
-    if not index or k <= 0:
-        return []
-    original = {s["slug"].lower(): s["slug"] for s in index.get("skills", []) if s.get("slug")}
-    # The name a person types: the part after "plugin:" (superpowers:brainstorming), or the plugin
-    # itself without a -mod ending (authentik-mod:authentik).
-    names = {}
-    for low in original:
-        plugin, _, own = low.rpartition(":")
-        names[low] = {own, plugin, plugin.removesuffix("-mod")} - {""}
-    descs = {s["slug"].lower(): s.get("desc") for s in index.get("skills", []) if s.get("slug")}
-    out = []
-    # A skill named in the prompt needs no second matching word.
-    for slug, score in _rank(_BM25(index), prompt, len(original), names, min_terms=1):
-        if synced_twin(slug, original) or len(out) >= k:
-            continue
-        out.append({"id": original.get(slug, slug), "name": original.get(slug, slug),
-                    "desc": _one_line(descs.get(slug)), "score": score})
-    return out
-
-
 def tool_catalog() -> tuple:
     """Every routed tool known from the cached manifests: (BM25 entries, rows, names).
 
     rows: lower slug -> {server, tool, claude_name, desc, schema}. names: lower slug -> the
-    server's name parts. Offline: never starts a server. Shared with the gateway's find tool.
+    server's name parts. Offline: never starts a server. Used by the gateway's find tool.
     """
     from . import cache as cache_mod
     from .config import load_config
@@ -193,39 +77,3 @@ def tool_catalog() -> tuple:
             names[slug.lower()] = set(re.split(r"[_\-.]+", f"{server} {prefix or ''}".lower().replace(" ", "_"))) - {
                 "", "mod", "mcp", "plugin"}
     return entries, rows, names
-
-
-def _tool_hints(prompt: str, k: int) -> list:
-    from .skills import _BM25
-
-    if k <= 0:
-        return []
-    entries, rows, names = tool_catalog()
-    if not entries:
-        return []
-    # A tool's own name is often one common word (search, get), so the name that counts is its server's.
-    return [{"server": rows[slug]["server"], "tool": rows[slug]["tool"],
-             "claude_name": rows[slug]["claude_name"], "score": score}
-            for slug, score in _rank(_BM25({"skills": entries}), prompt, k, names)]
-
-
-def run_hint(args: list) -> int:
-    k_skills = _int_flag(args, "--k-skills", 3)
-    k_tools = _int_flag(args, "--k-tools", 3)
-    try:
-        prompt = sys.stdin.read(_MAX_PROMPT)
-    except Exception:
-        prompt = ""
-    out = {"skills": [], "tools": []}
-    if prompt.strip():
-        # Each bucket fails on its own: a broken cache must not hide the skills.
-        try:
-            out["skills"] = _skill_hints(prompt, k_skills)
-        except Exception as e:  # noqa: BLE001
-            print(f"oh-my-context hint: skills: {e}", file=sys.stderr)
-        try:
-            out["tools"] = _tool_hints(prompt, k_tools)
-        except Exception as e:  # noqa: BLE001
-            print(f"oh-my-context hint: tools: {e}", file=sys.stderr)
-    print(json.dumps(out, ensure_ascii=False))
-    return 0

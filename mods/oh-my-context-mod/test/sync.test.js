@@ -33,6 +33,7 @@ function machine({ options = { direct_servers: 'gamma', direct_skills: 'keep-me,
   homes.push(home);
   const env = { HOME: home, API_KEY: 'k' };
   const p = paths(home, {});
+  p.exists = () => true; // the projects here (/w, /v) are names only; one test below lets them die
   const plug = name => path.join(home, '.claude', 'plugins', 'cache', 'm', name, '1.0.0');
   w(path.join(plug('alpha'), '.mcp.json'), { mcpServers: { alpha: { command: '${CLAUDE_PLUGIN_ROOT}/bin/a', args: ['serve'], env: { URL: '${user_config.url}' } } } });
   w(path.join(plug('alpha'), '.claude-plugin', 'plugin.json'), { name: 'alpha', userConfig: { url: { type: 'string', default: 'https://x' } } });
@@ -159,6 +160,49 @@ test('the built-in code graph server steps aside while another entry runs that s
   const older = [{ name: 'codebase-memory-mod', root: '/x', data: '/d', options: {}, scope: null, here: true,
     manifest: { mcpServers: { 'codebase-memory-mcp': { command: '/x/bin/codebase-memory-mcp' } } } }];
   assert.deepStrictEqual(collectServers(p, '/w', older, {}, {}).filter(s => s.builtin), []);
+});
+
+test('a project folder that no longer exists is dropped from the state, with its switches', () => {
+  const m = machine();
+  apply(m.p, '/w', m.env, ok);
+  apply(m.p, '/gone', m.env, ok);
+  assert.deepStrictEqual(r(m.p.claudeJson).projects['/gone'].disabledMcpServers, ['ctx', 'plugin:alpha:alpha']);
+  assert.ok(r(path.join(m.p.state, 'state.json')).cwds.includes('/gone'));
+  m.p.exists = d => d !== '/gone';
+  apply(m.p, '/w', m.env, ok);
+  const st = r(path.join(m.p.state, 'state.json'));
+  assert.deepStrictEqual([st.cwds, Object.keys(st.projects)], [['/w'], ['/w']]);
+  assert.strictEqual(r(m.p.claudeJson).projects['/gone'], undefined, 'an entry the mod created goes with it');
+  assert.deepStrictEqual(r(m.p.claudeJson).projects['/w'].disabledMcpServers, ['by-hand', 'ctx', 'plugin:alpha:alpha']);
+});
+
+test('the reply mode outlives /omc off; an uninstall puts the earlier output style back', () => {
+  const { restoreAll } = require('../hooks/restore.js');
+  const m = machine();
+  const reply = path.join(m.p.state, 'reply.json');
+  const style = () => r(m.p.settings).outputStyle;
+  const on = () => {
+    apply(m.p, '/w', m.env, ok);
+    w(reply, { mode: 'max', style: { prev: 'Concise' } });
+    w(m.p.settings, { ...r(m.p.settings), outputStyle: 'oh-my-context-mod:reply-max' });
+  };
+  on();
+  fullRestore(m.p); // /omc off: routing goes, the reply mode is its own switch
+  assert.deepStrictEqual(fs.readdirSync(m.p.state), ['reply.json']);
+  assert.strictEqual(style(), 'oh-my-context-mod:reply-max');
+  on();
+  restoreAll(m.p.state, true); // uninstalled or disabled: our style no longer exists
+  assert.strictEqual(style(), 'Concise');
+  assert.ok(!fs.existsSync(m.p.state));
+  // A style the person picked since stays, and one that was unset is removed again.
+  on();
+  w(m.p.settings, { ...r(m.p.settings), outputStyle: 'Explanatory' });
+  restoreAll(m.p.state, true);
+  assert.strictEqual(style(), 'Explanatory');
+  on();
+  w(reply, { mode: 'max', style: { prev: null } });
+  restoreAll(m.p.state, true);
+  assert.strictEqual(style(), undefined);
 });
 
 test('swap keeps the person\'s entries and owns only what it added', () => {
@@ -330,7 +374,8 @@ test('plugin commands are routed like skills: still invocable, indexed, and put 
   assert.strictEqual(t(path.join(dir, 'run.md')), '---\ndescription: routed\n---\nDo it.\n');
   assert.strictEqual(t(path.join(dir, 'sub', 'bare.md')), '---\ndescription: routed\n---\nBare.\n');
   assert.strictEqual(t(path.join(dir, 'self.md')), '---\ndisable-model-invocation: false\n---\n');
-  assert.strictEqual(t(path.join(m.p.state, 'catalog', 'cmds_run', 'SKILL.md')), '---\nname: cmds:run\ndescription: Run it\n---\nDo it.\n');
+  // A command is not a skill: load_skill would hand it back with $ARGUMENTS and ${CLAUDE_PLUGIN_ROOT} unfilled.
+  assert.ok(!fs.existsSync(path.join(m.p.state, 'catalog', 'cmds_run')));
   assert.ok(!fs.existsSync(path.join(m.p.state, 'catalog', 'cmds_self')));
   assert.match(status(m.p, '/w', m.env, ok), /Commands: 2 plugin command/);
 
@@ -547,7 +592,7 @@ test('session: applies, asks for a skill reload; off and a broken CLI', () => {
   // The card (here the stub's stdout) comes first and is saved for the SubagentStart hook; then the direct servers.
   assert.strictEqual(out.additionalContext, 'oh-my-context 0.9.0\n\noh-my-context-mod: direct MCP servers (in your own tool list): '
     + 'plugin:beta:beta (needs user_config.token), plugin:gamma:gamma (in direct_servers). Changes made at this start count from the next session.');
-  assert.strictEqual(t(path.join(m.p.state, 'card.txt')), 'oh-my-context 0.9.0');
+  assert.strictEqual(t(require('../hooks/graph.js').cardFile(m.p, '/w')), 'oh-my-context 0.9.0', 'one card per project');
 
   // A broken CLI puts everything back.
   const bad = () => ({ status: 127, stdout: '' });

@@ -24,7 +24,8 @@ skills index, tools from the cached manifests. Prints nothing when both are empt
 
 What the project named by --cwd (default: the working directory) has really called
 comes first: a server line ends with the tools used there, and skills it has loaded
-lead the list (from the per-project session log, most used first). The text has no
+lead the list with a short description (from the per-project session log, most used
+first). Every other skill is a name on its plugin's line. The text has no
 dates and no counts, so it changes only when the catalog or the order of use does.
 """
 
@@ -46,7 +47,8 @@ _OPENER = re.compile(
     r"|use (this )?(skill )?(when|for|to) )", re.I)
 
 HEAD = ("Behind the oh-my-context gateway (not in your tool or skill lists). When a task touches "
-        "one of these, use it: `find` (task) returns matching tools with parameters and skills; "
+        "one of these, use it: `find` (task) returns matching tools with parameters and skills "
+        "with descriptions; "
         "run a tool with `call` (tool = its mcp__ name), read a skill with `load_skill` (id).")
 
 
@@ -76,23 +78,40 @@ def _server_lines(used: dict) -> list:
         # Most common first, then by name, so the line is the same on every run.
         top = [w for w, _ in sorted(words.items(), key=lambda p: (-p[1], p[0]))[:_WORDS]]
         line = (f"- {name}__* ({len(tools)} tools): {', '.join(top)}" if tools
-                else f"- {name}__* (tools not listed yet; see manifest)")
+                else f"- {name}__* (tools not listed yet)")
         mine = (used.get(server) or [])[:_USED_TOOLS]
         lines.append(line + (f"; used here: {', '.join(mine)}" if mine else ""))
     return lines
 
 
+# An id is printed into every context, so a skill file in a cloned repo must not be able to put
+# arbitrary text there: plain names only, and not long ones.
+_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$")
+
+
 def _skills(used: list) -> tuple:
-    """([(id, gloss)] this project has loaded, most used first; the rest, sorted)."""
+    """([(id, gloss)] this project has loaded, most used first; the other ids, sorted)."""
     from .hint import synced_twin
     from .skills import load_index
 
-    skills = [s for s in (load_index() or {}).get("skills", []) if s.get("slug") and not s.get("alias_of")]
+    skills = [s for s in (load_index() or {}).get("skills", [])
+              if s.get("slug") and not s.get("alias_of") and _ID.match(s["slug"])]
     slugs = {s["slug"].lower() for s in skills}
     rows = {s["slug"]: _gloss(s.get("desc")) for s in skills if not synced_twin(s["slug"], slugs)}
     first = [(slug, rows[slug]) for slug in used if slug in rows]
     taken = {slug for slug, _ in first}
-    return first, sorted((slug, gloss) for slug, gloss in rows.items() if slug not in taken)
+    return first, sorted(slug for slug in rows if slug not in taken)
+
+
+def _by_plugin(ids: list) -> list:
+    """One line per plugin: its skills by name. A cut-off description of each cost four times the
+    characters and said little; `find` returns the full description when a task needs one."""
+    groups: dict = {}
+    for slug in ids:
+        plugin, _, name = slug.rpartition(":")
+        groups.setdefault(plugin, []).append(name)
+    return [f"- {plugin}: {', '.join(names)}" if plugin else f"- {', '.join(names)}"
+            for plugin, names in sorted(groups.items())]
 
 
 def build_card(cwd: str | None = None) -> str:
@@ -101,7 +120,7 @@ def build_card(cwd: str | None = None) -> str:
 
     servers, first, rest = [], [], []
     used_tools, used_skills = session_log.used(cwd)
-    # Each half fails on its own, like hint: a broken cache must not hide the skills.
+    # Each half fails on its own: a broken cache must not hide the skills.
     try:
         servers = _server_lines(used_tools)
     except Exception:  # noqa: BLE001
@@ -112,16 +131,12 @@ def build_card(cwd: str | None = None) -> str:
         pass
     if not servers and not first and not rest:
         return ""
-    head = [HEAD] + (["MCP servers:"] + servers if servers else [])
-    line = lambda slug, gloss: f"- {slug}: {gloss}" if gloss else f"- {slug}"  # noqa: E731
-    mine = (["Skills used in this project:"] + [line(*s) for s in first]) if first else []
-    out = head + mine + ((["Other skills:" if first else "Skills:"] + [line(*s) for s in rest]) if rest else [])
-    text = "\n".join(out)
-    if len(text) > _MAX:
-        # A huge catalog keeps the glosses of what this project uses and lists the rest by id.
-        out = head + mine + [("Other skills: " if first else "Skills: ") + ", ".join(slug for slug, _ in rest)]
-        text = "\n".join(out)[:_MAX]
-    return text
+    out = [HEAD] + (["MCP servers:"] + servers if servers else [])
+    if first:
+        out += ["Skills used in this project:"] + [f"- {slug}: {gloss}" if gloss else f"- {slug}" for slug, gloss in first]
+    if rest:
+        out += ["Other skills (id is plugin:name):" if first else "Skills (id is plugin:name):"] + _by_plugin(rest)
+    return "\n".join(out)[:_MAX]
 
 
 def run_card(args: list) -> int:

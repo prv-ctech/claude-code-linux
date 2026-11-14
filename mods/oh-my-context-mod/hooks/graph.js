@@ -15,7 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
-const { paths, readText } = require('./restore.js');
+const { paths, readText, sha } = require('./restore.js');
 
 // The names the tools had when codebase-memory-mod ran the server; kept so permission rules still match.
 const PREFIX = 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp';
@@ -26,7 +26,8 @@ const REASON = [
   `Use the codebase-memory tools instead, through ${VIA}:`,
   'search_graph for a symbol by name; trace_path for callers and callees; get_code_snippet for a symbol\'s source;',
   'get_file_outline for one file; search_code for literal text; query_graph for multi-hop questions.',
-  'Read opens a file whose path is already known.',
+  'Read opens a file whose path is already known, and grep on named files (grep -n x src/a.js) is allowed.',
+  'Without MCP tools, the same tools run in Bash: codebase-memory-mcp cli <tool> \'<json arguments>\'.',
   'If a codebase-memory tool returns an error, report that error to the user and stop; do not retry the search with grep.',
 ].join(' ');
 
@@ -36,6 +37,21 @@ const CODE_SEARCH = /(^|[;&(`]|\$\()[\s;&(`]*(grep|egrep|fgrep|rg|ag|ack|find|gi
 
 const cacheDir = (home = os.homedir()) => path.join(process.env.XDG_CACHE_HOME || path.join(home, '.cache'), 'codebase-memory-mcp');
 const indexed = cwd => fs.existsSync(path.join(cwd, '.codebase-memory', 'graph.db.zst'));
+
+// The project a hook call belongs to. Claude Code gives hooks the project root; `cwd` moves with a
+// `cd` in the shell, which must not switch the gate off or change which card a subagent gets.
+const projectDir = (payload, env = process.env) => env.CLAUDE_PROJECT_DIR || (payload && payload.cwd) || process.cwd();
+
+// The card sync.js saved for one project (what it has used comes first, so it is not shared).
+const cardFile = (p, dir) => path.join(p.state, 'cards', `${sha(path.resolve(dir)).slice(0, 16)}.txt`);
+
+const isFile = f => {
+  try {
+    return fs.statSync(f).isFile();
+  } catch (e) {
+    return false;
+  }
+};
 
 // Whether this mod runs the graph server (and is not switched off).
 function graphOn(p = paths()) {
@@ -58,7 +74,7 @@ function inside(dir, target) {
 // search of this code.
 // shortcut: not a shell parser; `bash -c "grep ..."` and `eval` pass. The gate steers the model, it is
 // no security boundary. Upgrade to a real word splitter if the model starts hiding searches in quotes.
-function codeSearches(command, cwd, home = os.homedir()) {
+function codeSearches(command, root, home = os.homedir(), cwd = root) {
   const held = [];
   const hold = text => `\u0000${held.push(text) - 1}\u0000`;
   const bare = String(command)
@@ -73,26 +89,37 @@ function codeSearches(command, cwd, home = os.homedir()) {
     // A path is an absolute or home word, or a relative word that exists (src, ., ../logs). A relative
     // word that names nothing is the pattern; one that happens to name a file counts as a path, which
     // errs toward the gate.
-    const paths = words.filter(w => !w.startsWith('-')).map(w => (/^(\/|~\/|~$|\$HOME\b)/.test(w)
+    // grep, rg, ag and ack take the pattern as their first plain word: `grep -c . /etc/hostname` searches
+    // /etc/hostname for ".", not the folder. find takes only paths before its first option.
+    const plain = words.filter(w => !w.startsWith('-'));
+    const paths = (/^find$/.test(m[2]) ? plain : plain.slice(1)).map(w => (/^(\/|~\/|~$|\$HOME\b)/.test(w)
       ? w.replace(/^(~|\$HOME)/, home)
       : fs.existsSync(path.resolve(cwd, w)) ? path.resolve(cwd, w) : null)).filter(Boolean);
-    if (paths.length && paths.every(p => !inside(cwd, p))) continue;
+    // No path at all: grep reads stdin or, with -r, the folder; find searches the folder. Both stay gated.
+    if (paths.length && paths.every(p => !inside(root, p))) continue;
+    // Named files only: that reads those files, as Read would, and costs less. It is not discovery.
+    if (paths.length && paths.every(isFile)) continue;
+    // No path, in a shell that has left the project: the search is somewhere else.
+    if (!paths.length && !inside(root, cwd)) continue;
     found.push(m[2]);
   }
   return found;
 }
 
-function decide(payload, home = os.homedir()) {
+function decide(payload, home = os.homedir(), env = process.env) {
   const cwd = path.resolve(payload.cwd || process.cwd());
-  if (!indexed(cwd)) return null;
+  const root = path.resolve(projectDir(payload, env));
+  if (!indexed(root)) return null;
   if (fs.existsSync(path.join(cacheDir(home), 'gate-off'))) return null;
 
   const input = payload.tool_input || {};
   if (payload.tool_name === 'Grep' || payload.tool_name === 'Glob') {
-    if (input.path && !inside(cwd, String(input.path))) return null;
+    const target = path.resolve(cwd, String(input.path || '.'));
+    if (!inside(root, target)) return null;
+    if (payload.tool_name === 'Grep' && isFile(target)) return null; // one named file: a read
     return REASON;
   }
-  if (payload.tool_name === 'Bash' && codeSearches(input.command || '', cwd, home).length) return REASON;
+  if (payload.tool_name === 'Bash' && codeSearches(input.command || '', root, home, cwd).length) return REASON;
   return null;
 }
 
@@ -131,6 +158,7 @@ function line(cwd, started = false) {
     + 'search_graph (symbol by name; resolve exact names here first), trace_path (callers, callees), get_code_snippet (source of a symbol), '
     + 'get_file_outline, search_code (literal text), query_graph (multi-hop), get_architecture, detect_changes; `project` comes from list_projects. '
     + 'Grep, Glob and shell grep, rg or find on code are blocked by a hook; Read opens a path already known. '
+    + 'Before deleting, renaming or changing the signature of a function: trace_path inbound and search_code for its name (the graph can miss dynamic callers). '
     + 'Before a claim that nothing uses a symbol, run check_index_coverage. A tool error is reported to the user, not worked around with grep. '
     + 'After a large pull, branch switch or rebase: index_repository (repo_path absolute, persistence: true). .codebase-memory/ is not committed unless asked.';
 }
@@ -159,4 +187,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { decide, CODE_SEARCH, codeSearches, graphOn, startIndex, line, PREFIX };
+module.exports = { decide, CODE_SEARCH, codeSearches, projectDir, cardFile, graphOn, startIndex, line, PREFIX };

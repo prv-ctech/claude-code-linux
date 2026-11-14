@@ -27,9 +27,11 @@ test('hooks print one JSON object with the right event (FR-1, FR-2)', () => {
   for (const [m, ev] of Object.entries(want)) {
     const r = t.run(m);
     assert.strictEqual(r.status, 0);
+    // The main context has the rules as its output style already: session start adds nothing.
+    if (m === 'session') { assert.strictEqual(r.stdout, ''); continue; }
     const out = JSON.parse(r.stdout).hookSpecificOutput;
     assert.strictEqual(out.hookEventName, ev);
-    if (m === 'session' || m === 'subagent') assert.ok(out.additionalContext.startsWith('REPLY MODE ULTRA:'));
+    if (m === 'subagent') assert.ok(out.additionalContext.startsWith('REPLY MODE ULTRA:'));
     if (m === 'prompt') assert.ok(out.additionalContext.length <= 100);
   }
 });
@@ -37,7 +39,7 @@ test('hooks print one JSON object with the right event (FR-1, FR-2)', () => {
 test('every level has a prompt reminder of at most 100 chars and rules starting with its name (FR-2, FR-5)', () => {
   for (const level of ['lite', 'full', 'ultra', 'max']) {
     const t = setup('{}', { OMC_REPLY_MODE: level });
-    assert.ok(JSON.parse(t.run('session').stdout).hookSpecificOutput.additionalContext.startsWith(`REPLY MODE ${level.toUpperCase()}:`));
+    assert.ok(JSON.parse(t.run('subagent').stdout).hookSpecificOutput.additionalContext.startsWith(`REPLY MODE ${level.toUpperCase()}:`));
     assert.ok(JSON.parse(t.run('prompt').stdout).hookSpecificOutput.additionalContext.length <= 100);
   }
 });
@@ -47,7 +49,8 @@ test('hooks.json holds the three reply hooks, none after tool calls, and keeps t
   const cmds = ev => h[ev].flatMap(e => e.hooks.map(x => x.command));
   assert.ok(cmds('SessionStart').some(c => c.includes('sync.js" session')));
   assert.ok(cmds('SessionStart').some(c => c.endsWith('reply.js" session')));
-  assert.ok(cmds('UserPromptSubmit').some(c => c.endsWith('prompt.js"')));
+  assert.ok(!cmds('UserPromptSubmit').some(c => c.endsWith('prompt.js"')), 'no hint on every prompt');
+  assert.strictEqual(h.SubagentStop, undefined);
   assert.ok(cmds('UserPromptSubmit').some(c => c.endsWith('reply.js" prompt')));
   assert.ok(cmds('SubagentStart').some(c => c.includes('sync.js" epoch')));
   assert.ok(cmds('SubagentStart').some(c => c.endsWith('reply.js" subagent')));

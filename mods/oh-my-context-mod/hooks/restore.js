@@ -298,11 +298,35 @@ function restore(dir, state, { full = true, cwd } = {}) {
   return { done, failed, left };
 }
 
+// The reply mode (hooks/reply.js) keeps its state in the same folder: reply.json holds the output style
+// the person had before. With the mod gone, that style goes back, since ours no longer exists.
+function restoreStyle(dir, settingsFile) {
+  try {
+    const prev = (JSON.parse(readText(path.join(dir, 'reply.json')) || '{}').style || {}).prev;
+    const s = settingsFile ? readConfig(settingsFile, null) : null;
+    if (prev === undefined || !s || !String(s.outputStyle || '').startsWith(`${ME}:reply-`)) return;
+    if (prev === null) delete s.outputStyle;
+    else s.outputStyle = prev;
+    writeJson(settingsFile, s, 0o644);
+  } catch (e) {
+    /* a settings file that does not parse is never rewritten */
+  }
+}
+
 // Full restore; the state dir goes too once nothing is left to retry.
-function restoreAll(dir) {
+// gone: the mod is uninstalled or disabled, so the reply mode ends with it. Otherwise (/omc off, a
+// gateway that cannot run) the reply mode is a separate switch and its state stays.
+function restoreAll(dir, gone = false) {
   if (!fs.existsSync(path.join(dir, 'state.json'))) return { done: {}, failed: [], left: [] };
-  const r = restore(dir, loadState(dir), { full: true });
-  if (!r.failed.length) fs.rmSync(dir, { recursive: true, force: true });
+  const state = loadState(dir);
+  const r = restore(dir, state, { full: true });
+  if (r.failed.length) return r;
+  if (gone) {
+    restoreStyle(dir, (state.paths || {}).settings);
+    fs.rmSync(dir, { recursive: true, force: true });
+  } else {
+    for (const n of fs.readdirSync(dir)) if (n !== 'reply.json' && n !== 'reply-fired') fs.rmSync(path.join(dir, n), { recursive: true, force: true });
+  }
   return r;
 }
 
@@ -338,7 +362,7 @@ function guard(input, dir = __dirname) {
     const user = readConfig(p.settings, {});
     const ids = Object.keys(installed.plugins).filter(k => k.startsWith(`${ME}@`));
     if (!ids.length) {
-      const r = restoreAll(dir);
+      const r = restoreAll(dir, true);
       return `oh-my-context-mod is uninstalled: ${describe(r)}. Every MCP server and skill shows fully from the next session.`;
     }
     const userOn = user.enabledPlugins || {};
@@ -355,7 +379,7 @@ function guard(input, dir = __dirname) {
       // Off at user scope: everything goes back unless a project the mod set up still turns it on.
       const dirs = [...(state.cwds || []), ...Object.keys(state.projects), ...Object.values(state.servers).map(r => r.cwd), ...state.files.map(r => r.cwd)];
       if (![...new Set(dirs.filter(Boolean))].some(on)) {
-        const r = restoreAll(dir);
+        const r = restoreAll(dir, true);
         return `oh-my-context-mod is disabled: ${describe(r)}. Every MCP server and skill shows fully from the next session.`;
       }
     }
