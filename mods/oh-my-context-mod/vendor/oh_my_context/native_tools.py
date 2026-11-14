@@ -47,8 +47,6 @@ NATIVE_NAMES = (
     "inspect",
     "call",
     "retrieve",
-    "kb_search",
-    "kb_index",
     "session",
 )
 
@@ -306,8 +304,8 @@ def native_tools() -> list[dict]:
             "description": (
                 "Search everything behind this gateway for a task: routed MCP tools and "
                 "skills, best first. The best tool comes with its parameters, so `call` "
-                "can run it next; load a skill with `load_skill` (its id). Use this "
-                "instead of the Skill tool or a tool search. Offline ranking, no LLM."
+                "can run it next; load a skill with `load_skill` (its id). Offline "
+                "ranking, no LLM."
             ),
             "inputSchema": {
                 "type": "object",
@@ -400,8 +398,8 @@ def native_tools() -> list[dict]:
             "title": "Load a skill",
             "description": (
                 "Load a skill by its id (from find): returns its SKILL.md instructions "
-                "to follow. Skills are hidden from Claude's native listing, so use this "
-                "instead of the Skill tool. Pass the full id (e.g. ecc:docker-patterns); "
+                "to follow. For a skill that is not in your own skill list. Pass the "
+                "full id (e.g. ecc:docker-patterns); "
                 "a bare name can match several plugins. With `file`, returns one bundled "
                 "file from the skill's folder instead."
             ),
@@ -547,93 +545,6 @@ def native_tools() -> list[dict]:
             "annotations": {
                 "title": "Retrieve a compressed result",
                 "readOnlyHint": True,
-                "destructiveHint": False,
-                "idempotentHint": True,
-                "openWorldHint": False,
-            },
-        },
-        {
-            "name": "kb_search",
-            "title": "Search inside indexed documents",
-            "description": (
-                "Return the PASSAGES in already-indexed documents that match a query, "
-                "not the whole file. Use it instead of reading a large document whole "
-                "when you need a few lines from it. Index a document first with "
-                "kb_index."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Words to find. Substrings and typos are handled.",
-                    },
-                    "k": {
-                        "type": "integer",
-                        "description": "How many passages to return (default 5).",
-                    },
-                    "source": {
-                        "type": "string",
-                        "description": (
-                            "Restrict to sources whose name contains this text. "
-                            "Omit to search everything indexed."
-                        ),
-                    },
-                },
-                "required": ["query"],
-            },
-            "outputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "hits": {"type": "array", "items": {"type": "object"}},
-                    "notes": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["query", "hits"],
-            },
-            "annotations": {
-                "title": "Search inside indexed documents",
-                "readOnlyHint": True,
-                "destructiveHint": False,
-                "idempotentHint": True,
-                "openWorldHint": False,
-            },
-        },
-        {
-            "name": "kb_index",
-            "title": "Index a document for search",
-            "description": (
-                "Chunk a local file into the knowledge base so "
-                "kb_search can find passages in it. Indexing is what keeps "
-                "the document out of your context window while staying searchable."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "A local file path to index.",
-                    },
-                    "source": {
-                        "type": "string",
-                        "description": "Optional label for this source in the index.",
-                    },
-                },
-            },
-            "outputSchema": {
-                "type": "object",
-                "properties": {
-                    "indexed": {"type": "boolean"},
-                    "source": {"type": "string"},
-                    "chunks": {"type": "integer"},
-                    "bytes": {"type": "integer"},
-                    "error": {"type": "string"},
-                },
-                "required": ["indexed", "source", "chunks"],
-            },
-            "annotations": {
-                "title": "Index a document for search",
-                "readOnlyHint": False,
                 "destructiveHint": False,
                 "idempotentHint": True,
                 "openWorldHint": False,
@@ -1066,46 +977,6 @@ def _inspect(arguments: dict, state: dict) -> dict:
     return payload
 
 
-def _kb_search(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform signature
-    """Passages matching a query, from documents already indexed.
-
-    Delegates to :mod:`oh_my_context.kb`. A KBError (empty index, no FTS5) becomes a structured
-    ``error`` rather than an exception, because "index something first" is advice
-    the model can act on, not a crash.
-    """
-    from . import kb as kb_mod
-
-    query = _as_str(arguments.get("query"))
-    k = _as_int(arguments.get("k"), 5, minimum=1)
-    source = _as_str(arguments.get("source")) or None
-    if not query:
-        return {"query": "", "hits": [], "notes": [],
-                "error": "pass a non-empty `query`"}
-    try:
-        report = kb_mod.search(query, k=k, source=source)
-    except kb_mod.KBError as exc:
-        return {"query": query, "hits": [], "notes": [], "error": str(exc)}
-    return report.as_dict()
-
-
-def _kb_index(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform signature
-    """Index a local file into the knowledge base (oh-my-context-mod: no URL fetch)."""
-    from . import kb as kb_mod
-
-    path = _as_str(arguments.get("path"))
-    source = _as_str(arguments.get("source")) or None
-    if not path:
-        return {"indexed": False, "source": "", "chunks": 0,
-                "error": "pass `path` (a local file)"}
-    try:
-        report = kb_mod.index_file(path, source=source)
-    except kb_mod.KBError as exc:
-        return {"indexed": False, "source": path, "chunks": 0,
-                "error": str(exc)}
-    return {"indexed": True, "source": report.source, "chunks": report.chunks,
-            "bytes": report.bytes, "skipped": report.skipped}
-
-
 def _session(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform signature
     """This project's session activity, for catching up after a compaction."""
     from . import session_log
@@ -1139,8 +1010,6 @@ _HANDLERS = {
     "load_skill": _load_skill,
     "inspect": _inspect,
     "retrieve": _retrieve,
-    "kb_search": _kb_search,
-    "kb_index": _kb_index,
     "session": _session,
     # "call" is routed by the bridge to the upstream tool; it has no
     # handler here because it must reuse the bridge's pool, validation and

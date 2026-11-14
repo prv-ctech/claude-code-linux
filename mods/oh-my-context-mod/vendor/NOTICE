@@ -54,7 +54,7 @@ Renamed in every file of oh_my_context/:
   repository -> this repository.
 
 Only what the plugin runs is kept: the CLI commands `--version`, `serve`
-(stdio), `hint`, `card` and `skills index <dir>`, the gateway's MCP tools and what they
+(stdio), `card` and `skills index <dir>`, the gateway's MCP tools and what they
 reach. Not included (removed, or never vendored): mcptoon's own agent skill
 (skill/SKILL.md), python-toon (_toon/, toon_vendored.py) and the TOON/SLIM output
 formats, and the modules bake.py, bench.py, demo.py, demo_server.py, discover.py,
@@ -78,7 +78,7 @@ token counting; and the OMC_* environment overrides other than OMC_HOME,
 OMC_CONFIG_FILE and OMC_MOD_PYTHONPATH. Nothing left reaches the network except
 the HTTP MCP servers the gateway routes.
 
-  oh_my_context/cli.py           only --version, serve, hint, card and skills index
+  oh_my_context/cli.py           only --version, serve, card, stats and skills index
                                  <dir> (see above).
   oh_my_context/card.py          added: `oh-my-context card`, read-only text of what
                                  is behind the gateway, for a new context.
@@ -86,8 +86,8 @@ the HTTP MCP servers the gateway routes.
                                  task, the first tool with its parameters).
   oh_my_context/session_log.py   added: `used()`, the tools and skills a project has
                                  called, which order the card; load_skill is logged.
-  oh_my_context/hint.py          added: `oh-my-context hint`, read-only skill and
-                                 tool hints for a prompt.
+  oh_my_context/hint.py          added: helpers shared by the card and the find tool
+                                 (the `hint` command it once held is removed).
   oh_my_context/config.py        reads only OMC_CONFIG_FILE (written by
                                  hooks/sync.js; no project-local, TOML or
                                  OMC_SERVERS config); servers with "cwd_only"
@@ -146,7 +146,8 @@ the HTTP MCP servers the gateway routes.
   oh_my_context/compressor.py    used only by the gateway.
   oh_my_context/floodguard.py    blocks only (no soft cap), fixed limits.
   oh_my_context/headers.py       documentation only.
-  oh_my_context/kb.py            local files only (no URL fetch).
+  oh_my_context/kb.py            removed, with the kb_index and kb_search tools: they
+                                 read any file the user can, outside the permission rules.
   oh_my_context/plugin.py        only the SKILL.md frontmatter reader.
   oh_my_context/router.py        only the safety screens.
   oh_my_context/session_log.py   the log lives in OMC_HOME/sessions.

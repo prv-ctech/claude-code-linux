@@ -17,7 +17,6 @@
 
     oh-my-context --version            hooks/sync.js: is the gateway runnable
     oh-my-context serve                .mcp.json: the stdio MCP gateway
-    oh-my-context hint                 hooks/prompt.js: skill and tool hints for a prompt
     oh-my-context card                 hooks/sync.js: what is behind the gateway, for a new context
     oh-my-context skills index <dir>   hooks/sync.js: index the skill catalog
     oh-my-context stats                hooks/sync.js status: compression, recovery store, tokens saved (one JSON line)
@@ -29,7 +28,7 @@ from pathlib import Path
 from . import __version__
 
 # oh-my-context-mod: anything else is not a command of this copy.
-USAGE = "usage: oh-my-context --version | serve | hint [--k-skills N] [--k-tools N] | card [--cwd DIR] | skills index <dir>... | stats"
+USAGE = "usage: oh-my-context --version | serve | card [--cwd DIR] | skills index <dir>... | stats"
 
 
 def _harden_stream_encoding() -> None:
@@ -94,9 +93,6 @@ def main() -> None:
         rec = recovery.stats()
         rec["path"] = str(recovery._dir())
         print(json.dumps({"compress": config.compression_mode(), "recovery": rec, "saved_tokens": usage.saved_tokens()}))
-    elif command == "hint":
-        from .hint import run_hint
-        sys.exit(run_hint(args[1:]))
     elif command == "card" and (len(args) == 1 or (len(args) == 3 and args[1] == "--cwd")):
         from .card import run_card
         sys.exit(run_card(args[1:]))

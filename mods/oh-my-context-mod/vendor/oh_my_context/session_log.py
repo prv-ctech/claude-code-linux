@@ -98,6 +98,13 @@ def _db_path() -> Path:
 def _connect() -> sqlite3.Connection:
     path = _db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    # oh-my-context-mod: the log holds call arguments, so it is the owner's alone.
+    try:
+        path.parent.chmod(0o700)
+        os.close(os.open(str(path), os.O_CREAT | os.O_WRONLY, 0o600))
+        path.chmod(0o600)
+    except OSError:
+        pass
     con = sqlite3.connect(str(path), timeout=5)
     con.execute(
         """

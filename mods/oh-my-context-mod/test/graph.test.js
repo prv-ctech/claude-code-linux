@@ -9,6 +9,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { decide, CODE_SEARCH, graphOn, line, PREFIX } = require('../hooks/graph.js');
 
+delete process.env.CLAUDE_PROJECT_DIR; // the tests name the project through cwd
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'cbm-gate-'));
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cbm-home-'));
 fs.mkdirSync(path.join(ws, '.codebase-memory'));
@@ -66,6 +67,28 @@ test('text in quotes and here-documents is not a search, and neither is a search
   assert.strictEqual(bash('grep -rn foo ../ /etc/hosts'), null, 'a relative path that leaves the workspace is outside');
   assert.ok(bash('echo "x" && rg foo'));
   assert.ok(bash('python3 - <<E\nprint(1)\nE\ngrep -rn foo .'), 'after the here-document ends');
+});
+
+test('the gate follows the project, not a cd, and lets a search of named files through', () => {
+  const env = { CLAUDE_PROJECT_DIR: ws };
+  const at = (cwd, tool_name, tool_input) => decide({ tool_name, tool_input, cwd }, home, env);
+  fs.mkdirSync(path.join(ws, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(ws, 'src', 'a.js'), 'x');
+  // A shell that moved into a subfolder is still in the project.
+  assert.ok(at(path.join(ws, 'src'), 'Bash', { command: 'grep -rn foo' }));
+  assert.ok(at(path.join(ws, 'src'), 'Grep', { pattern: 'foo' }));
+  // A shell that left the project searches somewhere else.
+  assert.strictEqual(at(os.tmpdir(), 'Bash', { command: 'grep -rn foo .' }), null);
+  assert.strictEqual(at(os.tmpdir(), 'Grep', { pattern: 'foo' }), null);
+  assert.ok(at(os.tmpdir(), 'Bash', { command: `grep -rn foo ${ws}` }), 'unless it names the project');
+  // Named files: a read of those files, not discovery.
+  assert.strictEqual(at(ws, 'Bash', { command: 'grep -n x src/a.js' }), null);
+  assert.strictEqual(at(ws, 'Grep', { pattern: 'x', path: 'src/a.js' }), null);
+  assert.ok(at(ws, 'Bash', { command: 'grep -rn x src/a.js src' }), 'a folder next to the file is a search again');
+  assert.ok(at(ws, 'Grep', { pattern: 'x', path: 'src' }));
+  assert.ok(at(ws, 'Glob', { pattern: '**/*.js', path: 'src/a.js' }));
+  // Agents without MCP tools are told how to reach the graph from the shell.
+  assert.match(at(ws, 'Grep', { pattern: 'x' }), /codebase-memory-mcp cli <tool> '<json arguments>'/);
 });
 
 test('the gate-off file lifts it for the person', () => {

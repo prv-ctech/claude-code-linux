@@ -116,7 +116,7 @@ for line in sys.stdin:
 NATIVE_ALWAYS = {"find", "call", "load_skill"}
 NATIVE_NAMES = {"find", "manifest", "servers", "health", "usage", "skills", "resolve_skills", "load_skill",
                 "inspect",
-                "call", "retrieve", "kb_search", "kb_index", "session"}
+                "call", "retrieve", "session"}
 
 
 def _snapshot(root: Path) -> dict:
@@ -445,84 +445,6 @@ class LocalConfigTest(unittest.TestCase):
 
 
 
-class HintTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.sbx = sbx = Sandbox()
-        sbx.write_config({"gh": sbx.server(claude_prefix="mcp__github")})
-        catalog = sbx.root / "catalog"
-        skills = {
-            "superpowers__brainstorming": ("superpowers:brainstorming",
-                                           "Explore ideas, requirements and design options "
-                                           "before building a new feature."),
-            "superpowers__debugging": ("superpowers:systematic-debugging",
-                                       "Find the root cause of a failing test or a crash "
-                                       "before proposing a fix."),
-            "pdf": ("pdf", "Read, merge, split and fill PDF documents and forms."),
-        }
-        for d, (name, desc) in skills.items():
-            (catalog / d).mkdir(parents=True)
-            (catalog / d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {desc}\n---\nbody\n")
-        res = sbx.run(["skills", "index", str(catalog)])
-        assert res.returncode == 0, res.stderr
-        # Cached manifest, written the way the gateway writes it.
-        from oh_my_context import cache as mcache
-        saved, mconfig.CACHE_DIR = mconfig.CACHE_DIR, sbx.mhome / "cache"
-        try:
-            mcache.set_cached_tools("gh", [
-                {"name": "create_issue", "description": "Create a new issue in a GitHub repository.",
-                 "inputSchema": {"type": "object"}},
-                {"name": "list_commits", "description": "List the commits of a branch.",
-                 "inputSchema": {"type": "object"}},
-                {"name": "get.file", "description": "Read one file from a GitHub repository.",
-                 "inputSchema": {"type": "object"}},
-                {"name": "search", "description": "Search the indexed documents for a phrase.",
-                 "inputSchema": {"type": "object"}},
-            ])
-        finally:
-            mconfig.CACHE_DIR = saved
-
-    def hint(self, prompt, *flags):
-        before = _snapshot(self.sbx.root)
-        t0 = time.time()
-        res = self.sbx.run(["hint", *flags], stdin=prompt)
-        self.elapsed = time.time() - t0
-        self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(before, _snapshot(self.sbx.root))  # writes nothing
-        self.assertEqual(self.sbx.spawns(), 0)  # starts no server
-        return json.loads(res.stdout)
-
-    def test_matches(self):
-        out = self.hint("please open a GitHub issue: create an issue about the crash")
-        self.assertEqual([t["claude_name"] for t in out["tools"]], ["mcp__github__create_issue"])
-        self.assertEqual(out["tools"][0]["server"], "gh")
-        self.assertLess(self.elapsed, 5)
-        out = self.hint("use brainstorming on design options for a new feature before building it")
-        self.assertEqual([s["name"] for s in out["skills"]], ["superpowers:brainstorming"])
-        out = self.hint("read the file from the GitHub repository")
-        self.assertEqual([t["tool"] for t in out["tools"]], ["get.file"])
-        self.assertEqual(out["tools"][0]["claude_name"], "mcp__github__get_file")
-
-    def test_tool_name_alone_is_not_enough(self):
-        # A tool named after one common word needs its server named and a second term from its description.
-        self.assertEqual(self.hint("search the codebase for the session token")["tools"], [])
-        self.assertEqual(self.hint("search the indexed documents for this phrase")["tools"], [])
-        out = self.hint("search the indexed documents on GitHub for this phrase")
-        self.assertEqual([t["tool"] for t in out["tools"]], ["search"])
-
-    def test_nothing_when_unrelated_or_disabled(self):
-        self.assertEqual(self.hint("what time is it in Tokyo"), {"skills": [], "tools": []})
-        self.assertEqual(self.hint("create a GitHub issue", "--k-tools", "0", "--k-skills", "0"),
-                         {"skills": [], "tools": []})
-        self.assertEqual(self.hint(""), {"skills": [], "tools": []})
-
-    def test_missing_index_and_cache(self):
-        sbx = Sandbox()
-        res = sbx.run(["hint"], stdin="create a GitHub issue")
-        self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(json.loads(res.stdout), {"skills": [], "tools": []})
-
-
 def _fake_config(sbx: Sandbox, name="fake", **extra) -> dict:
     env = {"FAKE_SPAWN_LOG": str(sbx.spawn_log), "FAKE_INSTRUCTIONS": f"{name.upper()}-INSTRUCTIONS"}
     env.update(extra.pop("env", {}))
@@ -689,7 +611,7 @@ class LoadSkillTest(unittest.TestCase):
         self.assertIn("ecc:deep-research", [s["id"] for s in out["skills"]])
         self.assertEqual(out["tools"], [])
 
-    def test_resolve_skills_budget_exceeds_kb_search(self):
+    def test_skill_lookups_are_not_refused_in_a_burst(self):
         for i in range(12):  # past the old limit of 8
             res = self.gw.call("resolve_skills", {"task": f"deep research {i}"})
             self.assertFalse(res["isError"], i)
@@ -811,12 +733,17 @@ class ColdIndexTest(unittest.TestCase):
         try:
             t0 = time.time()
             gw.request("tools/list")
-            self.assertLess(time.time() - t0, 3.5)  # one startup, not the sum
+            # The gateway's own tools need no upstream server: a slow or dead one cannot hold the list.
+            self.assertLess(time.time() - t0, 1.0)
+            self.assertEqual(sbx.spawns(), 0)
             t0 = time.time()
             res = gw.call("call", {"tool": "mcp__a__echo", "arguments": {"text": "x"}})
             self.assertIn("echo:x", _text(res))
-            self.assertLess(time.time() - t0, 1.5)  # reuses the client the index started
+            self.assertLess(time.time() - t0, 3.5)  # the first call starts them: one startup, not the sum
             self.assertEqual(sbx.spawns(), 2)
+            t0 = time.time()
+            gw.call("call", {"tool": "mcp__b__echo", "arguments": {"text": "y"}})
+            self.assertLess(time.time() - t0, 1.5)  # reuses the client the index started
         finally:
             gw.close()
 
@@ -1025,7 +952,7 @@ class LauncherTest(unittest.TestCase):
             env = {var: str(sbx.root / rel.split("/")[0])}
             full = sbx.env(**env)
             del full["CLAUDE_PLUGIN_DATA"]
-            res = subprocess.run([str(BIN), "hint"], input="create a GitHub issue",
+            res = subprocess.run([str(BIN), "card"], input="",
                                  capture_output=True, text=True, timeout=60,
                                  cwd=str(sbx.proj), env=full)
             self.assertEqual(res.returncode, 0, res.stderr)

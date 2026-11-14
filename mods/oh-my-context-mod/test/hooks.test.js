@@ -1,5 +1,5 @@
 // Run: node --test mods/oh-my-context-mod/test/
-// permit.js and prompt.js against temp files and a stubbed `oh-my-context hint`.
+// permit.js and prompt.js against temp files.
 const test = require('node:test');
 const { after } = test;
 const assert = require('node:assert');
@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { decide, ruleMatches, ruleFiles } = require('../hooks/permit.js');
-const { hint, SUBAGENT_HINT } = require('../hooks/prompt.js');
+const { cardFile } = require('../hooks/graph.js');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oh-my-context-hooks-'));
 after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -77,6 +77,10 @@ test('permit maps exactly the two forms the gateway runs and denies every other'
   denied({ server: 'alpha', tool: 'mcp__b__wipe' });
   denied({ server: 'unknown', tool: 'delete' });
   denied({ tool_name: 'mcp__b__x' });
+  // The gateway trims names; a padded one would be checked as another tool and run as the real one.
+  for (const tool of ['mcp__plugin_alpha_alpha__drop_db ', 'mcp__plugin_alpha_alpha__drop_db\n', ' mcp__plugin_alpha_alpha__drop_db']) denied({ tool });
+  denied({ server: 'alpha', tool: ' drop_db' });
+  denied({ server: 'alpha ', tool: 'drop_db' });
   assert.strictEqual(call({ server: 'b', tool: 'mcp__b__list' }, 'auto'), null);
   assert.strictEqual(call({ tool: 'mcp__b__list' }, 'auto'), null);
 });
@@ -119,66 +123,12 @@ test('permit.js never breaks the call path', () => {
   assert.strictEqual(run.stdout, '');
 });
 
-test('prompt hint: one line of names, each id once per context; skipped for short prompts, /commands and untyped messages', () => {
-  const stateDir = path.join(dir, 'state');
-  let fed = null;
-  const out = { skills: [{ name: 'superpowers:brainstorming', score: 3 }], tools: [{ server: 'rea', tool: 'open_binary', claude_name: 'mcp__plugin_rea-mod_rea__open_binary', score: 2 }] };
-  const run = prompt => {
-    fed = prompt;
-    return { status: 0, stdout: JSON.stringify(out) };
-  };
-  const dataDir = path.join(dir, 'data');
-  const ask = (prompt, sid = 's1') => hint({ prompt, session_id: sid }, { run, stateDir, dataDir });
-  assert.strictEqual(ask('help me plan a reverse engineering job'),
-    'Routed matches for this prompt: skills superpowers:brainstorming; tools mcp__plugin_rea-mod_rea__open_binary');
-  assert.strictEqual(fed, 'help me plan a reverse engineering job');
-  assert.strictEqual(ask('help me plan another reverse engineering job'), null, 'both ids already named in this context');
-  assert.match(ask('help me plan a reverse engineering job', 's2'), /^Routed matches/);
-  out.tools.push({ claude_name: 'mcp__plugin_rea-mod_rea__list_strings' });
-  assert.strictEqual(ask('and now list the strings of that binary'), 'Routed matches for this prompt: tools mcp__plugin_rea-mod_rea__list_strings', 'only the new id');
-  fed = null;
-  assert.strictEqual(ask('<task-notification>a subagent finished its reverse engineering job</task-notification>', 's3'), null);
-  assert.strictEqual(ask('Another Claude session sent a message:\n<agent-message from="x">report</agent-message>', 's3'), null);
-  assert.strictEqual(fed, null, 'the hint CLI is not even started');
-  assert.strictEqual(ask('short'), null);
-  assert.strictEqual(ask('/omc status please'), null);
-  // Pasted text is not what the person asks for: it never reaches the hint CLI.
-  fed = null;
-  ask('look at this report <pasted_content id="a1">pdf authentik rea 21st</pasted_content id="a1"> and tell me', 's5');
-  assert.strictEqual(fed, 'look at this report   and tell me');
-  out.tools = [];
-  assert.strictEqual(ask('a different and long enough prompt', 's4'), 'Routed matches for this prompt: skills superpowers:brainstorming');
-  out.skills = [];
-  assert.strictEqual(ask('nothing matches this long prompt'), null);
-  assert.strictEqual(hint({ prompt: 'a long enough prompt here' }, { run: () => ({ status: 3, stdout: '' }), stateDir }), null);
-  fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(path.join(dataDir, 'off'), '');
-  out.skills = [{ name: 'x' }];
-  assert.strictEqual(ask('the mod is off, so no hints at all'), null);
-});
-
 test('prompt.js exits 0 silently on bad input', () => {
   const run = spawnSync(process.execPath, [path.join(__dirname, '..', 'hooks', 'prompt.js')], {
     input: '{', encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir },
   });
   assert.strictEqual(run.status, 0);
   assert.strictEqual(run.stdout, '');
-});
-
-test('prompt hint: in hide mode ids are followed by the load_skill instruction, and only when skills match', () => {
-  const stateDir = path.join(dir, 'state-hide');
-  const out = { skills: [{ id: 'ecc:docker-patterns', name: 'ecc:docker-patterns', desc: 'x', score: 3 }, { name: 'plain' }], tools: [] };
-  let n = 0;
-  const ask = (prompt, hide = true) => hint({ prompt, session_id: `h${n++}` }, { run: () => ({ status: 0, stdout: JSON.stringify(out) }), stateDir, hide });
-  assert.strictEqual(ask('write a Dockerfile for the service'),
-    'Routed matches for this prompt: skills ecc:docker-patterns, plain\n'
-    + 'Skills are hidden from the native list: load one with load_skill(<id>) (find searches); never Read a path or use the Skill tool.');
-  assert.strictEqual(ask('write a Dockerfile for the other service', false), 'Routed matches for this prompt: skills ecc:docker-patterns, plain');
-  out.skills = [];
-  out.tools = [{ claude_name: 'mcp__x__y' }];
-  assert.strictEqual(ask('only a tool matches this long prompt'), 'Routed matches for this prompt: tools mcp__x__y');
-  out.tools = [];
-  assert.strictEqual(ask('nothing matches at all, quiet'), null);
 });
 
 // A fake <claude>/oh-my-context-mod with a state file, run through the real hook scripts.
@@ -188,23 +138,25 @@ const hook = (file, input, args = []) => spawnSync(process.execPath, [path.join(
   input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8',
   env: { PATH: process.env.PATH, HOME: home },
 });
-test('SubagentStart hook: the saved card, plus the load_skill line in hide mode', () => {
-  assert.strictEqual(hook('prompt.js', { agent_id: 'a', agent_type: 'Explore' }, ['subagent']).stdout, '', 'no state: off');
-  w(path.join(modState, 'state.json'), { hide: false });
-  assert.strictEqual(hook('prompt.js', {}, ['subagent']).stdout, '');
-  w(path.join(modState, 'state.json'), { hide: true });
-  const r = hook('prompt.js', { agent_id: 'a', agent_type: 'Explore' }, ['subagent']);
-  assert.strictEqual(r.status, 0, r.stderr);
-  assert.deepStrictEqual(JSON.parse(r.stdout), { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: SUBAGENT_HINT } });
-  assert.match(SUBAGENT_HINT, /find tool.*load_skill.*never Read a path or use the Skill tool/);
-  fs.writeFileSync(path.join(modState, 'card.txt'), 'Behind the oh-my-context gateway: x\n');
-  assert.strictEqual(JSON.parse(hook('prompt.js', {}, ['subagent']).stdout).hookSpecificOutput.additionalContext, `Behind the oh-my-context gateway: x\n${SUBAGENT_HINT}`);
-  w(path.join(modState, 'state.json'), { hide: false });
-  assert.strictEqual(JSON.parse(hook('prompt.js', {}, ['subagent']).stdout).hookSpecificOutput.additionalContext, 'Behind the oh-my-context gateway: x');
+test('SubagentStart hook: the card saved for the project, and nothing while the mod is off', () => {
+  const proj = path.join(dir, 'proj');
+  const env = { PATH: process.env.PATH, HOME: home };
+  const sub = (input, extra = {}) => spawnSync(process.execPath, [path.join(__dirname, '..', 'hooks', 'prompt.js'), 'subagent'], {
+    input: JSON.stringify(input), encoding: 'utf8', env: { ...env, ...extra },
+  });
+  assert.strictEqual(sub({ agent_id: 'a', agent_type: 'Explore', cwd: proj }).stdout, '', 'no card saved yet');
+  const p = { state: modState };
+  fs.mkdirSync(path.dirname(cardFile(p, proj)), { recursive: true });
+  fs.writeFileSync(cardFile(p, proj), 'Behind the oh-my-context gateway: x\n');
+  fs.writeFileSync(cardFile(p, path.join(dir, 'other')), 'the card of another project\n');
+  const out = r => JSON.parse(r.stdout).hookSpecificOutput;
+  assert.deepStrictEqual(out(sub({ cwd: proj })), { hookEventName: 'SubagentStart', additionalContext: 'Behind the oh-my-context gateway: x' });
+  // A subagent in a worktree, or after a cd, still belongs to the session's project.
+  assert.strictEqual(out(sub({ cwd: path.join(proj, '.claude', 'worktrees', 'a') }, { CLAUDE_PROJECT_DIR: proj })).additionalContext, 'Behind the oh-my-context gateway: x');
   const data = path.join(home, '.claude', 'plugins', 'data', 'oh-my-context-mod-claude-code-linux');
   fs.mkdirSync(data, { recursive: true });
   fs.writeFileSync(path.join(data, 'off'), '');
-  assert.strictEqual(hook('prompt.js', {}, ['subagent']).stdout, '', 'mod off: nothing is routed, so no card');
+  assert.strictEqual(sub({ cwd: proj }).stdout, '', 'mod off: nothing is routed, so no card');
   fs.rmSync(path.join(data, 'off'));
 });
 

@@ -35,6 +35,8 @@ function originalName(toolInput, servers) {
   const tool = str('tool');
   const server = str('server');
   if (!tool || str('name')) return null;
+  // The gateway trims both; a padded name would be checked here as another tool (delete_file_) and run as the real one.
+  if (tool !== tool.trim() || server !== server.trim()) return null;
   const e = server ? servers && servers[server] : null;
   if (server && !(e && e.claude_prefix)) return null;
   // Normalized as Claude names tools, so a rule for mcp__fs__files_delete matches `files.delete`.
