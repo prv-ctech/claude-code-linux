@@ -19,11 +19,12 @@
 // nothing the person set themselves. A server that would break behind the gateway stays direct.
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const R = require('./restore.js');
 
 const { ME, paths, sha, readText, readConfig, writeFileAtomic, writeJson, withLock, loadState, saveState } = R;
 const G = require('./graph.js');
+const M = require('./memory.js');
 const root = path.resolve(__dirname, '..');
 const ROUTED = 'description: routed';
 const NAME_ONLY = 'name-only';
@@ -32,6 +33,8 @@ const DMI = 'disable-model-invocation: true';
 const GATEWAY = 'the gateway itself';
 // The code graph server the mod runs itself, behind the gateway (bin/codebase-memory-mcp).
 const GRAPH = 'codebase-memory-mcp';
+// The session memory server the mod runs itself, behind the gateway (bin/deja mcp).
+const MEMORY = 'deja';
 const CONFIG_CHANGE = 'user_settings|project_settings|local_settings';
 
 function readJson(file, fallback) {
@@ -318,10 +321,13 @@ function collectServers(p, cwd, plugins, cj, env) {
   const theirs = [...user, ...loc, ...project, ...fromPlugins];
   // Built in, under the tool names it had as codebase-memory-mod's server, so permission rules written
   // for those still match. Left out while any other entry runs that server (the older plugin, still on).
-  const builtin = theirs.some(s => s.server === GRAPH) ? [] : [{
-    key: `builtin:${GRAPH}`, server: GRAPH, plugin: null, cfg: { command: path.join(root, 'bin', GRAPH), args: [] },
-    vars: {}, pluginEnv: {}, scope: null, here: true, prefix: G.PREFIX, names: [GRAPH], builtin: true,
-  }];
+  // The memory is built in the same way, under the names it had as the deja-vu plugin's server.
+  const builtin = [[GRAPH, [], G.PREFIX], [MEMORY, ['mcp'], M.PREFIX]]
+    .filter(([server]) => !theirs.some(s => s.server === server))
+    .map(([server, args, prefix]) => ({
+      key: `builtin:${server}`, server, plugin: null, cfg: { command: path.join(root, 'bin', server), args },
+      vars: {}, pluginEnv: {}, scope: null, here: true, prefix, names: [server], builtin: true,
+    }));
   return [...theirs, ...builtin].map(s => ({ ...s, env }));
 }
 
@@ -622,7 +628,9 @@ function applyLocked(p, cwd, env, run) {
   }
   const stale = Object.entries(state.servers).filter(([n, r]) => inScope(r.cwd, cwd) && !wanted.has(n)).map(([n]) => n);
   // hooks/graph.js works only while the mod runs the graph server itself.
-  state.graph = servers.some(s => s.builtin && s.forward);
+  state.graph = servers.some(s => s.builtin && s.name === GRAPH && s.forward);
+  // hooks/memory.js works only while the mod runs the memory server itself.
+  state.memory = servers.some(s => s.builtin && s.name === MEMORY && s.forward);
   save();
   // A global entry is not served in a project where Claude would not start it: its plugin is off
   // there, or a local-scope or project server of the same tool prefix takes its place.
@@ -926,6 +934,19 @@ function card(p, run, cwd) {
   }
 }
 
+// Claude Code runs nothing when a plugin is installed, so the first session start is the install step:
+// each built-in server's wrapper is started in the background, where it downloads its pinned release
+// (no hook time limit) and exits. With the binary in place the wrapper only prints its version.
+function fetchBuiltins(p, start = spawn, root = path.join(__dirname, '..')) {
+  const names = [G.graphOn(p) && GRAPH, M.memoryOn(p) && MEMORY].filter(Boolean);
+  for (const name of names) {
+    const child = start(path.join(root, 'bin', name), ['--version'], { detached: true, stdio: 'ignore' });
+    child.on('error', () => {}); // a wrapper that cannot start is reported when the server is first used
+    child.unref();
+  }
+  return names;
+}
+
 // The SessionStart hook: apply (or put everything back when the CLI cannot run).
 const OFF_LINE = 'oh-my-context-mod: off; every MCP server and skill loads directly. /omc on routes them again.';
 
@@ -947,7 +968,7 @@ function session(p, cwd, env, run, startIndex = G.startIndex) {
     const r = applyLocked(p, cwd, env, run);
     // First index of a git workspace starts here, in the background.
     const graph = r.state.graph ? G.line(cwd, !fs.existsSync(path.join(cwd, '.codebase-memory', 'graph.db.zst')) && startIndex(cwd)) : '';
-    return { additionalContext: [card(p, run, cwd), graph, sessionContext(r)].filter(Boolean).join('\n\n'), ...(r.filesChanged && { reloadSkills: true }) };
+    return { additionalContext: [card(p, run, cwd), graph, r.state.memory ? M.LINE : '', sessionContext(r)].filter(Boolean).join('\n\n'), ...(r.filesChanged && { reloadSkills: true }) };
   });
   dropEmptyState(p);
   return out;
@@ -994,6 +1015,11 @@ function main() {
       out = { additionalContext: [saved, `oh-my-context-mod: ${e.message}`].filter(Boolean).join('\n\n') };
     }
     if (out) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', ...out } }));
+    try {
+      fetchBuiltins(p);
+    } catch (e) {
+      /* the wrappers fetch on first use anyway */
+    }
     return;
   }
   if (mode === 'status') return console.log(status(p, process.cwd(), env, runGateway));
@@ -1026,6 +1052,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  paths, resolve, plan, routeSkill, withName, hideSpec, swap, apply, session,
+  paths, resolve, plan, routeSkill, withName, hideSpec, swap, apply, session, fetchBuiltins,
   fullRestore, status, collectServers, enabledPlugins, skillPlan, isGateway, touchEpoch, oauthServers,
 };

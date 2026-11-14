@@ -88,6 +88,13 @@ class CardOutput(unittest.TestCase):
             os.chdir(old)
         self.assertEqual(session_log.used(proj), ({"gh": ["list_commits", "create_issue"]}, ["ecc:docker-patterns"]))
 
+    def test_a_server_that_failed_to_start_says_why(self):
+        self.TOOLS = [{"error": "MCP server process exited.\nstderr: deja binary not found"}]
+        self.assertIn("- mcp__plugin_authentik-mod_authentik__* (failed to start: MCP server process exited. "
+                      "stderr: deja binary not found)", self.card().split("\n"))
+        self.TOOLS = None
+        self.assertIn("(tools not listed yet)", self.card())
+
     def test_empty_catalog_prints_nothing_and_a_huge_one_stays_under_the_cap(self):
         from oh_my_context import card
         self.assertEqual(self.card(index={}, servers={}), "")
@@ -103,6 +110,26 @@ class CardOutput(unittest.TestCase):
         ]}
         text = self.card(index=index, servers={})
         self.assertEqual(text.split("\n")[1:], ["Skills (id is plugin:name):", "- ok: name"])
+
+
+class FindRanking(unittest.TestCase):
+    INDEX = {"skills": [
+        {"slug": "logtape", "desc": "LogTape, the zero-dependency structured logging library for Deno, Node.js, Bun."},
+        {"slug": "pino", "desc": "Pino, the fast JSON logger for Node.js: child loggers, levels, transports, logs."},
+        {"slug": "pdf", "desc": "Use this skill whenever the user wants to do anything with PDF files."},
+    ]}
+
+    def find(self, task):
+        from oh_my_context.native_tools import _find
+        with mock.patch("oh_my_context.skills.ensure_index"), \
+                mock.patch("oh_my_context.skills.load_index", return_value=self.INDEX), \
+                mock.patch("oh_my_context.hint.tool_catalog", return_value=([], {}, {})):
+            return [s["id"] for s in _find({"task": task}, {})["skills"]]
+
+    def test_a_close_second_skill_is_kept_and_nonsense_finds_nothing(self):
+        # "node" must reach "Node.js" and "logging" must reach "logger".
+        self.assertEqual(self.find("structured logging for node"), ["logtape", "pino"])
+        self.assertEqual(self.find("zzqx nonsense qwv"), [])
 
 
 if __name__ == "__main__":

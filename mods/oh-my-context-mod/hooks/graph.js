@@ -81,11 +81,22 @@ function codeSearches(command, root, home = os.homedir(), cwd = root) {
     .replace(/<<-?\s*(['"]?)([A-Za-z_]\w*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2(?=\n|$)/g, m => hold(m))
     .replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, m => hold(m.slice(1, -1)));
   const found = [];
+  const unhold = w => w.replace(/\u0000(\d+)\u0000/g, (_, i) => held[i]);
+  // A variable set in the same call (D=/abs/dir; grep x $D/a.py) stands for its value.
+  const vars = {};
+  for (const a of bare.matchAll(/(?:^|[;&|\n(\s])([A-Za-z_]\w*)=(\S+)/g)) vars[a[1]] = unhold(a[2].replace(/[;&|)]+$/, ''));
+  const expand = w => w.replace(/^\$(?:\{(\w+)\}|(\w+))/, (all, a, b) => (vars[a || b] !== undefined ? vars[a || b] : all));
+  const start = cwd;
   // m: a command on a later line of the same call starts a line too.
   const re = new RegExp(CODE_SEARCH.source, 'gm');
   for (let m; (m = re.exec(bare));) {
+    // A `cd` earlier in the same call moves the search: relative paths are read from there.
+    cwd = start;
+    for (const c of bare.slice(0, m.index).matchAll(/(?:^|[;&|\n(]\s*)cd\s+(\S+)/g)) {
+      cwd = path.resolve(cwd, expand(unhold(c[1])).replace(/^(~|\$HOME)(?=\/|$)/, home));
+    }
     const rest = bare.slice(m.index + m[0].length).split(/[;&|\n)]/)[0];
-    const words = rest.split(/\s+/).filter(Boolean).map(w => w.replace(/\u0000(\d+)\u0000/g, (_, i) => held[i]));
+    const words = rest.split(/\s+/).filter(Boolean).map(unhold).map(expand);
     // A path is an absolute or home word, or a relative word that exists (src, ., ../logs). A relative
     // word that names nothing is the pattern; one that happens to name a file counts as a path, which
     // errs toward the gate.
@@ -149,6 +160,14 @@ function startIndex(cwd) {
   return true;
 }
 
+// The graph's project name, as the indexer wrote it next to the graph; '' when absent or not a plain name.
+function projectName(cwd) {
+  try {
+    const name = JSON.parse(fs.readFileSync(path.join(cwd, '.codebase-memory', 'artifact.json'), 'utf8')).project;
+    return typeof name === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name) ? name : '';
+  } catch { return ''; }
+}
+
 // What a new context is told about the graph in `cwd`, or '' when there is nothing to act on.
 function line(cwd, started = false) {
   if (!indexed(cwd)) {
@@ -156,7 +175,8 @@ function line(cwd, started = false) {
   }
   return `Code graph: this workspace is indexed (.codebase-memory/graph.db.zst). Code discovery goes through ${VIA}: `
     + 'search_graph (symbol by name; resolve exact names here first), trace_path (callers, callees), get_code_snippet (source of a symbol), '
-    + 'get_file_outline, search_code (literal text), query_graph (multi-hop), get_architecture, detect_changes; `project` comes from list_projects. '
+    + 'get_file_outline, search_code (literal text), query_graph (multi-hop), get_architecture, detect_changes; '
+    + (projectName(cwd) ? `\`project\` here is ${projectName(cwd)} (list_projects for others). ` : '`project` comes from list_projects. ')
     + 'Grep, Glob and shell grep, rg or find on code are blocked by a hook; Read opens a path already known. '
     + 'Before deleting, renaming or changing the signature of a function: trace_path inbound and search_code for its name (the graph can miss dynamic callers). '
     + 'Before a claim that nothing uses a symbol, run check_index_coverage. A tool error is reported to the user, not worked around with grep. '

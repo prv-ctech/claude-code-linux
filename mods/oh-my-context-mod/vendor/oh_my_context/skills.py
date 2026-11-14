@@ -569,6 +569,15 @@ def ensure_index() -> bool:
 # Retrieval (BM25, zero dependency)
 # ═══════════════════════════════════════════════════
 
+def _stem(word: str) -> str:
+    """oh-my-context-mod: logging, logger, loggers and logs all rank as "log"."""
+    if word.isalpha():
+        for suffix in ("ging", "ers", "ing", "er", "s"):
+            if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+                return word[:-len(suffix)]
+    return word
+
+
 def _tokenize(text: str) -> list[str]:
     """ASCII words plus CJK unigrams and bigrams.
 
@@ -577,6 +586,9 @@ def _tokenize(text: str) -> list[str]:
     """
     text = (text or "").lower()
     out = re.findall(r"[a-z0-9][a-z0-9_\-\.]*", text)
+    # oh-my-context-mod: "node.js" and "pino-http" also count as their parts, so "node" finds them.
+    out += [p for w in out if re.search(r"[_\-\.]", w) for p in re.split(r"[_\-\.]+", w) if p]
+    out = [_stem(w) for w in out]
     cjk = re.findall(r"[\u4e00-\u9fff]", text)
     out += cjk
     out += [cjk[i] + cjk[i + 1] for i in range(len(cjk) - 1)]

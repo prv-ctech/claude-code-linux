@@ -294,6 +294,7 @@ class GatewayTest(unittest.TestCase):
                                               "arguments": {"text": "one"}})
         self.assertFalse(first["isError"], first)
         self.assertIn("FAKE-INSTRUCTIONS", first["content"][0]["text"])
+        self.assertIn("'fake', shown once per context]", first["content"][0]["text"])
         self.assertIn("echo:one", _text(first))
         # Claude Code shows structuredContent over content; a stub there would hide the result.
         self.assertNotIn("structuredContent", first)
@@ -329,6 +330,10 @@ class GatewayTest(unittest.TestCase):
                                             "arguments": {"text": "x"}})
         self.assertTrue(res["isError"])
         self.assertIn("Unknown server 'nope'", _text(res))
+        for args in ({"server": "fake", "tool": "nope"}, {"tool": "mcp__fake__nope"}):
+            res = self.gw.call("call", {**args, "arguments": {}})
+            self.assertTrue(res["isError"], args)
+            self.assertIn("Tool 'nope' not found on routed server 'fake'. Call find", _text(res), args)
         tools = self.gw.request("tools/list")["result"]["tools"]
         schema = next(t for t in tools if t["name"] == "call")["inputSchema"]
         self.assertNotIn("name", schema["properties"])
@@ -975,3 +980,20 @@ def tearDownModule():
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FailedStartCacheTest(unittest.TestCase):
+    def test_a_cached_failure_is_fetched_again_and_a_real_list_is_not(self):
+        from unittest import mock
+        from oh_my_context import serve
+        bridge = object.__new__(serve.MCPServerBridge)
+        bridge._servers = {"down": {}, "up": {}, "empty": {}}
+        bridge._tool_index = {}
+        bridge._tool_index_lock = threading.Lock()
+        cached = {"down": [{"error": "binary not found"}], "up": [{"name": "t", "inputSchema": {}}], "empty": []}
+        fetched = []
+        with mock.patch("oh_my_context.cache.get_cached_tools", side_effect=cached.get), \
+                mock.patch.object(bridge, "_refresh_servers_in_parallel", side_effect=fetched.extend):
+            bridge._build_tool_index()
+        self.assertEqual(fetched, ["down"])
+        self.assertEqual([v["tool"] for v in bridge._tool_index.values()], ["t"])

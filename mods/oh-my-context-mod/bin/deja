@@ -1,0 +1,60 @@
+#!/bin/sh
+# deja (deja-vu, memory of past agent sessions), as oh-my-context-mod runs it: behind the gateway
+# (`deja mcp`) and from hooks/memory.js. The binary is not in the image. At the first session start (hooks/sync.js fetchBuiltins), or on first use, this wrapper
+# downloads the pinned release archive into ${CLAUDE_PLUGIN_DATA}, checks its SHA256 and member
+# list, installs it, and then runs it. Updating the plugin changes VERSION and the checksums here,
+# so the next start fetches the new build. Old builds are left alone.
+#
+# stdout is the MCP stdio channel and the hook output, so every message here goes to stderr.
+set -eu
+
+VERSION=0.24.2
+SHA256_AMD64=642552f430d0962bce5504f22a98add1184968c7a83a933ea24b6830ebaf7948
+SHA256_ARM64=458012444109eec02e7bfb86ae491a04623e09cd30069db64553265c8e996be4
+
+if [ "$(uname -s)" != Linux ]; then
+	echo "deja: this plugin installs the Linux build only" >&2
+	exit 1
+fi
+case "$(uname -m)" in
+	x86_64 | amd64) arch=amd64; sha256=${SHA256_AMD64} ;;
+	aarch64 | arm64) arch=arm64; sha256=${SHA256_ARM64} ;;
+	*) echo "deja: unsupported architecture $(uname -m)" >&2; exit 1 ;;
+esac
+
+# Claude sets CLAUDE_PLUGIN_DATA to <plugin id> under ~/.claude/plugins/data; the default is the same path.
+claude="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+data="${CLAUDE_PLUGIN_DATA:-${CLAUDE_CODE_PLUGIN_CACHE_DIR:-${claude}/plugins}/data/oh-my-context-mod-claude-code-linux}"
+bin="${data}/deja-${VERSION}/deja"
+
+if [ ! -x "${bin}" ]; then
+	mkdir -p "${data}"
+	tmp="$(mktemp -d "${data}/install.XXXXXX")"
+	trap 'rm -rf "${tmp}"' EXIT
+	url="https://github.com/vshulcz/deja-vu/releases/download/v${VERSION}/deja-vu_${VERSION}_linux_${arch}.tar.gz"
+	echo "deja: downloading ${VERSION} (${arch}) from the release" >&2
+	curl -fsSL --retry 3 --retry-all-errors -o "${tmp}/archive.tar.gz" "${url}"
+	printf '%s  %s\n' "${sha256}" "${tmp}/archive.tar.gz" > "${tmp}/SHA256SUMS"
+	if ! sha256sum -c "${tmp}/SHA256SUMS" >&2; then
+		echo "deja: SHA256 does not match the pin for ${VERSION} ${arch}; not installed" >&2
+		exit 1
+	fi
+	tar -tzf "${tmp}/archive.tar.gz" > "${tmp}/members"
+	members="$(LC_ALL=C sort "${tmp}/members" | tr '\n' ' ')"
+	if [ "${members}" != "GEMINI.md LICENSE README.md deja gemini-extension.json skills/deja-search/SKILL.md " ]; then
+		echo "deja: archive holds unexpected members: ${members}; not installed" >&2
+		exit 1
+	fi
+	tar --no-same-owner -xzf "${tmp}/archive.tar.gz" -C "${tmp}" deja
+	mkdir -p "$(dirname "${bin}")"
+	chmod 755 "${tmp}/deja"
+	mv -f "${tmp}/deja" "${bin}"
+	rm -rf "${tmp}"
+	trap - EXIT
+fi
+
+# The pin is the version: no release check, and no self-update.
+DEJA_OFFLINE=1
+export DEJA_OFFLINE
+
+exec "${bin}" "$@"

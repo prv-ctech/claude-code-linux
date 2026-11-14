@@ -237,7 +237,9 @@ class MCPServerBridge:
                 tools = cache_mod.get_cached_tools(server_name)
             except Exception:
                 tools = None
-            if tools is not None:
+            # A list that holds only the reason of a failed start is no list: fetch it again,
+            # the server may start now (its binary was still downloading the first time).
+            if tools is not None and not _only_errors(tools):
                 cached_manifest[server_name] = tools
 
         # Step 2: Find which servers need live fetch
@@ -300,6 +302,15 @@ class MCPServerBridge:
                 _log(f"  [{srv}] fetch failed: {e}")
                 with self._tool_index_lock:
                     self._server_fetch_errors[srv] = str(e)[:200]
+                # oh-my-context-mod: a server never listed keeps its reason on disk, so the
+                # card says why instead of "tools not listed yet". A good older list stays.
+                try:
+                    from . import cache as cache_mod
+                    old = cache_mod.get_cached_tools_any_age(srv)
+                    if old is None or _only_errors(old):
+                        cache_mod.set_cached_tools(srv, [{"error": str(e)[:200]}])
+                except Exception:
+                    pass
                 return srv, []
 
         executor = concurrent.futures.ThreadPoolExecutor(
@@ -742,11 +753,22 @@ class MCPServerBridge:
                 return _make_tool_error(
                     f"`server` '{server}' does not match '{tool}', which belongs to the "
                     f"routed server '{a_server}'. Omit `server` or pass the matching one.")
-            return (a_server, a_tool)
+            return self._known_tool(a_server, a_tool)
         if server not in servers:
             return _make_tool_error(
                 f"Unknown server '{server}'. Routed servers: "
                 f"{', '.join(sorted(servers)) or 'none'}. " + _CALL_FORMS)
+        return self._known_tool(server, tool)
+
+    def _known_tool(self, server: str, tool: str):
+        """oh-my-context-mod: refuse a tool the server's indexed list lacks, naming the server
+        and find. A server not indexed yet still answers for itself."""
+        with self._tool_index_lock:
+            known = {i.get("tool") for i in self._tool_index.values() if i.get("server") == server}
+        if known and tool not in known:
+            return _make_tool_error(
+                f"Tool '{tool}' not found on routed server '{server}'. "
+                f"Call find with the task to get the right tool name.")
         return (server, tool)
 
     # ── oh-my-context-mod: routed servers' prompts and resources ──
@@ -1050,7 +1072,7 @@ class MCPServerBridge:
                 instructions = self._take_instructions(server)
                 if instructions:
                     result["content"] = [{"type": "text", "text": (
-                        f"[Instructions from MCP server '{server}', shown once]\n"
+                        f"[Instructions from MCP server '{server}', shown once per context]\n"
                         f"{instructions}")}] + result["content"]
 
             return result
@@ -1155,6 +1177,11 @@ class MCPServerBridge:
 # ═══════════════════════════════════════════════════
 # JSON-RPC helpers
 # ═══════════════════════════════════════════════════
+
+def _only_errors(tools) -> bool:
+    """True for a cached list that holds nothing but the reason a server failed to start."""
+    return bool(tools) and all(isinstance(t, dict) and "error" in t for t in tools)
+
 
 def _make_success(req_id, result: dict) -> dict:
     return {
