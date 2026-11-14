@@ -964,6 +964,11 @@ def _load_skill(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform
         return {"_text": str(exc), "_error": True}
     except Exception as exc:  # never a traceback to the model
         return {"_text": f"load_skill failed: {type(exc).__name__}", "_error": True}
+    if not _as_str(arguments.get("file")):
+        # oh-my-context-mod: the card lists what a project really uses first.
+        from . import session_log
+
+        session_log.record(session_log.SKILL, _as_str(arguments.get("id")), None)
     return {"_text": text, "_error": False}
 
 

@@ -15,15 +15,17 @@
 
 """oh-my-context card — what is behind the gateway, as one block of text.
 
-    oh-my-context card
+    oh-my-context card [--cwd <project dir>]
 
 A hook adds this text once to each new context (session start, /clear, compaction,
 a subagent), so the model knows which routed tools and skills exist without a
 reminder on every turn. Read-only and offline, like `hint`: skills come from the
 skills index, tools from the cached manifests. Prints nothing when both are empty.
 
-The text is the same for the same catalog (sorted, no dates, no counts that move),
-so it does not break the prompt cache between sessions.
+What the project named by --cwd (default: the working directory) has really called
+comes first: a server line ends with the tools used there, and skills it has loaded
+lead the list (from the per-project session log, most used first). The text has no
+dates and no counts, so it changes only when the catalog or the order of use does.
 """
 
 from __future__ import annotations
@@ -55,7 +57,10 @@ def _gloss(desc) -> str:
     return text if len(text) <= _GLOSS else text[:_GLOSS - 1].rstrip() + "…"
 
 
-def _server_lines() -> list:
+_USED_TOOLS = 4
+
+
+def _server_lines(used: dict) -> list:
     from . import cache as cache_mod
     from .config import load_config
 
@@ -70,49 +75,57 @@ def _server_lines() -> list:
                         if len(w) > 2 and w not in skip)
         # Most common first, then by name, so the line is the same on every run.
         top = [w for w, _ in sorted(words.items(), key=lambda p: (-p[1], p[0]))[:_WORDS]]
-        lines.append(f"- {name}__* ({len(tools)} tools): {', '.join(top)}" if tools
-                     else f"- {name}__* (tools not listed yet; see manifest)")
+        line = (f"- {name}__* ({len(tools)} tools): {', '.join(top)}" if tools
+                else f"- {name}__* (tools not listed yet; see manifest)")
+        mine = (used.get(server) or [])[:_USED_TOOLS]
+        lines.append(line + (f"; used here: {', '.join(mine)}" if mine else ""))
     return lines
 
 
-def _skills() -> list:
+def _skills(used: list) -> tuple:
+    """([(id, gloss)] this project has loaded, most used first; the rest, sorted)."""
     from .hint import synced_twin
     from .skills import load_index
 
     skills = [s for s in (load_index() or {}).get("skills", []) if s.get("slug") and not s.get("alias_of")]
     slugs = {s["slug"].lower() for s in skills}
-    return sorted((s["slug"], _gloss(s.get("desc"))) for s in skills if not synced_twin(s["slug"], slugs))
+    rows = {s["slug"]: _gloss(s.get("desc")) for s in skills if not synced_twin(s["slug"], slugs)}
+    first = [(slug, rows[slug]) for slug in used if slug in rows]
+    taken = {slug for slug, _ in first}
+    return first, sorted((slug, gloss) for slug, gloss in rows.items() if slug not in taken)
 
 
-def build_card() -> str:
-    servers, skills = [], []
+def build_card(cwd: str | None = None) -> str:
+    """cwd: the project whose own use puts tools and skills first (default: the working directory)."""
+    from . import session_log
+
+    servers, first, rest = [], [], []
+    used_tools, used_skills = session_log.used(cwd)
     # Each half fails on its own, like hint: a broken cache must not hide the skills.
     try:
-        servers = _server_lines()
+        servers = _server_lines(used_tools)
     except Exception:  # noqa: BLE001
         pass
     try:
-        skills = _skills()
+        first, rest = _skills(used_skills)
     except Exception:  # noqa: BLE001
         pass
-    if not servers and not skills:
+    if not servers and not first and not rest:
         return ""
-    out = [HEAD]
-    if servers:
-        out += ["MCP servers:"] + servers
-    if skills:
-        out += ["Skills:"] + [f"- {slug}: {gloss}" if gloss else f"- {slug}" for slug, gloss in skills]
+    head = [HEAD] + (["MCP servers:"] + servers if servers else [])
+    line = lambda slug, gloss: f"- {slug}: {gloss}" if gloss else f"- {slug}"  # noqa: E731
+    mine = (["Skills used in this project:"] + [line(*s) for s in first]) if first else []
+    out = head + mine + ((["Other skills:" if first else "Skills:"] + [line(*s) for s in rest]) if rest else [])
     text = "\n".join(out)
     if len(text) > _MAX:
-        # shortcut: a huge catalog drops the glosses, then the tail; rank by use before this bites.
-        out = [HEAD] + (["MCP servers:"] + servers if servers else []) + [
-            "Skills: " + ", ".join(slug for slug, _ in skills)]
+        # A huge catalog keeps the glosses of what this project uses and lists the rest by id.
+        out = head + mine + [("Other skills: " if first else "Skills: ") + ", ".join(slug for slug, _ in rest)]
         text = "\n".join(out)[:_MAX]
     return text
 
 
 def run_card(args: list) -> int:
-    text = build_card()
+    text = build_card(args[1] if args[:1] == ["--cwd"] and len(args) == 2 else None)
     if text:
         print(text)
     return 0

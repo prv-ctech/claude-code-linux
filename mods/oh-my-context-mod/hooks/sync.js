@@ -886,10 +886,10 @@ function status(p, cwd, env, run) {
 
 // What is behind the gateway, for a context that has not seen it. Saved for the SubagentStart hook,
 // which must answer in milliseconds and so reads the file instead of starting Python.
-function card(p, run) {
+function card(p, run, cwd) {
   const file = path.join(p.state, 'card.txt');
   try {
-    const r = run(['card']);
+    const r = run(['card', '--cwd', cwd]);
     if (r.status !== 0) return '';
     const text = String(r.stdout).trim();
     writeFileAtomic(file, text, 0o600, false);
@@ -920,7 +920,7 @@ function session(p, cwd, env, run, startIndex = G.startIndex) {
     const r = applyLocked(p, cwd, env, run);
     // First index of a git workspace starts here, in the background.
     const graph = r.state.graph ? G.line(cwd, !fs.existsSync(path.join(cwd, '.codebase-memory', 'graph.db.zst')) && startIndex(cwd)) : '';
-    return { additionalContext: [card(p, run), graph, sessionContext(r)].filter(Boolean).join('\n\n'), ...(r.filesChanged && { reloadSkills: true }) };
+    return { additionalContext: [card(p, run, cwd), graph, sessionContext(r)].filter(Boolean).join('\n\n'), ...(r.filesChanged && { reloadSkills: true }) };
   });
   dropEmptyState(p);
   return out;
