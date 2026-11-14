@@ -135,7 +135,8 @@ function line(cwd, started = false) {
     + 'search_graph (symbol by name; resolve exact names here first), trace_path (callers, callees), get_code_snippet (source of a symbol), '
     + 'get_file_outline, search_code (literal text), query_graph (multi-hop), get_architecture, detect_changes; `project` comes from list_projects. '
     + 'Grep, Glob and shell grep, rg or find on code are blocked by a hook; Read opens a path already known. '
-    + 'Before a claim that nothing uses a symbol, run check_index_coverage. A tool error is reported to the user, not worked around with grep. '
+    + 'Before deleting, renaming or changing the signature of a function: trace_path inbound and search_code for its name (the graph can miss dynamic callers). '
+    + 'Before a claim that nothing uses a symbol, run check_index_coverage.A tool error is reported to the user, not worked around with grep. '
     + 'After a large pull, branch switch or rebase: index_repository (repo_path absolute, persistence: true). .codebase-memory/ is not committed unless asked.';
 }
 
