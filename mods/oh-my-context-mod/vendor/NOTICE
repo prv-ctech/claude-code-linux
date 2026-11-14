@@ -82,6 +82,8 @@ the HTTP MCP servers the gateway routes.
                                  <dir> (see above).
   oh_my_context/card.py          added: `oh-my-context card`, read-only text of what
                                  is behind the gateway, for a new context.
+  oh_my_context/native_tools.py  added: the `find` tool (routed tools and skills for a
+                                 task, the first tool with its parameters).
   oh_my_context/hint.py          added: `oh-my-context hint`, read-only skill and
                                  tool hints for a prompt.
   oh_my_context/config.py        reads only OMC_CONFIG_FILE (written by

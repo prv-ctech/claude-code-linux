@@ -82,6 +82,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Grep|Glob|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/graph.js\" gate",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }

@@ -7,6 +7,8 @@ description: Use the codebase-memory code graph for structural questions: where 
 
 The codebase-memory MCP server keeps a graph of the workspace: functions, classes, imports, routes and the edges between them. Graph answers are short and precise. Grep over a whole repo is not.
 
+The server runs behind the oh-my-context gateway. Run each tool below with the gateway's `call` tool: `tool` is `mcp__plugin_codebase-memory-mod_codebase-memory-mcp__<name>` and `arguments` holds the parameters shown.
+
 ## Pick the tool
 
 | Question | Call |

@@ -84,10 +84,10 @@ When a request names a source (Mobbin, 21st, an artifact link, a URL, an MCP), t
 - The only settings it edits: the project's git-ignored `.claude/settings.local.json`.
 - oma agents can start only oma subagents, so the guard covers everything they run.
 
-## With codebase-memory-mod
+## With the code graph
 
-- oma detects codebase-memory-mod plus a `.codebase-memory/` graph in the folder, and tells its agents (SubagentStart hook) to search code with the graph tools there.
-- The `.env` rule covers the graph tools too: `file_pattern`, `path_filter` and `file_path` may not target env files.
+- oma detects the code graph (run by oh-my-context-mod, or by the older codebase-memory-mod) plus a `.codebase-memory/` graph in the folder, and tells its agents (SubagentStart hook) to search code with the graph tools there: through oh-my-context's `call` tool, or directly while codebase-memory-mod is still enabled.
+- The `.env` rule covers the graph tools too, called directly or through oh-my-context's `call`: `file_pattern`, `path_filter` and `file_path` may not target env files.
 - Where there is no graph, or the plugin is off, oma leaves Grep, Glob and grep alone.
 - When the main checkout has an untracked `.codebase-memory/`, init lists it in `.worktreeinclude` and `.gitignore`, so every worktree gets a copy; worktree agents index their own worktree as their own project (`index_repository`, `persistence: true`). A graph git already tracks is left alone.
 - The SubagentStart hook also copies the main checkout's `.codebase-memory/` into a worktree that lacks one, so no `oma start` is needed after a plugin upgrade.

@@ -156,10 +156,12 @@ export function onSession(p, input) {
   return lines.join('\n') || null;
 }
 
-// --- codebase-memory-mod compatibility -----------------------------------------------------------------
+// --- code graph compatibility --------------------------------------------------------------------------
 
-// Mirrors mods/codebase-memory-mod/hooks/gate.js: same graph file, same escape file, folder as given.
-// codebase-memory-mod counts as enabled when the last settings file with a codebase-memory-mod@* key sets it true.
+// Mirrors mods/oh-my-context-mod/hooks/graph.js: same graph file, same escape file, folder as given.
+// The graph is run by oh-my-context-mod (its tools go through the gateway's call tool) or by the older
+// codebase-memory-mod (its tools are Claude's own). Each counts as enabled when the last settings file
+// with its <name>@* key sets it true; `routed` says the tools are behind the gateway.
 export function codeGraph(dir, { env = process.env, home = os.homedir() } = {}) {
   const abs = path.resolve(dir);
   const files = [
@@ -167,18 +169,22 @@ export function codeGraph(dir, { env = process.env, home = os.homedir() } = {}) 
     path.join(abs, '.claude', 'settings.json'),
     path.join(abs, '.claude', 'settings.local.json'),
   ];
-  let enabled = false;
+  const on = { 'codebase-memory-mod': false, 'oh-my-context-mod': false };
   for (const f of files) {
     const plugins = (readJson(f, null) || {}).enabledPlugins;
-    const key = plugins && typeof plugins === 'object' ? Object.keys(plugins).find(k => k.startsWith('codebase-memory-mod@')) : undefined;
-    if (key !== undefined) enabled = plugins[key] === true;
+    for (const name of Object.keys(on)) {
+      const key = plugins && typeof plugins === 'object' ? Object.keys(plugins).find(k => k.startsWith(`${name}@`)) : undefined;
+      if (key !== undefined) on[name] = plugins[key] === true;
+    }
   }
+  const enabled = on['codebase-memory-mod'] || on['oh-my-context-mod'];
   let reason = 'on';
   if (!enabled) reason = 'plugin not enabled';
   else if (!fs.existsSync(path.join(abs, '.codebase-memory', 'graph.db.zst'))) reason = 'no graph';
   else if (fs.existsSync(path.join(env.XDG_CACHE_HOME || path.join(home, '.cache'), 'codebase-memory-mcp', 'gate-off'))) reason = 'gate off';
   const active = reason === 'on';
-  return { active, project: active ? abs.replace(/\//g, '-').replace(/^-+/, '') : null, reason };
+  // The older plugin, while on, keeps the server for itself (oh-my-context-mod then leaves its own out).
+  return { active, project: active ? abs.replace(/\//g, '-').replace(/^-+/, '') : null, reason, routed: enabled && !on['codebase-memory-mod'] };
 }
 
 // What the SubagentStart hook adds for an oma agent, or null.
@@ -215,9 +221,12 @@ export function onSubagent(input, opts) {
   const local = 'oh-my-agent local files: plans, tickets (specs/tickets/), results, evidence and .oma/ are git-ignored and never committed or pushed. Read and write them on disk, never with git (no git show, add or commit for them). A worktree gets copies through .worktreeinclude; if one is missing there, copy it from the main checkout.';
   const warn = copyErr ? `\noma: graph copy failed: ${copyErr}` : '';
   if (g.reason === 'plugin not enabled') return local + warn;
-  if (!g.active) return `${local}${warn}\noh-my-agent code search: codebase-memory-mod is on but no graph applies in ${cwd} (${g.reason}), so Grep, Glob and grep work as usual here.`;
-  return `${local}${warn}\noh-my-agent code search: codebase-memory-mod is on and ${cwd} has a graph, so Grep, Glob and shell grep/rg/ag/ack/find/git grep on code are blocked here. `
-    + 'Use the codebase-memory tools (load them with ToolSearch: mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_graph, search_code, get_code_snippet, trace_path, get_file_outline) '
+  if (!g.active) return `${local}${warn}\noh-my-agent code search: the code graph is on but no graph applies in ${cwd} (${g.reason}), so Grep, Glob and grep work as usual here.`;
+  const how = g.routed
+    ? 'run them with the oh-my-context call tool, tool: mcp__plugin_codebase-memory-mod_codebase-memory-mcp__<name>, for search_graph, search_code, get_code_snippet, trace_path, get_file_outline'
+    : 'load them with ToolSearch: mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_graph, search_code, get_code_snippet, trace_path, get_file_outline';
+  return `${local}${warn}\noh-my-agent code search: the code graph is on and ${cwd} has a graph, so Grep, Glob and shell grep/rg/ag/ack/find/git grep on code are blocked here. `
+    + `Use the codebase-memory tools (${how}) `
     + `with project "${g.project}". Piping command output into grep stays allowed. `
     + `A worktree under .claude/worktrees/ gets its own copy of the graph and is its own project once indexed: call index_repository there with repo_path set to the worktree path and persistence: true, and use the project name it returns, not "${g.project}".`;
 }

@@ -84,6 +84,13 @@ def _int_flag(args: list, flag: str, default: int) -> int:
     return default
 
 
+def synced_twin(slug: str, slugs) -> bool:
+    """The desktop app lists a synced skill twice, as `pdf` and `anthropic-skills:pdf`: True for
+    the long one of such a pair. Two plugins with a skill of the same name are not a pair."""
+    plugin, _, own = slug.lower().rpartition(":")
+    return plugin == "anthropic-skills" and own in slugs
+
+
 def _informative(tokens) -> set:
     return {t for t in tokens
             if t not in _STOPWORDS and not (t.isascii() and len(t) < 3)}
@@ -144,26 +151,25 @@ def _skill_hints(prompt: str, k: int) -> list:
         plugin, _, own = low.rpartition(":")
         names[low] = {own, plugin, plugin.removesuffix("-mod")} - {""}
     descs = {s["slug"].lower(): s.get("desc") for s in index.get("skills", []) if s.get("slug")}
-    out, seen = [], set()
+    out = []
     # A skill named in the prompt needs no second matching word.
     for slug, score in _rank(_BM25(index), prompt, len(original), names, min_terms=1):
-        # The desktop app lists a synced skill twice (pdf and anthropic-skills:pdf): one hint.
-        own = slug.rsplit(":", 1)[-1]
-        if own in seen or len(out) >= k:
+        if synced_twin(slug, original) or len(out) >= k:
             continue
-        seen.add(own)
         out.append({"id": original.get(slug, slug), "name": original.get(slug, slug),
                     "desc": _one_line(descs.get(slug)), "score": score})
     return out
 
 
-def _tool_hints(prompt: str, k: int) -> list:
+def tool_catalog() -> tuple:
+    """Every routed tool known from the cached manifests: (BM25 entries, rows, names).
+
+    rows: lower slug -> {server, tool, claude_name, desc, schema}. names: lower slug -> the
+    server's name parts. Offline: never starts a server. Shared with the gateway's find tool.
+    """
     from . import cache as cache_mod
     from .config import load_config
-    from .skills import _BM25
 
-    if k <= 0:
-        return []
     entries = []
     rows = {}
     names = {}
@@ -176,18 +182,30 @@ def _tool_hints(prompt: str, k: int) -> list:
             tool = str(t["name"])
             slug = f"{server}␟{tool}"
             words = re.sub(r"[_\-.]+", " ", tool)
-            entries.append({"slug": slug, "name": tool, "desc": str(t.get("description") or ""),
+            desc = str(t.get("description") or "")
+            entries.append({"slug": slug, "name": tool, "desc": desc,
                             "triggers": [words, re.sub(r"[_\-.]+", " ", server)]})
             claude = (f"{prefix}__{re.sub(r'[^A-Za-z0-9_-]', '_', tool)}"
                       if isinstance(prefix, str) and prefix else None)
-            rows[slug.lower()] = {"server": server, "tool": tool, "claude_name": claude}
+            rows[slug.lower()] = {"server": server, "tool": tool, "claude_name": claude,
+                                  "desc": desc, "schema": t.get("inputSchema") or {}}
             # The server's name as the person knows it: its gateway name or Claude's (mcp__github).
             names[slug.lower()] = set(re.split(r"[_\-.]+", f"{server} {prefix or ''}".lower().replace(" ", "_"))) - {
                 "", "mod", "mcp", "plugin"}
+    return entries, rows, names
+
+
+def _tool_hints(prompt: str, k: int) -> list:
+    from .skills import _BM25
+
+    if k <= 0:
+        return []
+    entries, rows, names = tool_catalog()
     if not entries:
         return []
     # A tool's own name is often one common word (search, get), so the name that counts is its server's.
-    return [{**rows[slug], "score": score}
+    return [{"server": rows[slug]["server"], "tool": rows[slug]["tool"],
+             "claude_name": rows[slug]["claude_name"], "score": score}
             for slug, score in _rank(_BM25({"skills": entries}), prompt, k, names)]
 
 

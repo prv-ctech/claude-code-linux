@@ -168,7 +168,7 @@ test('prompt hint: in hide mode ids are followed by the load_skill instruction, 
   const ask = (prompt, hide = true) => hint({ prompt, session_id: `h${n++}` }, { run: () => ({ status: 0, stdout: JSON.stringify(out) }), stateDir, hide });
   assert.strictEqual(ask('write a Dockerfile for the service'),
     'Routed matches for this prompt: skills ecc:docker-patterns, plain\n'
-    + 'Skills are hidden from the native list: load one with load_skill(<id>) (resolve_skills searches); never Read a path or use the Skill tool.');
+    + 'Skills are hidden from the native list: load one with load_skill(<id>) (find searches); never Read a path or use the Skill tool.');
   assert.strictEqual(ask('write a Dockerfile for the other service', false), 'Routed matches for this prompt: skills ecc:docker-patterns, plain');
   out.skills = [];
   out.tools = [{ claude_name: 'mcp__x__y' }];
@@ -192,7 +192,7 @@ test('SubagentStart hook: the saved card, plus the load_skill line in hide mode'
   const r = hook('prompt.js', { agent_id: 'a', agent_type: 'Explore' }, ['subagent']);
   assert.strictEqual(r.status, 0, r.stderr);
   assert.deepStrictEqual(JSON.parse(r.stdout), { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: SUBAGENT_HINT } });
-  assert.match(SUBAGENT_HINT, /resolve_skills.*load_skill.*never Read a path or use the Skill tool/);
+  assert.match(SUBAGENT_HINT, /find tool.*load_skill.*never Read a path or use the Skill tool/);
   fs.writeFileSync(path.join(modState, 'card.txt'), 'Behind the oh-my-context gateway: x\n');
   assert.strictEqual(JSON.parse(hook('prompt.js', {}, ['subagent']).stdout).hookSpecificOutput.additionalContext, `Behind the oh-my-context gateway: x\n${SUBAGENT_HINT}`);
   w(path.join(modState, 'state.json'), { hide: false });

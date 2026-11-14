@@ -10,9 +10,10 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { paths, readText, writeFileAtomic } = require('./restore.js');
+const G = require('./graph.js');
 
-const LOAD_HINT = 'Skills are hidden from the native list: load one with load_skill(<id>) (resolve_skills searches); never Read a path or use the Skill tool.';
-const SUBAGENT_HINT = 'Skills are hidden from the native list: find them with the oh-my-context resolve_skills tool, load one with load_skill(<id>); never Read a path or use the Skill tool.';
+const LOAD_HINT = 'Skills are hidden from the native list: load one with load_skill(<id>) (find searches); never Read a path or use the Skill tool.';
+const SUBAGENT_HINT = 'Skills are hidden from the native list: find them with the oh-my-context find tool, load one with load_skill(<id>); never Read a path or use the Skill tool.';
 
 // Hide mode, which sync.js records as `hide: true` in state.json (a missing key is off), unless the mod is off.
 function hideOn(stateDir, dataDir) {
@@ -73,7 +74,8 @@ function main() {
   const hide = hideOn(p.state, p.pluginData);
   if (process.argv[2] === 'subagent') {
     if (p.pluginData && fs.existsSync(path.join(p.pluginData, 'off'))) return;
-    const text = [(readText(path.join(p.state, 'card.txt')) || '').trim(), hide && SUBAGENT_HINT].filter(Boolean).join('\n');
+    const graph = G.graphOn(p) ? G.line(path.resolve(input.cwd || process.cwd())) : '';
+    const text = [(readText(path.join(p.state, 'card.txt')) || '').trim(), graph, hide && SUBAGENT_HINT].filter(Boolean).join('\n');
     if (text) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: text } }));
     return;
   }

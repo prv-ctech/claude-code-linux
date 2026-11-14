@@ -44,9 +44,8 @@ _OPENER = re.compile(
     r"|use (this )?(skill )?(when|for|to) )", re.I)
 
 HEAD = ("Behind the oh-my-context gateway (not in your tool or skill lists). When a task touches "
-        "one of these, use it: a tool with `call` (tool = its mcp__ name; `manifest` lists a "
-        "server's tools, `inspect` shows parameters), a skill with `load_skill` (id); "
-        "`resolve_skills` searches skills by task.")
+        "one of these, use it: `find` (task) returns matching tools with parameters and skills; "
+        "run a tool with `call` (tool = its mcp__ name), read a skill with `load_skill` (id).")
 
 
 def _gloss(desc) -> str:
@@ -77,18 +76,12 @@ def _server_lines() -> list:
 
 
 def _skills() -> list:
+    from .hint import synced_twin
     from .skills import load_index
 
-    seen = {}
-    # Shortest id first, so the short one of a pair is the one kept below.
-    for s in sorted((load_index() or {}).get("skills", []),
-                    key=lambda s: (len(str(s.get("slug") or "")), str(s.get("slug") or ""))):
-        slug = s.get("slug")
-        if not slug or s.get("alias_of"):
-            continue
-        # The desktop app lists a synced skill twice (pdf and anthropic-skills:pdf): keep the short id.
-        seen.setdefault(slug.rsplit(":", 1)[-1].lower(), (slug, _gloss(s.get("desc"))))
-    return sorted(seen.values())
+    skills = [s for s in (load_index() or {}).get("skills", []) if s.get("slug") and not s.get("alias_of")]
+    slugs = {s["slug"].lower() for s in skills}
+    return sorted((s["slug"], _gloss(s.get("desc"))) for s in skills if not synced_twin(s["slug"], slugs))
 
 
 def build_card() -> str:

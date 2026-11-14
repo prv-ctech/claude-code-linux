@@ -53,7 +53,11 @@ class SkillHintOutput(unittest.TestCase):
             {"slug": "other", "name": "other", "triggers": [], "desc": "Create a new user and add files."},
         ]}
         self.assertEqual([h["id"] for h in self.hints("create a new authentik user", index)], ["authentik-mod:authentik"])
-        self.assertEqual(len(self.hints("fill this pdf form", index)), 1)
+        self.assertEqual([h["id"] for h in self.hints("fill this pdf form", index)], ["pdf"])
+        # Same skill name in two plugins: two skills, both hinted.
+        two = {"skills": [{"slug": f"{p}:deep-research", "name": "deep-research", "triggers": [], "desc": "Research a topic."}
+                          for p in ("ecc", "anthropic-skills")] + index["skills"]}
+        self.assertEqual(len(self.hints("run deep-research on this topic", two)), 2)
 
     def test_quiet_without_a_clear_match(self):
         self.assertEqual(self.hints("what time is it in Tokyo today"), [])

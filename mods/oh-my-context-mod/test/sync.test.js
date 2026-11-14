@@ -149,6 +149,18 @@ test('withName sets the catalog name', () => {
   assert.strictEqual(withName('\n# Kube helper\nmore', 'p:b'), '---\nname: p:b\ndescription: "Kube helper"\n---\n\n# Kube helper\nmore');
 });
 
+test('the built-in code graph server steps aside while another entry runs that server', () => {
+  const { collectServers } = require('../hooks/sync.js');
+  const p = { state: '/nowhere' };
+  const mine = collectServers(p, '/w', [], {}, {}).filter(s => s.builtin);
+  assert.deepStrictEqual(mine.map(s => [s.key, s.prefix, s.here]), [['builtin:codebase-memory-mcp', 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp', true]]);
+  assert.strictEqual(plan(mine, [])[0].forward, true, 'not mistaken for the gateway, though it lives in the mod');
+  // The older codebase-memory-mod, still enabled, keeps the server (and its own hooks).
+  const older = [{ name: 'codebase-memory-mod', root: '/x', data: '/d', options: {}, scope: null, here: true,
+    manifest: { mcpServers: { 'codebase-memory-mcp': { command: '/x/bin/codebase-memory-mcp' } } } }];
+  assert.deepStrictEqual(collectServers(p, '/w', older, {}, {}).filter(s => s.builtin), []);
+});
+
 test('swap keeps the person\'s entries and owns only what it added', () => {
   assert.deepStrictEqual(swap(['me', 'old'], ['old'], ['new', 'me']), { next: ['me', 'new'], owned: ['new'] });
 });
@@ -161,7 +173,14 @@ test('apply routes servers and skills; a full restore puts back exactly what it 
   const res = apply(p, '/w', env, ok);
 
   const mc = r(p.gateway).servers;
-  assert.deepStrictEqual(Object.keys(mc).sort(), ['alpha', 'ctx', 'own']);
+  assert.deepStrictEqual(Object.keys(mc).sort(), ['alpha', 'codebase-memory-mcp', 'ctx', 'own']);
+  // The code graph server is the mod's own, under the tool names it had as codebase-memory-mod's.
+  assert.deepStrictEqual(mc['codebase-memory-mcp'], {
+    transport: 'stdio', command: path.join(__dirname, '..', 'bin', 'codebase-memory-mcp'), args: [], env: {},
+    claude_key: 'builtin:codebase-memory-mcp', claude_prefix: 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp', timeout: 1800,
+  });
+  assert.strictEqual(r(path.join(p.state, 'state.json')).graph, true);
+  assert.ok(!r(p.claudeJson).projects['/w'].disabledMcpServers.includes('builtin:codebase-memory-mcp'), 'nothing of Claude\'s to turn off');
   assert.deepStrictEqual(mc.alpha, {
     transport: 'stdio',
     command: `${plug('alpha')}/bin/a`,
@@ -214,7 +233,7 @@ test('route-all by default: blank settings keep only what cannot be routed direc
   const m = machine({ options: null });
   const res = apply(m.p, '/w', m.env, ok);
   const mc = r(m.p.gateway).servers;
-  assert.deepStrictEqual(Object.keys(mc).sort(), ['alpha', 'ctx', 'gamma', 'own']);
+  assert.deepStrictEqual(Object.keys(mc).sort(), ['alpha', 'codebase-memory-mcp', 'ctx', 'gamma', 'own']);
   assert.deepStrictEqual(mc.gamma.headers, { k: 'k' });
   assert.deepStrictEqual(res.servers.filter(s => !s.forward).map(s => s.key).sort(), ['plugin:beta:beta', 'plugin:oh-my-context-mod:oh-my-context']);
   assert.match(t(m.skillKeep), /description: routed/);
@@ -699,7 +718,7 @@ test('an http server Claude signs in to with OAuth stays direct; key names are r
   assert.strictEqual(why.ctx, 'OAuth (signs in through Claude)');
   // Only http: a stdio server never signs in through Claude's OAuth.
   assert.strictEqual(why['plugin:alpha:alpha'], true);
-  assert.deepStrictEqual(Object.keys(r(m.p.gateway).servers).sort(), ['alpha', 'own']);
+  assert.deepStrictEqual(Object.keys(r(m.p.gateway).servers).sort(), ['alpha', 'codebase-memory-mcp', 'own']);
   assert.ok(!JSON.stringify(res).includes('tok-secret'));
   assert.match(status(m.p, '/w', m.env, ok), /direct {5}ctx {2}\(OAuth \(signs in through Claude\)\)/);
 });
