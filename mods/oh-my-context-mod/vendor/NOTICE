@@ -84,6 +84,8 @@ the HTTP MCP servers the gateway routes.
                                  is behind the gateway, for a new context.
   oh_my_context/native_tools.py  added: the `find` tool (routed tools and skills for a
                                  task, the first tool with its parameters).
+  oh_my_context/session_log.py   added: `used()`, the tools and skills a project has
+                                 called, which order the card; load_skill is logged.
   oh_my_context/hint.py          added: `oh-my-context hint`, read-only skill and
                                  tool hints for a prompt.
   oh_my_context/config.py        reads only OMC_CONFIG_FILE (written by

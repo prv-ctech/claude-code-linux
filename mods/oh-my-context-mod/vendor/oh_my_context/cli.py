@@ -29,7 +29,7 @@ from pathlib import Path
 from . import __version__
 
 # oh-my-context-mod: anything else is not a command of this copy.
-USAGE = "usage: oh-my-context --version | serve | hint [--k-skills N] [--k-tools N] | card | skills index <dir>... | stats"
+USAGE = "usage: oh-my-context --version | serve | hint [--k-skills N] [--k-tools N] | card [--cwd DIR] | skills index <dir>... | stats"
 
 
 def _harden_stream_encoding() -> None:
@@ -89,7 +89,7 @@ def main() -> None:
     elif command == "hint":
         from .hint import run_hint
         sys.exit(run_hint(args[1:]))
-    elif command == "card" and len(args) == 1:
+    elif command == "card" and (len(args) == 1 or (len(args) == 3 and args[1] == "--cwd")):
         from .card import run_card
         sys.exit(run_card(args[1:]))
     elif command == "skills" and args[1:2] == ["index"] and len(args) > 2:

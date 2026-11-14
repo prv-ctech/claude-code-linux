@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# Modified by oh-my-context-mod (github.com/prv-ctech/claude-code-linux), 2026-10-30: log under OMC_HOME/sessions (no env overrides); renamed to oh-my-context: package, commands, tool, environment and path names (see vendor/NOTICE).
+# Modified by oh-my-context-mod (github.com/prv-ctech/claude-code-linux), 2026-10-30: log under OMC_HOME/sessions (no env overrides); `used()` and the skill events it reads, for `card` (2026-11-14); renamed to oh-my-context: package, commands, tool, environment and path names (see vendor/NOTICE).
 
 """session_log — what happened in this session, so a compacted agent can catch up.
 
@@ -76,9 +76,9 @@ def _log_dir() -> Path:
     return CONFIG_DIR / "sessions"
 
 
-def _project_key() -> str:
+def _project_key(cwd: str | None = None) -> str:
     """A stable per-project name, so two projects never share a log."""
-    cwd = os.getcwd()
+    cwd = cwd or os.getcwd()
     try:
         cwd = str(Path(cwd).resolve())
     except Exception:
@@ -178,6 +178,38 @@ def _summarise(arguments: Any) -> str:
     except (TypeError, ValueError):
         text = str(arguments)
     return text[:SUMMARY_CHARS]
+
+
+# oh-my-context-mod: what this project has really used, for the card's order.
+SKILL = "skill"  # the `server` of a load_skill event; its `tool` is the skill id
+
+
+def used(cwd: str | None = None) -> tuple:
+    """({server: [tool, ...]}, [skill id, ...]) this project called with success, most used first.
+
+    Read-only: a project with no log yet gets ({}, []) and no file is created. Never raises.
+    """
+    tools: dict = {}
+    skills: list = []
+    try:
+        path = _log_dir() / f"{_project_key(cwd)}.sqlite"
+        if not path.is_file():
+            return tools, skills
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+        try:
+            rows = con.execute(
+                "SELECT server, tool FROM events WHERE ok = 1 AND tool != '' "
+                "GROUP BY server, tool ORDER BY COUNT(*) DESC, server, tool").fetchall()
+        finally:
+            con.close()
+        for server, tool in rows:
+            if server == SKILL:
+                skills.append(tool)
+            elif server:
+                tools.setdefault(server, []).append(tool)
+    except Exception:
+        return {}, []
+    return tools, skills
 
 
 # ─── Recording ───

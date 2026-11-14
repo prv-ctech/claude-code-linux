@@ -673,6 +673,17 @@ class LoadSkillTest(unittest.TestCase):
         self.assertEqual({r["slug"]: r.get("path") for r in rows}["x:nosource"], None)
         self.assertIn("path", {r["slug"]: r for r in rows}["ecc:deep-research"])
 
+    def test_a_loaded_skill_is_remembered_for_the_card(self):
+        from oh_my_context import session_log
+        text, err = self.load("ecc:deep-research")
+        self.assertFalse(err)
+        saved, mconfig.CONFIG_DIR = mconfig.CONFIG_DIR, self.sbx.mhome
+        try:
+            _tools, skills = session_log.used(str(self.sbx.proj))
+        finally:
+            mconfig.CONFIG_DIR = saved
+        self.assertIn("ecc:deep-research", skills)
+
     def test_find_returns_skills_by_id(self):
         out = self.gw.call("find", {"task": "deep research"})["structuredContent"]
         self.assertIn("ecc:deep-research", [s["id"] for s in out["skills"]])
