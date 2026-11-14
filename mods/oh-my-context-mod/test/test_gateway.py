@@ -980,3 +980,20 @@ def tearDownModule():
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FailedStartCacheTest(unittest.TestCase):
+    def test_a_cached_failure_is_fetched_again_and_a_real_list_is_not(self):
+        from unittest import mock
+        from oh_my_context import serve
+        bridge = object.__new__(serve.MCPServerBridge)
+        bridge._servers = {"down": {}, "up": {}, "empty": {}}
+        bridge._tool_index = {}
+        bridge._tool_index_lock = threading.Lock()
+        cached = {"down": [{"error": "binary not found"}], "up": [{"name": "t", "inputSchema": {}}], "empty": []}
+        fetched = []
+        with mock.patch("oh_my_context.cache.get_cached_tools", side_effect=cached.get), \
+                mock.patch.object(bridge, "_refresh_servers_in_parallel", side_effect=fetched.extend):
+            bridge._build_tool_index()
+        self.assertEqual(fetched, ["down"])
+        self.assertEqual([v["tool"] for v in bridge._tool_index.values()], ["t"])

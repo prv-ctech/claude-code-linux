@@ -237,7 +237,9 @@ class MCPServerBridge:
                 tools = cache_mod.get_cached_tools(server_name)
             except Exception:
                 tools = None
-            if tools is not None:
+            # A list that holds only the reason of a failed start is no list: fetch it again,
+            # the server may start now (its binary was still downloading the first time).
+            if tools is not None and not _only_errors(tools):
                 cached_manifest[server_name] = tools
 
         # Step 2: Find which servers need live fetch
@@ -304,7 +306,8 @@ class MCPServerBridge:
                 # card says why instead of "tools not listed yet". A good older list stays.
                 try:
                     from . import cache as cache_mod
-                    if cache_mod.get_cached_tools_any_age(srv) is None:
+                    old = cache_mod.get_cached_tools_any_age(srv)
+                    if old is None or _only_errors(old):
                         cache_mod.set_cached_tools(srv, [{"error": str(e)[:200]}])
                 except Exception:
                     pass
@@ -1174,6 +1177,11 @@ class MCPServerBridge:
 # ═══════════════════════════════════════════════════
 # JSON-RPC helpers
 # ═══════════════════════════════════════════════════
+
+def _only_errors(tools) -> bool:
+    """True for a cached list that holds nothing but the reason a server failed to start."""
+    return bool(tools) and all(isinstance(t, dict) and "error" in t for t in tools)
+
 
 def _make_success(req_id, result: dict) -> dict:
     return {
