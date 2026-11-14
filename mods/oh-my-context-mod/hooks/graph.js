@@ -52,6 +52,31 @@ function inside(dir, target) {
   return abs === dir || abs.startsWith(dir + path.sep);
 }
 
+// The search commands a shell line really runs on this workspace: [] when there are none.
+// Text inside quotes and here-documents is not a command (a script that prints "grep", a commit
+// message), and a search whose paths all lie outside the workspace (~/.claude, /var/log) is not a
+// search of this code.
+// shortcut: not a shell parser; `bash -c "grep ..."` and `eval` pass. The gate steers the model, it is
+// no security boundary. Upgrade to a real word splitter if the model starts hiding searches in quotes.
+function codeSearches(command, cwd, home = os.homedir()) {
+  const held = [];
+  const hold = text => `\u0000${held.push(text) - 1}\u0000`;
+  const bare = String(command)
+    .replace(/<<-?\s*(['"]?)([A-Za-z_]\w*)\1[^\n]*\n[\s\S]*?\n[ \t]*\2(?=\n|$)/g, m => hold(m))
+    .replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, m => hold(m.slice(1, -1)));
+  const found = [];
+  // m: a command on a later line of the same call starts a line too.
+  const re = new RegExp(CODE_SEARCH.source, 'gm');
+  for (let m; (m = re.exec(bare));) {
+    const rest = bare.slice(m.index + m[0].length).split(/[;&|\n)]/)[0];
+    const words = rest.split(/\s+/).filter(Boolean).map(w => w.replace(/\u0000(\d+)\u0000/g, (_, i) => held[i]));
+    const paths = words.filter(w => /^(\/|~\/|~$|\$HOME\b)/.test(w)).map(w => w.replace(/^(~|\$HOME)/, home));
+    if (paths.length && paths.every(p => !inside(cwd, p))) continue;
+    found.push(m[2]);
+  }
+  return found;
+}
+
 function decide(payload, home = os.homedir()) {
   const cwd = path.resolve(payload.cwd || process.cwd());
   if (!indexed(cwd)) return null;
@@ -62,7 +87,7 @@ function decide(payload, home = os.homedir()) {
     if (input.path && !inside(cwd, String(input.path))) return null;
     return REASON;
   }
-  if (payload.tool_name === 'Bash' && CODE_SEARCH.test(String(input.command || ''))) return REASON;
+  if (payload.tool_name === 'Bash' && codeSearches(input.command || '', cwd, home).length) return REASON;
   return null;
 }
 
@@ -129,4 +154,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { decide, CODE_SEARCH, graphOn, startIndex, line, PREFIX };
+module.exports = { decide, CODE_SEARCH, codeSearches, graphOn, startIndex, line, PREFIX };

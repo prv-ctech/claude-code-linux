@@ -861,7 +861,9 @@ function status(p, cwd, env, run) {
     // Claude's key is not what the gateway's manifest and call tools use; show that name too.
     ...servers.filter(s => s.here).map(s => {
       const gwName = s.forward && Object.keys(state.servers).find(n => state.servers[n].key === s.key && state.servers[n].cwd === (s.scope || null));
-      return `  ${(s.forward ? (off.has(s.key) ? 'forwarded' : 'forward*') : 'direct').padEnd(9)}  ${s.key}${gwName ? `  (gateway: ${gwName})` : ''}${s.reason ? `  (${s.reason})` : ''}`;
+      // The built-in server is not one of Claude's to turn off: it is routed once the gateway has its entry.
+      const live = s.builtin ? Boolean(gwName) : off.has(s.key);
+      return `  ${(s.forward ? (live ? 'forwarded' : 'forward*') : 'direct').padEnd(9)}  ${s.key}${gwName ? `  (gateway: ${gwName})` : ''}${s.reason ? `  (${s.reason})` : ''}`;
     }),
     '  * forward on the next session start in this project',
     '',
