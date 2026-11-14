@@ -259,6 +259,12 @@ test('guard catches git push behind shell keywords and eval, and untyped Agent c
   const cm = 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_code';
   for (const fp of ['.*env', '[.]env']) assert.ok(decide({ agent_type: W, tool_name: cm, tool_input: { file_pattern: fp } }), fp);
   assert.strictEqual(decide({ agent_type: W, tool_name: cm, tool_input: { file_pattern: '*.ts' } }), null);
+  // The same tool routed through oh-my-context's call, by original name or by server.
+  const via = tool_input => decide({ agent_type: W, tool_name: 'mcp__plugin_oh-my-context-mod_oh-my-context__call', tool_input });
+  assert.ok(via({ tool: cm, arguments: { file_pattern: '.env' } }));
+  assert.ok(via({ server: 'codebase-memory-mcp', tool: 'search_code', arguments: { path_filter: '[.]env' } }));
+  assert.strictEqual(via({ tool: cm, arguments: { file_pattern: '*.ts' } }), null);
+  assert.strictEqual(via({ tool: 'mcp__context7__query-docs', arguments: { file_pattern: '.env' } }), null);
   assert.ok(decide({ agent_type: W, tool_name: 'Task', tool_input: { subagent_type: 'general-purpose' } }));
   assert.ok(decide({ agent_type: 'oh-my-agent-mod:first-timer', tool_name: 'mcp__Claude_Browser__javascript_tool', tool_input: { text: '1' }, cwd: '/p' }));
   assert.ok(decide({ agent_type: W, tool_name: 'Agent', tool_input: { prompt: 'x' } }), 'no subagent_type means the default agent');

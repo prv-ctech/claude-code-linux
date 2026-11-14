@@ -24,9 +24,9 @@ function fx() {
 test('codeGraph reports each reason and the project name', () => {
   const { t, proj, opts } = fx();
   const name = proj.replace(/\//g, '-').replace(/^-+/, '');
-  assert.deepStrictEqual(codeGraph(proj, opts), { active: true, project: name, reason: 'on' });
+  assert.deepStrictEqual(codeGraph(proj, opts), { active: true, project: name, reason: 'on', routed: false });
   write(path.join(t, 'cache', 'codebase-memory-mcp', 'gate-off'), '');
-  assert.deepStrictEqual(codeGraph(proj, opts), { active: false, project: null, reason: 'gate off' });
+  assert.deepStrictEqual(codeGraph(proj, opts), { active: false, project: null, reason: 'gate off', routed: false });
   fs.rmSync(path.join(t, 'cache'), { recursive: true });
   fs.rmSync(path.join(proj, '.codebase-memory', 'graph.db.zst'));
   assert.strictEqual(codeGraph(proj, opts).reason, 'no graph');
@@ -45,6 +45,16 @@ test('codeGraph settings: later files win, broken ones are skipped, any marketpl
   assert.strictEqual(codeGraph(proj, opts).reason, 'on');
   write(path.join(t, 'cfg', 'settings.json'), '{not json');
   assert.strictEqual(codeGraph(proj, opts).reason, 'plugin not enabled');
+});
+
+test('codeGraph: oh-my-context-mod alone runs the graph behind its gateway; the older plugin, while on, keeps it direct', () => {
+  const { t, proj, opts } = fx();
+  write(path.join(t, 'cfg', 'settings.json'), { enabledPlugins: { 'oh-my-context-mod@claude-code-linux': true } });
+  assert.deepStrictEqual([codeGraph(proj, opts).reason, codeGraph(proj, opts).routed], ['on', true]);
+  assert.match(onSubagent({ agent_type: 'oh-my-agent-mod:worker', cwd: proj }, opts), /oh-my-context call tool, tool: mcp__plugin_codebase-memory-mod_codebase-memory-mcp__<name>/);
+  write(path.join(t, 'cfg', 'settings.json'), { enabledPlugins: { 'oh-my-context-mod@claude-code-linux': true, 'codebase-memory-mod@claude-code-linux': true } });
+  assert.strictEqual(codeGraph(proj, opts).routed, false);
+  assert.match(onSubagent({ agent_type: 'oh-my-agent-mod:worker', cwd: proj }, opts), /load them with ToolSearch/);
 });
 
 test('status carries a codeGraph key', () => {
@@ -73,13 +83,13 @@ test('subagent hook text for oma agents, silence otherwise', () => {
   const o = JSON.parse(on.stdout).hookSpecificOutput;
   assert.strictEqual(o.hookEventName, 'SubagentStart');
   assert.ok(o.additionalContext.startsWith('oh-my-agent local files:'), 'every oma agent learns the local-files rule');
-  assert.ok(o.additionalContext.includes(`oh-my-agent code search: codebase-memory-mod is on and ${proj} has a graph`));
+  assert.ok(o.additionalContext.includes(`oh-my-agent code search: the code graph is on and ${proj} has a graph`));
   assert.ok(o.additionalContext.includes(`with project "${name}"`));
   assert.ok(o.additionalContext.endsWith(`and use the project name it returns, not "${name}".`));
 
   fs.rmSync(path.join(proj, '.codebase-memory', 'graph.db.zst'));
   const ng = JSON.parse(sub({ agent_type: 'oh-my-agent-mod:merger', cwd: proj }).stdout).hookSpecificOutput.additionalContext;
-  assert.ok(ng.endsWith(`oh-my-agent code search: codebase-memory-mod is on but no graph applies in ${proj} (no graph), so Grep, Glob and grep work as usual here.`));
+  assert.ok(ng.endsWith(`oh-my-agent code search: the code graph is on but no graph applies in ${proj} (no graph), so Grep, Glob and grep work as usual here.`));
   write(path.join(proj, '.codebase-memory', 'graph.db.zst'), '');
 
   const quiet = r => { assert.strictEqual(r.status, 0); assert.strictEqual(r.stdout, ''); };

@@ -30,6 +30,14 @@ const targetsEnv = v => Array.isArray(v) ? v.some(x => targetsEnv(x)) : typeof v
   // a glob or regex pattern (`.*env`, `[.]env`) that would select an env file
   || (/[*?[]/.test(v) && (globMatches(basename(v), ENV_NAMES) || (() => { try { return ENV_NAMES.some(n => new RegExp(`(^|/)${v}$`).test(n)); } catch { return false; } })())));
 const CM_PREFIX = 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp__';
+const OMC_CALL = 'mcp__plugin_oh-my-context-mod_oh-my-context__call';
+// The arguments of a code-graph tool call, made directly or through oh-my-context's call tool; else null.
+function graphArgs(tool, ti) {
+  if (typeof tool !== 'string') return null;
+  if (tool.startsWith(CM_PREFIX)) return ti;
+  if (tool !== OMC_CALL || !`${ti.tool || ''} ${ti.server || ''}`.includes('codebase-memory')) return null;
+  return ti.arguments && typeof ti.arguments === 'object' ? ti.arguments : {};
+}
 
 // Shell words of one command line: quotes removed, $(...) / `...` contents kept as their own text.
 // shortcut: not a full shell parser (no here-docs, no escapes inside single quotes); enough to find a
@@ -258,7 +266,8 @@ export function decide(input) {
   if (tool === 'Grep' && (isEnvName(ti.path) || expandBraces(String(ti.glob || '')).some(g => /(^|\/)\.env/i.test(g) || globHitsEnv(g) || (/[*?]./.test(basename(g)) && !/env\*/i.test(g) && globMatches(basename(g), ENV_NAMES))))) {
     return 'oh-my-agent agents never read .env files.';
   }
-  if (typeof tool === 'string' && tool.startsWith(CM_PREFIX) && [ti.file_pattern, ti.path_filter, ti.file_path].some(targetsEnv)) {
+  const ga = graphArgs(tool, ti);
+  if (ga && [ga.file_pattern, ga.path_filter, ga.file_path].some(targetsEnv)) {
     return 'oh-my-agent agents never read .env files.';
   }
   if ((tool === 'Agent' || tool === 'Task') && !String(ti.subagent_type || '').startsWith(PREFIX)) {

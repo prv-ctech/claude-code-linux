@@ -113,8 +113,8 @@ for line in sys.stdin:
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "no such method"}})
 '''
 
-NATIVE_ALWAYS = {"call", "inspect", "manifest", "resolve_skills", "load_skill"}
-NATIVE_NAMES = {"manifest", "servers", "health", "usage", "skills", "resolve_skills", "load_skill",
+NATIVE_ALWAYS = {"find", "call", "load_skill"}
+NATIVE_NAMES = {"find", "manifest", "servers", "health", "usage", "skills", "resolve_skills", "load_skill",
                 "inspect",
                 "call", "retrieve", "kb_search", "kb_index", "session"}
 
@@ -253,9 +253,29 @@ class GatewayTest(unittest.TestCase):
         self.assertNotIn("pinned", text)  # cwd_only elsewhere
         self.assertNotIn("evil", text)
         self.assertIn("`call`", text)
-        self.assertIn("`resolve_skills`", text)
+        self.assertIn("`find`", text)
         self.assertIn("Skill tool", text)
         self.assertNotIn("footer-facts", text)
+
+    def test_find_returns_tools_with_the_first_ones_parameters(self):
+        ok = self.gw.call("call", {"tool": "mcp__fake__echo", "arguments": {"text": "hi"}})
+        self.assertFalse(ok["isError"])  # the tool list is cached from here on
+        out = self.gw.call("find", {"task": "fake echo text back"})["structuredContent"]
+        self.assertEqual(out["tools"][0]["tool"], "mcp__fake__echo")
+        self.assertEqual(out["tools"][0]["inputSchema"]["required"], ["text"])
+        self.assertTrue(all("inputSchema" not in t for t in out["tools"][1:]))
+        self.assertNotIn("pinned", json.dumps(out))  # cwd_only elsewhere
+        empty = self.gw.call("find", {"task": ""})["structuredContent"]
+        self.assertEqual((empty["tools"], empty["skills"]), ([], []))
+
+    def test_validation_error_carries_the_parameters(self):
+        self.gw.call("call", {"tool": "mcp__fake__echo", "arguments": {"text": "hi"}})
+        bad = self.gw.call("call", {"tool": "mcp__fake__echo", "arguments": {}})
+        self.assertTrue(bad["isError"])
+        text = bad["content"][0]["text"]
+        self.assertIn("Parameter validation failed", text)
+        self.assertIn('Parameters: {"type": "object"', text)
+        self.assertIn('"required": ["text"]', text)
 
     def test_tools_list_native_only_with_always_load(self):
         tools = self.gw.request("tools/list")["result"]["tools"]
@@ -477,16 +497,17 @@ class HintTest(unittest.TestCase):
         self.assertEqual([t["claude_name"] for t in out["tools"]], ["mcp__github__create_issue"])
         self.assertEqual(out["tools"][0]["server"], "gh")
         self.assertLess(self.elapsed, 5)
-        out = self.hint("brainstorm design options for a new feature before building it")
+        out = self.hint("use brainstorming on design options for a new feature before building it")
         self.assertEqual([s["name"] for s in out["skills"]], ["superpowers:brainstorming"])
         out = self.hint("read the file from the GitHub repository")
         self.assertEqual([t["tool"] for t in out["tools"]], ["get.file"])
         self.assertEqual(out["tools"][0]["claude_name"], "mcp__github__get_file")
 
     def test_tool_name_alone_is_not_enough(self):
-        # A tool named after one common word needs a second term from its description.
+        # A tool named after one common word needs its server named and a second term from its description.
         self.assertEqual(self.hint("search the codebase for the session token")["tools"], [])
-        out = self.hint("search the indexed documents for this phrase")
+        self.assertEqual(self.hint("search the indexed documents for this phrase")["tools"], [])
+        out = self.hint("search the indexed documents on GitHub for this phrase")
         self.assertEqual([t["tool"] for t in out["tools"]], ["search"])
 
     def test_nothing_when_unrelated_or_disabled(self):
@@ -651,6 +672,11 @@ class LoadSkillTest(unittest.TestCase):
         rows = self.gw.call("skills", {})["structuredContent"]["skills"]
         self.assertEqual({r["slug"]: r.get("path") for r in rows}["x:nosource"], None)
         self.assertIn("path", {r["slug"]: r for r in rows}["ecc:deep-research"])
+
+    def test_find_returns_skills_by_id(self):
+        out = self.gw.call("find", {"task": "deep research"})["structuredContent"]
+        self.assertIn("ecc:deep-research", [s["id"] for s in out["skills"]])
+        self.assertEqual(out["tools"], [])
 
     def test_resolve_skills_budget_exceeds_kb_search(self):
         for i in range(12):  # past the old limit of 8

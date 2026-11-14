@@ -23,12 +23,15 @@ const { spawnSync } = require('child_process');
 const R = require('./restore.js');
 
 const { ME, paths, sha, readText, readConfig, writeFileAtomic, writeJson, withLock, loadState, saveState } = R;
+const G = require('./graph.js');
 const root = path.resolve(__dirname, '..');
 const ROUTED = 'description: routed';
 const NAME_ONLY = 'name-only';
 const HIDDEN = 'user-invocable-only';
 const DMI = 'disable-model-invocation: true';
 const GATEWAY = 'the gateway itself';
+// The code graph server the mod runs itself, behind the gateway (bin/codebase-memory-mcp).
+const GRAPH = 'codebase-memory-mcp';
 const CONFIG_CHANGE = 'user_settings|project_settings|local_settings';
 
 function readJson(file, fallback) {
@@ -312,7 +315,14 @@ function collectServers(p, cwd, plugins, cj, env) {
       names: [server, `${pl.name}__${server}`],
     };
   }));
-  return [...user, ...loc, ...project, ...fromPlugins].map(s => ({ ...s, env }));
+  const theirs = [...user, ...loc, ...project, ...fromPlugins];
+  // Built in, under the tool names it had as codebase-memory-mod's server, so permission rules written
+  // for those still match. Left out while any other entry runs that server (the older plugin, still on).
+  const builtin = theirs.some(s => s.server === GRAPH) ? [] : [{
+    key: `builtin:${GRAPH}`, server: GRAPH, plugin: null, cfg: { command: path.join(root, 'bin', GRAPH), args: [] },
+    vars: {}, pluginEnv: {}, scope: null, here: true, prefix: G.PREFIX, names: [GRAPH], builtin: true,
+  }];
+  return [...theirs, ...builtin].map(s => ({ ...s, env }));
 }
 
 // The gateway must never route to itself, whatever form its command takes, nor to an upstream
@@ -320,6 +330,7 @@ function collectServers(p, cwd, plugins, cj, env) {
 // hide the same servers twice.
 const GATEWAYS = ['oh-my-context', 'mcptoon'];
 function isGateway(s, cfg) {
+  if (s.builtin) return false;
   if (s.plugin === ME || GATEWAYS.includes(s.server)) return true;
   const cmd = String(cfg.command || '');
   const args = arr(cfg.args).map(String);
@@ -334,7 +345,7 @@ function isGateway(s, cfg) {
 // Decides each server: forward (behind oh-my-context, with its gateway config entry) or direct, with why.
 function plan(servers, direct, oauth = new Set()) {
   return servers.map(s => {
-    const out = { key: s.key, name: s.server, names: s.names, scope: s.scope, here: s.here, forward: false, reason: '' };
+    const out = { key: s.key, name: s.server, names: s.names, scope: s.scope, here: s.here, builtin: s.builtin, forward: false, reason: '' };
     const type = s.cfg.type || (s.cfg.url ? 'http' : 'stdio');
     if (isGateway(s, s.cfg)) return { ...out, reason: GATEWAY };
     if ([s.key, s.server, s.plugin].some(n => n && direct.includes(n))) return { ...out, reason: 'in direct_servers' };
@@ -589,6 +600,8 @@ function applyLocked(p, cwd, env, run) {
     state.servers[name] = { key: s.key, cwd: s.scope || null };
   }
   const stale = Object.entries(state.servers).filter(([n, r]) => inScope(r.cwd, cwd) && !wanted.has(n)).map(([n]) => n);
+  // hooks/graph.js works only while the mod runs the graph server itself.
+  state.graph = servers.some(s => s.builtin && s.forward);
   save();
   // A global entry is not served in a project where Claude would not start it: its plugin is off
   // there, or a local-scope or project server of the same tool prefix takes its place.
@@ -621,7 +634,8 @@ function applyLocked(p, cwd, env, run) {
   const proj = cj.projects[cwd] = cj.projects[cwd] || {};
   const rec = state.projects[cwd] || { keys: [], created: !Array.isArray(proj.disabledMcpServers), newProject };
   const current = Array.isArray(proj.disabledMcpServers) ? proj.disabledMcpServers : [];
-  const d = swap(current, rec.keys, servers.filter(s => s.forward && s.here).map(s => s.key));
+  // The built-in server is not one of Claude's, so there is nothing to turn off for it.
+  const d = swap(current, rec.keys, servers.filter(s => s.forward && s.here && !s.builtin).map(s => s.key));
   if (JSON.stringify(d.next) !== JSON.stringify(current)) {
     state.projects[cwd] = { ...rec, keys: [...new Set([...rec.keys, ...d.owned])] };
     save();
@@ -789,18 +803,8 @@ function hiddenCounts(state, cwd) {
 }
 
 function sessionContext(r) {
-  const fwd = r.servers.filter(s => s.forward && s.here).length;
   const direct = r.servers.filter(s => !s.forward && s.here && s.reason !== GATEWAY).map(s => `${s.key} (${s.reason})`);
-  const files = r.state.files.filter(f => inScope(f.cwd, r.cwd));
-  const skills = files.filter(f => f.kind === 'skill').length + Object.keys(r.state.overrides).length;
-  const cmds = files.filter(f => f.kind === 'command').length;
-  const hid = hiddenCounts(r.state, r.cwd).all;
-  const skillText = hid
-    ? `${hid} skill(s) hidden from Claude's own skill list (find one with the gateway's resolve_skills tool, then read it with its load_skill tool; the Skill tool does not list them), `
-      + `${Math.max(skills - hid, 0)} other skill(s) and ${cmds} plugin command(s) listed by name only (still invocable); `
-    : `${skills} skill(s) and ${cmds} plugin command(s) listed by name only (still invocable; its resolve_skills tool finds them); `;
-  let line = `oh-my-context-mod: ${fwd} MCP server(s) routed through oh-my-context (its manifest and call tools), `
-    + `${skillText}direct: ${direct.join(', ') || 'none'}.`;
+  let line = `oh-my-context-mod: direct MCP servers (in your own tool list): ${direct.join(', ') || 'none'}.`;
   if (r.changed) line += ' Changes made at this start count from the next session.';
   if (!r.indexed) line += ' The skill index did not rebuild.';
   if (r.problems.length) line += ` ${r.problems.length} file(s) left as is (/omc status).`;
@@ -880,10 +884,25 @@ function status(p, cwd, env, run) {
   return out.join('\n');
 }
 
+// What is behind the gateway, for a context that has not seen it. Saved for the SubagentStart hook,
+// which must answer in milliseconds and so reads the file instead of starting Python.
+function card(p, run) {
+  const file = path.join(p.state, 'card.txt');
+  try {
+    const r = run(['card']);
+    if (r.status !== 0) return '';
+    const text = String(r.stdout).trim();
+    writeFileAtomic(file, text, 0o600, false);
+    return text;
+  } catch (e) {
+    return '';
+  }
+}
+
 // The SessionStart hook: apply (or put everything back when the CLI cannot run).
 const OFF_LINE = 'oh-my-context-mod: off; every MCP server and skill loads directly. /omc on routes them again.';
 
-function session(p, cwd, env, run) {
+function session(p, cwd, env, run, startIndex = G.startIndex) {
   // Off, with no state to undo: return before the lock creates the state dir.
   if (fs.existsSync(offFile(p)) && !fs.existsSync(path.join(p.state, 'state.json'))) return { additionalContext: OFF_LINE };
   const out = withLock(p.state, () => {
@@ -899,7 +918,9 @@ function session(p, cwd, env, run) {
       return { additionalContext: `oh-my-context-mod: the oh-my-context CLI did not run, so every MCP server and skill is direct again (${R.describe(r)}); this shows fully from the next session.` };
     }
     const r = applyLocked(p, cwd, env, run);
-    return { additionalContext: sessionContext(r), ...(r.filesChanged && { reloadSkills: true }) };
+    // First index of a git workspace starts here, in the background.
+    const graph = r.state.graph ? G.line(cwd, !fs.existsSync(path.join(cwd, '.codebase-memory', 'graph.db.zst')) && startIndex(cwd)) : '';
+    return { additionalContext: [card(p, run), graph, sessionContext(r)].filter(Boolean).join('\n\n'), ...(r.filesChanged && { reloadSkills: true }) };
   });
   dropEmptyState(p);
   return out;
@@ -907,6 +928,19 @@ function session(p, cwd, env, run) {
 
 // A fresh context (/clear, compaction, a subagent starting or handing back) has not seen any routed
 // server's instructions; the gateway hands them over again once this file's mtime changes.
+// A context that starts over (any SessionStart) has not seen the prompt hints of the one before.
+function forgetHints(p, sid) {
+  const file = path.join(p.state, 'hints.json');
+  try {
+    const seen = JSON.parse(readText(file) || '{}');
+    if (!sid || !(sid in seen)) return;
+    delete seen[sid];
+    writeFileAtomic(file, JSON.stringify(seen), 0o600, false);
+  } catch (e) {
+    /* hints are optional */
+  }
+}
+
 function touchEpoch(p) {
   const file = path.join(path.dirname(p.gateway), 'instructions-epoch');
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -930,6 +964,7 @@ function main() {
     } catch (e) {
       /* no payload */
     }
+    forgetHints(p, payload.session_id);
     if (payload.source === 'clear' || payload.source === 'compact') {
       try {
         touchEpoch(p);

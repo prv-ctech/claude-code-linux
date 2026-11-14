@@ -54,7 +54,7 @@ Renamed in every file of oh_my_context/:
   repository -> this repository.
 
 Only what the plugin runs is kept: the CLI commands `--version`, `serve`
-(stdio), `hint` and `skills index <dir>`, the gateway's MCP tools and what they
+(stdio), `hint`, `card` and `skills index <dir>`, the gateway's MCP tools and what they
 reach. Not included (removed, or never vendored): mcptoon's own agent skill
 (skill/SKILL.md), python-toon (_toon/, toon_vendored.py) and the TOON/SLIM output
 formats, and the modules bake.py, bench.py, demo.py, demo_server.py, discover.py,
@@ -78,8 +78,12 @@ token counting; and the OMC_* environment overrides other than OMC_HOME,
 OMC_CONFIG_FILE and OMC_MOD_PYTHONPATH. Nothing left reaches the network except
 the HTTP MCP servers the gateway routes.
 
-  oh_my_context/cli.py           only --version, serve, hint and skills index
+  oh_my_context/cli.py           only --version, serve, hint, card and skills index
                                  <dir> (see above).
+  oh_my_context/card.py          added: `oh-my-context card`, read-only text of what
+                                 is behind the gateway, for a new context.
+  oh_my_context/native_tools.py  added: the `find` tool (routed tools and skills for a
+                                 task, the first tool with its parameters).
   oh_my_context/hint.py          added: `oh-my-context hint`, read-only skill and
                                  tool hints for a prompt.
   oh_my_context/config.py        reads only OMC_CONFIG_FILE (written by

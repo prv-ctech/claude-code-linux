@@ -1,5 +1,5 @@
 #!/bin/sh
-# codebase-memory-mcp, as this plugin runs it. The binary is not in the image. On first use
+# codebase-memory-mcp, as oh-my-context-mod runs it (behind the gateway, and for the first index). The binary is not in the image. On first use
 # this wrapper downloads the pinned release archive into ${CLAUDE_PLUGIN_DATA}, checks its
 # SHA256 and member list, installs it, and then runs it. Updating the plugin changes VERSION
 # and the checksums here, so the next start fetches the new build. Old builds are left alone.
@@ -22,7 +22,8 @@ case "$(uname -m)" in
 esac
 
 # Claude sets CLAUDE_PLUGIN_DATA to <plugin id> under ~/.claude/plugins/data; the default is the same path.
-data="${CLAUDE_PLUGIN_DATA:-${HOME}/.claude/plugins/data/codebase-memory-mod-claude-code-linux}"
+claude="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
+data="${CLAUDE_PLUGIN_DATA:-${CLAUDE_CODE_PLUGIN_CACHE_DIR:-${claude}/plugins}/data/oh-my-context-mod-claude-code-linux}"
 bin="${data}/codebase-memory-mcp-${VERSION}/codebase-memory-mcp"
 
 if [ ! -x "${bin}" ]; then

@@ -36,6 +36,7 @@ from .schema_simplifier import namespaced_tool_name, simplify_tool_def
 
 # Names of the first-party tools, in listing order.
 NATIVE_NAMES = (
+    "find",
     "manifest",
     "servers",
     "health",
@@ -299,6 +300,41 @@ def native_tools() -> list[dict]:
             },
         },
         {
+            # oh-my-context-mod: one search over everything behind the gateway.
+            "name": "find",
+            "title": "Find a routed tool or skill",
+            "description": (
+                "Search everything behind this gateway for a task: routed MCP tools and "
+                "skills, best first. The best tool comes with its parameters, so `call` "
+                "can run it next; load a skill with `load_skill` (its id). Use this "
+                "instead of the Skill tool or a tool search. Offline ranking, no LLM."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": (
+                            "What needs doing, with the service or subject named "
+                            "(e.g. 'authentik add user to group')."
+                        ),
+                    },
+                    "k": {
+                        "type": "integer",
+                        "description": "How many tools and how many skills to return. Default 5.",
+                    },
+                },
+                "required": ["task"],
+            },
+            "annotations": {
+                "title": "Find a routed tool or skill",
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        },
+        {
             "name": "resolve_skills",
             "title": "Resolve skills for a task",
             "description": (
@@ -363,7 +399,7 @@ def native_tools() -> list[dict]:
             "name": "load_skill",
             "title": "Load a skill",
             "description": (
-                "Load a skill found with resolve_skills: returns its SKILL.md instructions "
+                "Load a skill by its id (from find): returns its SKILL.md instructions "
                 "to follow. Skills are hidden from Claude's native listing, so use this "
                 "instead of the Skill tool. Pass the full id (e.g. ecc:docker-patterns); "
                 "a bare name can match several plugins. With `file`, returns one bundled "
@@ -374,7 +410,7 @@ def native_tools() -> list[dict]:
                 "properties": {
                     "id": {
                         "type": "string",
-                        "description": "Full skill id as resolve_skills returns it, e.g. ecc:docker-patterns.",
+                        "description": "Full skill id as find returns it, e.g. ecc:docker-patterns.",
                     },
                     "file": {
                         "type": "string",
@@ -867,6 +903,57 @@ def _resolve_skills(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uni
     return payload
 
 
+def _find(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform signature
+    """oh-my-context-mod: routed tools and skills for a task, in one call.
+
+    The model writes the query, so plain BM25 ranks it (no name gate, unlike `hint`,
+    which reads raw prompts). Skills are ranked on id and description only: the
+    headings the index keeps as triggers ("Add text", "Save") pull in unrelated skills.
+    """
+    from . import skills as skills_mod
+    from .hint import _REL_CUT, _one_line, synced_twin, tool_catalog
+
+    def clear(hits: list) -> list:
+        # The weak tail behind a clear winner is dropped, as in hint.
+        return [h for h in hits if h["score"] >= _REL_CUT * hits[0]["score"]]
+
+    task = _as_str(arguments.get("task"))
+    k = _as_int(arguments.get("k"), 5, minimum=1)
+    if not task:
+        return {"tools": [], "skills": [], "notice": "Pass a non-empty `task`."}
+    tools, skills = [], []
+    try:
+        entries, rows, _names = tool_catalog()
+        for hit in clear(skills_mod._BM25({"skills": entries}).search(task, k)) if entries else []:
+            row = rows.get(hit["slug"].lower())
+            if not row:
+                continue
+            tools.append({"tool": row["claude_name"] or row["tool"], "server": row["server"],
+                          "description": _one_line(row["desc"])})
+            if len(tools) == 1:
+                tools[0]["inputSchema"] = row["schema"]
+    except Exception:  # each half fails on its own, like hint
+        pass
+    try:
+        skills_mod.ensure_index()
+        index = skills_mod.load_index() or {}
+        slim = {"skills": [{**s, "triggers": []} for s in index.get("skills", [])]}
+        original = {s["slug"].lower(): s["slug"] for s in index.get("skills", []) if s.get("slug")}
+        for hit in clear(skills_mod._BM25(slim).search(task, 2 * k)):
+            if synced_twin(hit["slug"], original) or len(skills) >= k:
+                continue
+            skills.append({"id": original.get(hit["slug"], hit["slug"]), "description": _one_line(hit.get("desc"))})
+    except Exception:
+        pass
+    payload = {"tools": tools, "skills": skills}
+    if not tools and not skills:
+        payload["notice"] = ("Nothing matched. Name the service or subject in `task`; "
+                             "`manifest` lists every routed tool by server.")
+    elif len(tools) > 1:
+        payload["notice"] = "Parameters are shown for the first tool only; `inspect` shows another's."
+    return payload
+
+
 def _load_skill(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform signature
     """A skill's instructions as plain text (a JSON-wrapped body would be escaped noise)."""
     from . import skills as skills_mod
@@ -1037,6 +1124,7 @@ def _retrieve(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform s
 
 
 _HANDLERS = {
+    "find": _find,
     "manifest": _manifest,
     "servers": _servers,
     "health": _health,

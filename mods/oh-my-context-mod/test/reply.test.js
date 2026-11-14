@@ -23,27 +23,26 @@ function setup(settings, env = {}) {
 
 test('hooks print one JSON object with the right event (FR-1, FR-2)', () => {
   const t = setup('{"outputStyle":"Concise"}');
-  const want = { session: 'SessionStart', prompt: 'UserPromptSubmit', tool: 'PostToolUse', subagent: 'SubagentStart' };
+  const want = { session: 'SessionStart', prompt: 'UserPromptSubmit', subagent: 'SubagentStart' };
   for (const [m, ev] of Object.entries(want)) {
     const r = t.run(m);
     assert.strictEqual(r.status, 0);
     const out = JSON.parse(r.stdout).hookSpecificOutput;
     assert.strictEqual(out.hookEventName, ev);
     if (m === 'session' || m === 'subagent') assert.ok(out.additionalContext.startsWith('REPLY MODE ULTRA:'));
-    if (m === 'prompt') assert.ok(out.additionalContext.length > 50);
-    if (m === 'tool') assert.ok(out.additionalContext.length <= 100);
+    if (m === 'prompt') assert.ok(out.additionalContext.length <= 100);
   }
 });
 
-test('every level has a tool reminder of at most 100 chars and rules starting with its name (FR-2, FR-5)', () => {
+test('every level has a prompt reminder of at most 100 chars and rules starting with its name (FR-2, FR-5)', () => {
   for (const level of ['lite', 'full', 'ultra', 'max']) {
     const t = setup('{}', { OMC_REPLY_MODE: level });
     assert.ok(JSON.parse(t.run('session').stdout).hookSpecificOutput.additionalContext.startsWith(`REPLY MODE ${level.toUpperCase()}:`));
-    assert.ok(JSON.parse(t.run('tool').stdout).hookSpecificOutput.additionalContext.length <= 100);
+    assert.ok(JSON.parse(t.run('prompt').stdout).hookSpecificOutput.additionalContext.length <= 100);
   }
 });
 
-test('hooks.json holds the four reply hooks and keeps the old ones (FR-3)', () => {
+test('hooks.json holds the three reply hooks, none after tool calls, and keeps the old ones (FR-3)', () => {
   const h = JSON.parse(fs.readFileSync(HOOKS, 'utf8')).hooks;
   const cmds = ev => h[ev].flatMap(e => e.hooks.map(x => x.command));
   assert.ok(cmds('SessionStart').some(c => c.includes('sync.js" session')));
@@ -52,7 +51,8 @@ test('hooks.json holds the four reply hooks and keeps the old ones (FR-3)', () =
   assert.ok(cmds('UserPromptSubmit').some(c => c.endsWith('reply.js" prompt')));
   assert.ok(cmds('SubagentStart').some(c => c.includes('sync.js" epoch')));
   assert.ok(cmds('SubagentStart').some(c => c.endsWith('reply.js" subagent')));
-  assert.ok(cmds('PostToolUse').some(c => c.endsWith('reply.js" tool')));
+  assert.strictEqual(h.PostToolUse, undefined);
+  assert.strictEqual(setup('{}').run('tool').status, 2);
   assert.ok(cmds('PreToolUse').some(c => c.includes('permit.js')));
 });
 
@@ -113,9 +113,9 @@ test('corrupt files are never overwritten or crash (NFR-3)', () => {
   assert.strictEqual(t.run('mode').stdout.trim(), 'reply mode: ultra');
 });
 
-test('status lists mode, style and four events (FR-9)', () => {
+test('status lists mode, style and three events (FR-9)', () => {
   const t = setup('{}');
   const out = t.run('status').stdout;
   assert.match(out, /^reply mode: ultra\nstyle: default\nlast hook fire \(UTC\):\n/);
-  assert.strictEqual(out.match(/never/g).length, 4);
+  assert.strictEqual(out.match(/never/g).length, 3);
 });

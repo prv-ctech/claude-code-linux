@@ -82,15 +82,13 @@
             "timeout": 5
           }
         ]
-      }
-    ],
-    "PostToolUse": [
+      },
       {
-        "matcher": "*",
+        "matcher": "Grep|Glob|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/reply.js\" tool",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/graph.js\" gate",
             "timeout": 5
           }
         ]

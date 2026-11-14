@@ -119,7 +119,7 @@ test('permit.js never breaks the call path', () => {
   assert.strictEqual(run.stdout, '');
 });
 
-test('prompt hint: one line of names, skipped for short prompts, /commands and repeats', () => {
+test('prompt hint: one line of names, each id once per context; skipped for short prompts, /commands and untyped messages', () => {
   const stateDir = path.join(dir, 'state');
   let fed = null;
   const out = { skills: [{ name: 'superpowers:brainstorming', score: 3 }], tools: [{ server: 'rea', tool: 'open_binary', claude_name: 'mcp__plugin_rea-mod_rea__open_binary', score: 2 }] };
@@ -132,12 +132,18 @@ test('prompt hint: one line of names, skipped for short prompts, /commands and r
   assert.strictEqual(ask('help me plan a reverse engineering job'),
     'Routed matches for this prompt: skills superpowers:brainstorming; tools mcp__plugin_rea-mod_rea__open_binary');
   assert.strictEqual(fed, 'help me plan a reverse engineering job');
-  assert.strictEqual(ask('help me plan a reverse engineering job again'), null, 'same line as last time');
+  assert.strictEqual(ask('help me plan another reverse engineering job'), null, 'both ids already named in this context');
   assert.match(ask('help me plan a reverse engineering job', 's2'), /^Routed matches/);
+  out.tools.push({ claude_name: 'mcp__plugin_rea-mod_rea__list_strings' });
+  assert.strictEqual(ask('and now list the strings of that binary'), 'Routed matches for this prompt: tools mcp__plugin_rea-mod_rea__list_strings', 'only the new id');
+  fed = null;
+  assert.strictEqual(ask('<task-notification>a subagent finished its reverse engineering job</task-notification>', 's3'), null);
+  assert.strictEqual(ask('Another Claude session sent a message:\n<agent-message from="x">report</agent-message>', 's3'), null);
+  assert.strictEqual(fed, null, 'the hint CLI is not even started');
   assert.strictEqual(ask('short'), null);
   assert.strictEqual(ask('/omc status please'), null);
   out.tools = [];
-  assert.strictEqual(ask('a different and long enough prompt'), 'Routed matches for this prompt: skills superpowers:brainstorming');
+  assert.strictEqual(ask('a different and long enough prompt', 's4'), 'Routed matches for this prompt: skills superpowers:brainstorming');
   out.skills = [];
   assert.strictEqual(ask('nothing matches this long prompt'), null);
   assert.strictEqual(hint({ prompt: 'a long enough prompt here' }, { run: () => ({ status: 3, stdout: '' }), stateDir }), null);
@@ -158,10 +164,11 @@ test('prompt.js exits 0 silently on bad input', () => {
 test('prompt hint: in hide mode ids are followed by the load_skill instruction, and only when skills match', () => {
   const stateDir = path.join(dir, 'state-hide');
   const out = { skills: [{ id: 'ecc:docker-patterns', name: 'ecc:docker-patterns', desc: 'x', score: 3 }, { name: 'plain' }], tools: [] };
-  const ask = (prompt, hide = true) => hint({ prompt, session_id: 'h' }, { run: () => ({ status: 0, stdout: JSON.stringify(out) }), stateDir, hide });
+  let n = 0;
+  const ask = (prompt, hide = true) => hint({ prompt, session_id: `h${n++}` }, { run: () => ({ status: 0, stdout: JSON.stringify(out) }), stateDir, hide });
   assert.strictEqual(ask('write a Dockerfile for the service'),
     'Routed matches for this prompt: skills ecc:docker-patterns, plain\n'
-    + 'Skills are hidden from the native list: load one with load_skill(<id>) (resolve_skills searches); never Read a path or use the Skill tool.');
+    + 'Skills are hidden from the native list: load one with load_skill(<id>) (find searches); never Read a path or use the Skill tool.');
   assert.strictEqual(ask('write a Dockerfile for the other service', false), 'Routed matches for this prompt: skills ecc:docker-patterns, plain');
   out.skills = [];
   out.tools = [{ claude_name: 'mcp__x__y' }];
@@ -177,7 +184,7 @@ const hook = (file, input, args = []) => spawnSync(process.execPath, [path.join(
   input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8',
   env: { PATH: process.env.PATH, HOME: home },
 });
-test('SubagentStart hook: additionalContext only in hide mode', () => {
+test('SubagentStart hook: the saved card, plus the load_skill line in hide mode', () => {
   assert.strictEqual(hook('prompt.js', { agent_id: 'a', agent_type: 'Explore' }, ['subagent']).stdout, '', 'no state: off');
   w(path.join(modState, 'state.json'), { hide: false });
   assert.strictEqual(hook('prompt.js', {}, ['subagent']).stdout, '');
@@ -185,7 +192,16 @@ test('SubagentStart hook: additionalContext only in hide mode', () => {
   const r = hook('prompt.js', { agent_id: 'a', agent_type: 'Explore' }, ['subagent']);
   assert.strictEqual(r.status, 0, r.stderr);
   assert.deepStrictEqual(JSON.parse(r.stdout), { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: SUBAGENT_HINT } });
-  assert.match(SUBAGENT_HINT, /resolve_skills.*load_skill.*never Read a path or use the Skill tool/);
+  assert.match(SUBAGENT_HINT, /find tool.*load_skill.*never Read a path or use the Skill tool/);
+  fs.writeFileSync(path.join(modState, 'card.txt'), 'Behind the oh-my-context gateway: x\n');
+  assert.strictEqual(JSON.parse(hook('prompt.js', {}, ['subagent']).stdout).hookSpecificOutput.additionalContext, `Behind the oh-my-context gateway: x\n${SUBAGENT_HINT}`);
+  w(path.join(modState, 'state.json'), { hide: false });
+  assert.strictEqual(JSON.parse(hook('prompt.js', {}, ['subagent']).stdout).hookSpecificOutput.additionalContext, 'Behind the oh-my-context gateway: x');
+  const data = path.join(home, '.claude', 'plugins', 'data', 'oh-my-context-mod-claude-code-linux');
+  fs.mkdirSync(data, { recursive: true });
+  fs.writeFileSync(path.join(data, 'off'), '');
+  assert.strictEqual(hook('prompt.js', {}, ['subagent']).stdout, '', 'mod off: nothing is routed, so no card');
+  fs.rmSync(path.join(data, 'off'));
 });
 
 test('hooks.json wires SubagentStart and no Skill gate', () => {

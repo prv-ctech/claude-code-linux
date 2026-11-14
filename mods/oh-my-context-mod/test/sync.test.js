@@ -149,6 +149,18 @@ test('withName sets the catalog name', () => {
   assert.strictEqual(withName('\n# Kube helper\nmore', 'p:b'), '---\nname: p:b\ndescription: "Kube helper"\n---\n\n# Kube helper\nmore');
 });
 
+test('the built-in code graph server steps aside while another entry runs that server', () => {
+  const { collectServers } = require('../hooks/sync.js');
+  const p = { state: '/nowhere' };
+  const mine = collectServers(p, '/w', [], {}, {}).filter(s => s.builtin);
+  assert.deepStrictEqual(mine.map(s => [s.key, s.prefix, s.here]), [['builtin:codebase-memory-mcp', 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp', true]]);
+  assert.strictEqual(plan(mine, [])[0].forward, true, 'not mistaken for the gateway, though it lives in the mod');
+  // The older codebase-memory-mod, still enabled, keeps the server (and its own hooks).
+  const older = [{ name: 'codebase-memory-mod', root: '/x', data: '/d', options: {}, scope: null, here: true,
+    manifest: { mcpServers: { 'codebase-memory-mcp': { command: '/x/bin/codebase-memory-mcp' } } } }];
+  assert.deepStrictEqual(collectServers(p, '/w', older, {}, {}).filter(s => s.builtin), []);
+});
+
 test('swap keeps the person\'s entries and owns only what it added', () => {
   assert.deepStrictEqual(swap(['me', 'old'], ['old'], ['new', 'me']), { next: ['me', 'new'], owned: ['new'] });
 });
@@ -161,7 +173,14 @@ test('apply routes servers and skills; a full restore puts back exactly what it 
   const res = apply(p, '/w', env, ok);
 
   const mc = r(p.gateway).servers;
-  assert.deepStrictEqual(Object.keys(mc).sort(), ['alpha', 'ctx', 'own']);
+  assert.deepStrictEqual(Object.keys(mc).sort(), ['alpha', 'codebase-memory-mcp', 'ctx', 'own']);
+  // The code graph server is the mod's own, under the tool names it had as codebase-memory-mod's.
+  assert.deepStrictEqual(mc['codebase-memory-mcp'], {
+    transport: 'stdio', command: path.join(__dirname, '..', 'bin', 'codebase-memory-mcp'), args: [], env: {},
+    claude_key: 'builtin:codebase-memory-mcp', claude_prefix: 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp', timeout: 1800,
+  });
+  assert.strictEqual(r(path.join(p.state, 'state.json')).graph, true);
+  assert.ok(!r(p.claudeJson).projects['/w'].disabledMcpServers.includes('builtin:codebase-memory-mcp'), 'nothing of Claude\'s to turn off');
   assert.deepStrictEqual(mc.alpha, {
     transport: 'stdio',
     command: `${plug('alpha')}/bin/a`,
@@ -214,7 +233,7 @@ test('route-all by default: blank settings keep only what cannot be routed direc
   const m = machine({ options: null });
   const res = apply(m.p, '/w', m.env, ok);
   const mc = r(m.p.gateway).servers;
-  assert.deepStrictEqual(Object.keys(mc).sort(), ['alpha', 'ctx', 'gamma', 'own']);
+  assert.deepStrictEqual(Object.keys(mc).sort(), ['alpha', 'codebase-memory-mcp', 'ctx', 'gamma', 'own']);
   assert.deepStrictEqual(mc.gamma.headers, { k: 'k' });
   assert.deepStrictEqual(res.servers.filter(s => !s.forward).map(s => s.key).sort(), ['plugin:beta:beta', 'plugin:oh-my-context-mod:oh-my-context']);
   assert.match(t(m.skillKeep), /description: routed/);
@@ -522,7 +541,10 @@ test('session: applies, asks for a skill reload; off and a broken CLI', () => {
   assert.strictEqual(r(m.p.settings).skillOverrides['user-skill'], 'name-only');
   assert.deepStrictEqual(r(m.p.claudeJson).projects['/w'].disabledMcpServers, ['by-hand', 'ctx', 'plugin:alpha:alpha']);
   assert.strictEqual(out.reloadSkills, true);
-  assert.match(out.additionalContext, /^oh-my-context-mod: 2 MCP server\(s\) routed through oh-my-context .* 3 skill\(s\) and 0 plugin command\(s\) listed by name only .*direct: plugin:beta:beta \(needs user_config.token\), plugin:gamma:gamma \(in direct_servers\)\. Changes made at this start count from the next session\.$/);
+  // The card (here the stub's stdout) comes first and is saved for the SubagentStart hook; then the direct servers.
+  assert.strictEqual(out.additionalContext, 'oh-my-context 0.9.0\n\noh-my-context-mod: direct MCP servers (in your own tool list): '
+    + 'plugin:beta:beta (needs user_config.token), plugin:gamma:gamma (in direct_servers). Changes made at this start count from the next session.');
+  assert.strictEqual(t(path.join(m.p.state, 'card.txt')), 'oh-my-context 0.9.0');
 
   // A broken CLI puts everything back.
   const bad = () => ({ status: 127, stdout: '' });
@@ -696,7 +718,7 @@ test('an http server Claude signs in to with OAuth stays direct; key names are r
   assert.strictEqual(why.ctx, 'OAuth (signs in through Claude)');
   // Only http: a stdio server never signs in through Claude's OAuth.
   assert.strictEqual(why['plugin:alpha:alpha'], true);
-  assert.deepStrictEqual(Object.keys(r(m.p.gateway).servers).sort(), ['alpha', 'own']);
+  assert.deepStrictEqual(Object.keys(r(m.p.gateway).servers).sort(), ['alpha', 'codebase-memory-mcp', 'own']);
   assert.ok(!JSON.stringify(res).includes('tok-secret'));
   assert.match(status(m.p, '/w', m.env, ok), /direct {5}ctx {2}\(OAuth \(signs in through Claude\)\)/);
 });
@@ -798,10 +820,8 @@ test('hide_skills on: plugin skills get disable-model-invocation, user skills us
   assert.strictEqual(entry, `---\nname: alpha:do-a\nsource: ${fs.realpathSync(path.dirname(m.skillA))}\ndescription: A\n---\nbody\n`);
   assert.match(t(path.join(m.p.state, 'catalog', 'helper', 'SKILL.md')), new RegExp(`source: ${fs.realpathSync(path.join(m.p.skills, 'helper')).replace(/[/.]/g, '\\$&')}\n`));
 
-  // Wording says hidden, found with resolve_skills then load_skill.
-  const ctx = session(m.p, '/w', m.env, ok).additionalContext;
-  assert.match(ctx, /3 skill\(s\) hidden from Claude's own skill list \(find one with the gateway's resolve_skills tool, then read it with its load_skill tool/);
-  assert.doesNotMatch(ctx, /still invocable; its resolve_skills/);
+  // How to reach a hidden skill is in the card, not in the session line.
+  assert.doesNotMatch(session(m.p, '/w', m.env, ok).additionalContext, /hidden from Claude/);
   assert.match(status(m.p, '/w', m.env, ok), /Skills: 1 plugin skill\(s\) and 2 user skill\(s\) hidden from Claude .*load_skill/);
   assert.match(status(m.p, '/w', m.env, ok), /hide_skills = "true"/);
   assert.ok(res.filesChanged);

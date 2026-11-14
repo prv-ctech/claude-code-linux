@@ -77,6 +77,7 @@ _SERVER_INFO = {"name": "oh-my-context", "version": __version__}
 # oh-my-context-mod: the whole `instructions` text. Facts only: no savings line. Stays
 # under 1,500 characters because it rides in context on every turn.
 _INSTRUCTIONS_LIMIT = 1500
+_SCHEMA_IN_ERROR = 4000
 
 
 def _instructions(servers: dict) -> str:
@@ -87,13 +88,13 @@ def _instructions(servers: dict) -> str:
         prefix = cfg.get("claude_prefix")
         names.append(prefix if isinstance(prefix, str) and prefix else name)
     tail = (
-        "Any routed tool is called with this gateway's `call` tool, using its original "
-        "Claude tool name (mcp__...) as `tool`, or `server` plus `tool`. `manifest` lists "
-        "the routed tool names and `inspect` shows one tool's parameters. A routed "
-        "server's own instructions are returned with its first call, and again after "
-        "/clear, compaction or a subagent. Skills are hidden from Claude's native "
-        "listing: find one with `resolve_skills`, load it with `load_skill` (full id), "
-        "and do not use the Skill tool for them."
+        "`find` searches the routed tools and skills for a task and returns the best "
+        "tool's parameters. Any routed tool is called with this gateway's `call` tool, "
+        "using its original Claude tool name (mcp__...) as `tool`, or `server` plus "
+        "`tool`. A routed server's own instructions are returned with its first call, "
+        "and again after /clear, compaction or a subagent. Skills are hidden from "
+        "Claude's native listing: load one with `load_skill` (full id), and do not use "
+        "the Skill tool for them."
     )
     if not names:
         return "No MCP servers are routed through this gateway right now. " + tail
@@ -113,7 +114,9 @@ def _instructions(servers: dict) -> str:
 
 # Tools Claude Code should load with their schemas up front (no ToolSearch round
 # trip) when the upstream list is withheld. oh-my-context-mod.
-_ALWAYS_LOAD = ("call", "inspect", "manifest", "resolve_skills", "load_skill")
+# Three, not every discovery tool: find covers manifest, inspect and resolve_skills in one call,
+# and those stay available as deferred tools.
+_ALWAYS_LOAD = ("find", "call", "load_skill")
 
 
 # CacheableResult defaults (SEP-2549) for list/read results. Env-tunable:
@@ -858,12 +861,13 @@ class MCPServerBridge:
         budget (the bug that made a legitimate 10-agent × 2-call fan-out look like
         a flood in the project this guard is modelled on).
         """
-        if name not in ("kb_search", "resolve_skills"):
+        if name not in ("kb_search", "resolve_skills", "find"):
             return None
         # One bucket per tool, so a burst of skill lookups cannot spend kb_search's budget.
         key = f"{self._client_name or 'unknown'}:{threading.get_ident()}:{name}"
+        # find is a skill lookup too, so it gets resolve_skills' budget.
         decision = self._flood.record(key, int(time.time() * 1000),
-                                      BLOCK_AFTER_BY_TOOL.get(name, BLOCK_AFTER))
+                                      BLOCK_AFTER_BY_TOOL.get("resolve_skills" if name == "find" else name, BLOCK_AFTER))
         if decision.blocked:
             return _make_tool_error(decision.message(name))
         return None
@@ -960,8 +964,12 @@ class MCPServerBridge:
                     annotations = ann
             errors = validate_args(arguments, full_schema)
             if errors:
+                # oh-my-context-mod: the schema rides along, so the retry needs no inspect call.
+                schema = json.dumps(full_schema, ensure_ascii=False)
+                if len(schema) > _SCHEMA_IN_ERROR:
+                    schema = schema[:_SCHEMA_IN_ERROR] + "… (cut; `inspect` shows all of it)"
                 return _make_tool_error(
-                    f"Parameter validation failed: {'; '.join(errors)}"
+                    f"Parameter validation failed: {'; '.join(errors)}\nParameters: {schema}"
                 )
 
         # Safety checks via router (pass in-memory annotations so a readOnlyHint
