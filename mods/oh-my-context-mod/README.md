@@ -84,7 +84,7 @@ The mod runs [deja-vu](https://github.com/vshulcz/deja-vu) 0.24.2 itself, behind
 /plugin install oh-my-context-mod --marketplace prv-ctech/claude-code-linux
 ```
 
-Enabling the mod is all it takes. The first session start sets everything up. Claude Code reads MCP and skill config at launch, so what a start changes counts from the next session. Each project gets its server switches at its first session there. A git worktree is its own project to Claude Code, and no hook runs before a new one's first session, so that session still loads the routed servers directly as well; the gateway, the card and `call` work there from the start.
+Enabling the mod is all it takes. The first session start sets everything up. Claude Code reads MCP and skill config at launch, so what a start changes counts from the next session. One exception: the running gateway rereads its config when the file changes, so a server newly routed behind it (a new plugin, the memory server after an update) answers `call` in the same session. Each project gets its server switches at its first session there. A git worktree is its own project to Claude Code, and no hook runs before a new one's first session, so that session still loads the routed servers directly as well; the gateway, the card and `call` work there from the start.
 
 Still on the deprecated `mcptoon-mod` 0.1.0? Undo it first: run `/mcptoon-mod off` (its own restore puts back its moved servers, `disabledMcpServers` entries, skill patches and `skillOverrides`), uninstall it, then install this mod. oh-my-context-mod does not undo 0.1.0's changes, and the two must not run together.
 

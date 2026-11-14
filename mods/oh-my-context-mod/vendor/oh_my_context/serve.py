@@ -196,6 +196,8 @@ class MCPServerBridge:
         self._routed_prompts: dict = {}
         self._routed_resources: dict = {}
         self._routed_templates: list = []
+        # oh-my-context-mod: the config file's mtime when it was last read (see _reload_config).
+        self._config_mtime = None
 
     # ═══════════════════════════════════════════════════
     # Lifecycle
@@ -212,11 +214,33 @@ class MCPServerBridge:
         with self._lock:
             if self._initialized:
                 return
+            self._config_mtime = _config_mtime()
             self._servers = load_config()
             # load_config never returns the gateway's own entry (fork bomb guard).
             self._pool = MCPClientPool(self._servers)
             self._build_tool_index()
             self._initialized = True
+
+    def _reload_config(self):
+        """oh-my-context-mod: pick up servers added to the config after this process started.
+
+        Claude starts the gateway while hooks/sync.js is still writing the config, and keeps this
+        process across a plugin reload, so a server routed since then would be offered by `find`
+        and refused by `call`. Servers are only added: one that left the config stays callable
+        until the next start, which is harmless.
+        """
+        mtime = _config_mtime()
+        if mtime is None or mtime == self._config_mtime:
+            return
+        with self._lock:
+            if mtime == self._config_mtime:
+                return
+            self._config_mtime = mtime
+            new = {k: v for k, v in load_config().items() if k not in self._servers}
+            if new:
+                _log(f"Config changed: {len(new)} new server(s): {', '.join(sorted(new))}")
+                self._servers.update(new)  # the pool reads this same dict
+                self._refresh_servers_in_parallel(list(new))
 
     def _build_tool_index(self):
         """Build the namespaced tool index from all configured servers.
@@ -909,6 +933,7 @@ class MCPServerBridge:
         resolved; a server's own "timeout" in the config wins over the default.
         """
         self._ensure_initialized()
+        self._reload_config()
 
         name = params.get("name", "")
         arguments = params.get("arguments", {})
@@ -1177,6 +1202,14 @@ class MCPServerBridge:
 # ═══════════════════════════════════════════════════
 # JSON-RPC helpers
 # ═══════════════════════════════════════════════════
+
+def _config_mtime():
+    """The gateway config's mtime in ns, or None when it cannot be read."""
+    try:
+        return config._config_file().stat().st_mtime_ns
+    except OSError:
+        return None
+
 
 def _only_errors(tools) -> bool:
     """True for a cached list that holds nothing but the reason a server failed to start."""
