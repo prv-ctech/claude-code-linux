@@ -68,8 +68,10 @@ def _server_lines(used: dict) -> list:
 
     lines = []
     for server, cfg in sorted(load_config().items()):
-        tools = [t for t in cache_mod.get_cached_tools_any_age(server) or []
+        raw = cache_mod.get_cached_tools_any_age(server)
+        tools = [t for t in raw or []
                  if isinstance(t, dict) and t.get("name") and "error" not in t]
+        failed = next((str(t["error"]) for t in raw or [] if isinstance(t, dict) and "error" in t), "")
         prefix = cfg.get("claude_prefix") if isinstance(cfg, dict) else None
         name = prefix if isinstance(prefix, str) and prefix else server
         skip = _GENERIC | set(re.split(r"[_\-.]+", server.lower()))
@@ -77,8 +79,12 @@ def _server_lines(used: dict) -> list:
                         if len(w) > 2 and w not in skip)
         # Most common first, then by name, so the line is the same on every run.
         top = [w for w, _ in sorted(words.items(), key=lambda p: (-p[1], p[0]))[:_WORDS]]
-        line = (f"- {name}__* ({len(tools)} tools): {', '.join(top)}" if tools
-                else f"- {name}__* (tools not listed yet)")
+        if tools:
+            line = f"- {name}__* ({len(tools)} tools): {', '.join(top)}"
+        elif failed:
+            line = f"- {name}__* (failed to start: {' '.join(failed.split())[:100]})"
+        else:
+            line = f"- {name}__* (tools not listed yet)"
         mine = (used.get(server) or [])[:_USED_TOOLS]
         lines.append(line + (f"; used here: {', '.join(mine)}" if mine else ""))
     return lines

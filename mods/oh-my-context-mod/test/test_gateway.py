@@ -294,6 +294,7 @@ class GatewayTest(unittest.TestCase):
                                               "arguments": {"text": "one"}})
         self.assertFalse(first["isError"], first)
         self.assertIn("FAKE-INSTRUCTIONS", first["content"][0]["text"])
+        self.assertIn("'fake', shown once per context]", first["content"][0]["text"])
         self.assertIn("echo:one", _text(first))
         # Claude Code shows structuredContent over content; a stub there would hide the result.
         self.assertNotIn("structuredContent", first)
@@ -329,6 +330,10 @@ class GatewayTest(unittest.TestCase):
                                             "arguments": {"text": "x"}})
         self.assertTrue(res["isError"])
         self.assertIn("Unknown server 'nope'", _text(res))
+        for args in ({"server": "fake", "tool": "nope"}, {"tool": "mcp__fake__nope"}):
+            res = self.gw.call("call", {**args, "arguments": {}})
+            self.assertTrue(res["isError"], args)
+            self.assertIn("Tool 'nope' not found on routed server 'fake'. Call find", _text(res), args)
         tools = self.gw.request("tools/list")["result"]["tools"]
         schema = next(t for t in tools if t["name"] == "call")["inputSchema"]
         self.assertNotIn("name", schema["properties"])
