@@ -180,6 +180,9 @@ test('apply routes servers and skills; a full restore puts back exactly what it 
     claude_key: 'builtin:codebase-memory-mcp', claude_prefix: 'mcp__plugin_codebase-memory-mod_codebase-memory-mcp', timeout: 1800,
   });
   assert.strictEqual(r(path.join(p.state, 'state.json')).graph, true);
+  const seen = calls.length;
+  assert.match(status(p, '/w', env, ok), /\n  forwarded  builtin:codebase-memory-mcp  \(gateway: codebase-memory-mcp\)/, 'no star once the gateway has it');
+  calls.length = seen; // status asks the CLI too; the list below is about apply
   assert.ok(!r(p.claudeJson).projects['/w'].disabledMcpServers.includes('builtin:codebase-memory-mcp'), 'nothing of Claude\'s to turn off');
   assert.deepStrictEqual(mc.alpha, {
     transport: 'stdio',

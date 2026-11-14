@@ -52,7 +52,7 @@ The mod runs [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-m
 | Tools | Called through the gateway's `call` under the names they had in the older codebase-memory-mod: `mcp__plugin_codebase-memory-mod_codebase-memory-mcp__<tool>`, so permission rules written for those names still apply. |
 | First index | At session start in a git repository root with no graph yet, the first index starts in the background and lands in `.codebase-memory/graph.db.zst`. Output goes to `~/.cache/codebase-memory-mcp/index.log`. |
 | Context | A workspace with a graph gets one block at session start and in every subagent: which tools answer which question, and the rules. Nothing is added per prompt. |
-| Gate | While the workspace has its graph, `hooks/graph.js` denies Grep, Glob and grep, rg, ag, ack, find or git grep as commands; the denial names the graph tools. A pipe into grep stays allowed. |
+| Gate | While the workspace has its graph, `hooks/graph.js` denies Grep, Glob and grep, rg, ag, ack, find or git grep as commands; the denial names the graph tools. Still allowed: a pipe into grep, the word inside quotes or a here-document, and a search whose paths all lie outside the workspace (`~/.claude`, `/var/log`). It steers the model and is no security boundary: a search hidden in `bash -c "..."` passes. |
 | Gate off | For the person, not the model: `mkdir -p ~/.cache/codebase-memory-mcp && touch ~/.cache/codebase-memory-mcp/gate-off`. Delete the file to turn the gate back on. `/omc off` lifts it too. |
 | Older plugin | While codebase-memory-mod is still enabled it keeps the server and its own hooks, and the mod's own copy stays out (state `graph: false`). Uninstall it to move over; the mod is no longer in the marketplace. |
 

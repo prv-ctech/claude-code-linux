@@ -41,6 +41,30 @@ test('shell code search is denied, a pipe into grep is not', () => {
   assert.strictEqual(decide(call('Bash', { command: 'npm test' }), home), null);
 });
 
+test('text in quotes and here-documents is not a search, and neither is a search outside the workspace', () => {
+  const bash = command => decide(call('Bash', { command }), home);
+  // The word inside a string, a script or a message.
+  assert.strictEqual(bash('node -e \'console.log("a && grep z f")\''), null);
+  assert.strictEqual(bash('git commit -m "drop the grep gate; find callers"'), null);
+  assert.strictEqual(bash('python3 - <<\'E\'\nprint(1); grep = 2\nfind . -name x\nE'), null);
+  assert.strictEqual(bash('node hooks/sync.js status 2>&1 | grep graph'), null);
+  // Paths that all lie outside the workspace: config and logs, not this code.
+  assert.strictEqual(bash('grep -n mod ~/.claude/settings.json'), null);
+  assert.strictEqual(bash('find /var/log -name "*.log"'), null);
+  assert.strictEqual(bash('rg token "$HOME/.config/app" /etc/app.conf'), null);
+  // Still searches of this code.
+  assert.ok(bash('grep -rn foo'));
+  assert.ok(bash('grep -rn "foo bar" src'));
+  assert.ok(bash(`grep foo ${ws}/src /etc/hosts`), 'one path inside is enough');
+  // A relative path that exists is inside too, also next to an outside one.
+  fs.mkdirSync(path.join(ws, 'src'), { recursive: true });
+  assert.ok(bash('grep -rn foo src /etc/hosts'));
+  assert.ok(bash('grep -rn foo . /etc/hosts'));
+  assert.strictEqual(bash('grep -rn foo ../ /etc/hosts'), null, 'a relative path that leaves the workspace is outside');
+  assert.ok(bash('echo "x" && rg foo'));
+  assert.ok(bash('python3 - <<E\nprint(1)\nE\ngrep -rn foo .'), 'after the here-document ends');
+});
+
 test('the gate-off file lifts it for the person', () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'cbm-cache-'));
   const prev = process.env.XDG_CACHE_HOME;

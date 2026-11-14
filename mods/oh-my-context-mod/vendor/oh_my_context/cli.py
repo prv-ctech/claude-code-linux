@@ -74,7 +74,15 @@ def main() -> None:
     args = sys.argv[1:]
     command = args[0] if args else ""
     if command == "--version":
-        print(f"oh-my-context {__version__}")
+        # oh-my-context-mod: the plugin's version is the one a person can act on; the
+        # mcptoon version this fork started from follows it.
+        try:
+            import json
+            plugin = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json")
+                                .read_text(encoding="utf-8"))["version"]
+            print(f"oh-my-context {plugin} (from mcptoon {__version__})")
+        except Exception:
+            print(f"oh-my-context {__version__}")
     elif command == "serve" and len(args) == 1:
         from .serve import run_serve
         run_serve()
