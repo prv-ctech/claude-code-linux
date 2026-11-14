@@ -997,3 +997,27 @@ class FailedStartCacheTest(unittest.TestCase):
             bridge._build_tool_index()
         self.assertEqual(fetched, ["down"])
         self.assertEqual([v["tool"] for v in bridge._tool_index.values()], ["t"])
+
+
+class ConfigReloadTest(unittest.TestCase):
+    def test_a_server_added_to_the_config_after_start_is_picked_up_once(self):
+        from unittest import mock
+        from oh_my_context import serve
+        bridge = object.__new__(serve.MCPServerBridge)
+        bridge._servers = pool_view = {"old": {"command": "a"}}
+        bridge._lock = threading.Lock()
+        bridge._config_mtime = 1
+        fetched = []
+        now = {"old": {"command": "changed"}, "new": {"command": "b"}}
+        with mock.patch.object(serve, "load_config", return_value=now) as load, \
+                mock.patch.object(bridge, "_refresh_servers_in_parallel", side_effect=fetched.extend):
+            with mock.patch.object(serve, "_config_mtime", return_value=1):
+                bridge._reload_config()
+            self.assertEqual(load.call_count, 0, "an unchanged file is not read again")
+            with mock.patch.object(serve, "_config_mtime", return_value=2):
+                bridge._reload_config()
+                bridge._reload_config()
+            self.assertEqual(load.call_count, 1)
+        self.assertEqual(fetched, ["new"])
+        self.assertIs(bridge._servers, pool_view, "updated in place: the pool holds this dict")
+        self.assertEqual(bridge._servers, {"old": {"command": "a"}, "new": {"command": "b"}})
