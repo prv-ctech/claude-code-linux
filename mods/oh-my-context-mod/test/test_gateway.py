@@ -257,6 +257,12 @@ class GatewayTest(unittest.TestCase):
         self.assertIn("Skill tool", text)
         self.assertNotIn("footer-facts", text)
 
+    def test_health_names_the_plugin_version(self):
+        plugin = json.loads((Path(__file__).resolve().parents[1] / ".claude-plugin" / "plugin.json").read_text())
+        res = str(self.gw.call("health", {}))
+        self.assertIn("pluginVersion", res)
+        self.assertIn(plugin["version"], res)
+
     def test_find_returns_tools_with_the_first_ones_parameters(self):
         ok = self.gw.call("call", {"tool": "mcp__fake__echo", "arguments": {"text": "hi"}})
         self.assertFalse(ok["isError"])  # the tool list is cached from here on

@@ -199,7 +199,8 @@ def native_tools() -> list[dict]:
                         "type": "string",
                         "description": "ok, degraded, error or starting.",
                     },
-                    "version": {"type": "string"},
+                    "pluginVersion": {"type": "string", "description": "The oh-my-context-mod plugin version."},
+                    "version": {"type": "string", "description": "The mcptoon version this gateway forked from."},
                     "python": {"type": "string"},
                     "configPath": {"type": "string"},
                     "serversConfigured": {"type": "integer"},
@@ -726,9 +727,17 @@ def _health(arguments: dict, state: dict) -> dict:  # noqa: ARG001 - uniform sig
         status = "ok"
 
     cfg_path = str(_config_file())
+    # The plugin's version is the one /omc status shows; `version` stays the mcptoon one it forked from.
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(root, ".claude-plugin", "plugin.json"), encoding="utf-8") as fh:
+            plugin = json.load(fh)["version"]
+    except Exception:
+        plugin = __version__
 
     return {
         "status": status,
+        "pluginVersion": plugin,
         "version": __version__,
         "python": os.sys.version.split()[0],
         "configPath": cfg_path,

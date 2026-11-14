@@ -73,6 +73,16 @@
         ]
       },
       {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/permit.js\" direct",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Grep|Glob|Bash",
         "hooks": [
           {
