@@ -3,25 +3,18 @@
 //   node check.mjs [--root <project>]           problems only
 //   node check.mjs [--root <project>] --tick    one round line first, then problems
 //   node check.mjs [--root <project>] --watch   rounds every roundIntervalMinutes for ~28 min, then exits;
-//                                               prints only problem and walk-due lines (quiet rounds print nothing).
+//                                               prints only problem lines (quiet rounds print nothing).
 //                                               The router runs this under its Monitor tool.
 //
 // With --tick, the first line is {"kind":"tick","round":n}. n goes up by one on
 // every --tick run and is kept as "round" in .oma/job/watchdog-state.json. Runs
-// without --tick don't change it. A --tick round whose number divides by
-// browserWalkEveryNRounds, with the app answering and no team active, also prints
-// {"kind":"walk-due","round":n}.
+// without --tick don't change it.
 //
 // Then it prints only problems, one JSON object per line:
-//   {"kind":"stale|slow|blocked|drift|app-down|app-not-running|team-active","ticket":"004","detail":"..."}
+//   {"kind":"stale|slow|blocked|drift|app-down|app-not-running","ticket":"004","detail":"..."}
 // Prints nothing when all is well. Always exits 0. Warnings (for example an
 // unreadable rules file) go to stderr, and --watch passes them on as
 // {"kind":"warning"} lines.
-//
-// "team-active" is not a fault: it says a team ticket is in progress in the
-// main checkout (some .oma/job/status-*.json has a step other than "done"). While
-// that is true, app-health problems on the main app are held back, and only
-// printed (as app-down) when a teammate's status file is also stale.
 //
 // Thresholds come from the first ```json block in <project>/.oma/watchdog-rules.md
 // (the plugin's templates/watchdog-rules.md when the project has none).
@@ -43,7 +36,6 @@ const DEFAULTS = {
   appUrl: "http://localhost:3000",
   healthPaths: ["/"],
   healthTimeoutSeconds: 30,
-  browserWalkEveryNRounds: 3,
   repeatReportAfterMinutes: 60,
   driftIgnore: [".oma/job/"],
   // Used by --watch.
@@ -222,14 +214,6 @@ function makeReporter(state) {
 function staleLimit(cfg, step) {
   const own = cfg.staleMinutesByStep?.[step];
   return typeof own === "number" && own > 0 ? own : cfg.staleMinutes;
-}
-
-// True when an active (not done/blocked) status hasn't been updated within its step's limit.
-function isStale(status, cfg) {
-  const step = typeof status.step === "string" ? status.step : "";
-  if (step === "done" || step === "blocked") return false;
-  const updated = Date.parse(status.updated);
-  return !step || Number.isNaN(updated) || NOW - updated > staleLimit(cfg, step) * MIN;
 }
 
 function checkStatus({ key, label, status, prev, cfg, report }) {
@@ -452,19 +436,6 @@ async function main() {
     pendingTick = JSON.stringify({ kind: "tick", round: state.round }) + "\n";
   }
 
-  // Tickets marked done on the board. A team status file left behind by a
-  // finished team ticket must not hold back app health forever.
-  const doneTickets = new Set();
-  try {
-    const board = fs.readFileSync(path.join(mainRoot, "specs", "tickets", "BOARD.md"), "utf8");
-    for (const line of board.split("\n")) {
-      const cells = line.split("|").map((c) => c.trim());
-      if (cells.length > 3 && /^\d+$/.test(cells[1]) && /^done$/i.test(cells[3])) doneTickets.add(cells[1].padStart(3, "0"));
-    }
-  } catch {
-    // no board yet
-  }
-
   const { report, finish } = makeReporter(state);
   const nextWorkers = {};
 
@@ -506,61 +477,7 @@ async function main() {
     checkDrift({ key, label, root: wt.dir, status, ticket, base, cfg, report });
   }
 
-  // Team members' status files in the main checkout.
-  const jobDir = path.join(mainRoot, JOB);
-  let teamFiles = [];
-  try {
-    teamFiles = fs.readdirSync(jobDir).filter((f) => /^status-.+\.json$/.test(f));
-  } catch {
-    // no .oma/job folder yet
-  }
-  // A team is in progress while any team status file has a step other than "done".
-  const teamActive = []; // { name, ticket }
-  const teamStale = []; // names of active teammates whose status file is stale or unreadable
-  for (const file of teamFiles.sort()) {
-    const name = file.slice("status-".length, -".json".length);
-    const key = `team:${name}`;
-    const r = readJson(path.join(jobDir, file));
-    if (!r.ok) {
-      if (!r.missing) {
-        report("stale", guessTicket(name), key, `team member ${name}: .oma/job/${file} is not valid JSON`);
-        teamActive.push({ name, ticket: guessTicket(name) });
-        teamStale.push(name);
-      }
-      continue;
-    }
-    const status = r.value && typeof r.value === "object" ? r.value : {};
-    const ticket = normTicket(status.ticket, status.slug, name);
-    status.ticket = ticket;
-    if (ticket && doneTickets.has(ticket)) continue; // finished team ticket: leftover file
-    const label = ticket ? `ticket ${ticket} team member ${name}` : `team member ${name}`;
-    nextWorkers[key] = checkStatus({ key, label, status, prev: state.workers[key], cfg, report });
-    if (status.step !== "done") {
-      teamActive.push({ name, ticket });
-      if (isStale(status, cfg)) teamStale.push(name);
-    }
-  }
-
-  if (!teamActive.length) {
-    await checkApp(cfg, report);
-  } else {
-    const tickets = [...new Set(teamActive.map((t) => t.ticket).filter(Boolean))].join(", ") || "?";
-    const members = teamActive.map((t) => t.name).join(", ");
-    problems.push({
-      kind: "team-active",
-      ticket: tickets,
-      detail: `team ticket ${tickets} is in progress in the main checkout (members: ${members}); skip the browser walk, app health on ${cfg.appUrl} is held back`,
-    });
-    // Collect app-health results, and pass them on only if the team has also gone quiet.
-    const held = [];
-    await checkApp(cfg, (kind, ticket, key, detail) => held.push({ kind, ticket, key, detail }));
-    if (teamStale.length) {
-      for (const h of held) {
-        const why = `while team ticket ${tickets} is in progress and ${teamStale.join(", ")} ha${teamStale.length > 1 ? "ve" : "s"} a stale status file`;
-        report("app-down", h.ticket || tickets, h.key, `${h.detail.replace(/; health checks skipped$/, "")} (${why})`);
-      }
-    }
-  }
+  await checkApp(cfg, report);
 
   // The main app not running is news once, not every round: printed when it stops answering, then
   // held back until it has answered again.
@@ -568,14 +485,8 @@ async function main() {
   if (notRunning >= 0) {
     if (state.appNotRunning) problems.splice(notRunning, 1);
     state.appNotRunning = true;
-  } else if (!teamActive.length) {
+  } else {
     state.appNotRunning = false;
-  }
-
-  // A walk is due even when nothing serves the main checkout: the checker starts its own server.
-  if (TICK && state.round % Math.max(1, cfg.browserWalkEveryNRounds) === 0 && cfg.healthPaths.length
-    && !problems.some((p) => ["app-down", "team-active"].includes(p.kind))) {
-    problems.push({ kind: "walk-due", round: state.round });
   }
 
   state.workers = nextWorkers;

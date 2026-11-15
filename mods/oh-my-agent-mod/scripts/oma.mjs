@@ -82,7 +82,7 @@ const truthy = v => ['1', 'true', 'yes', 'on'].includes(String(v ?? '').trim().t
 // --- router mode per session -----------------------------------------------------------------------
 
 const routerLine = () => `oh-my-agent router mode is on in this session: you are the router. Follow ${path.join(ROOT, 'router.md')} `
-  + '(Read it again if it is not in your context): route work to oh-my-agent-mod agents, never build, edit or run git yourself, except a quick fix as the Quick path in router.md allows. /oma off ends router mode.';
+  + '(Read it again if it is not in your context): route work to oh-my-agent-mod agents, never build, edit or run git yourself, except a quick fix as the Quick path in router-bug.md allows. /oma off ends router mode.';
 
 export function sessionsOn(p) {
   const s = readJson(p.sessions, {});
@@ -150,9 +150,9 @@ export function onSession(p, input) {
   const on = sid && sessionsOn(p)[sid];
   if (on && input.source === 'clear') setSession(p, sid, false);
   else if (on && (input.source === 'compact' || input.source === 'resume')) {
-    lines.push(`${routerLine()} After this ${input.source}: Read router.md now, rebuild your job list from the status files (oma.mjs status), and re-arm your watch if it is not running.`);
+    lines.push(`${routerLine()} After this ${input.source}: Read router.md now (and router-run.md next to it if any job is running or queued), rebuild your job list from the status files (oma.mjs status), and re-arm your watch if it is not running.`);
   }
-  if (!lines.length && input.source === 'startup') lines.push('oh-my-agent: /oma <what to build> runs the superagent (router, workers in worktrees, tester, reviewer, merger, checker).');
+  if (!lines.length && input.source === 'startup') lines.push('oh-my-agent: /oma <what to build> runs the superagent (router, workers in worktrees, tester, reviewer, merger).');
   return lines.join('\n') || null;
 }
 
@@ -327,16 +327,6 @@ function inFlight(root) {
     const s = readJson(path.join(d, '.oma', 'job', 'status.json'), null);
     if (s) out.push({ worktree: d, ticket: s.ticket, slug: s.slug, step: s.step, updated: s.updated, branch: s.branch, note: s.note });
   }
-  let team = [];
-  try {
-    team = fs.readdirSync(path.join(root, '.oma', 'job')).filter(f => /^status-.+\.json$/.test(f));
-  } catch {
-    /* none */
-  }
-  for (const f of team) {
-    const s = readJson(path.join(root, '.oma', 'job', f), null);
-    if (s) out.push({ teammate: f.slice(7, -5), ticket: s.ticket, slug: s.slug, step: s.step, updated: s.updated });
-  }
   return out;
 }
 
@@ -405,7 +395,6 @@ export function projectState(dir, { write = false, env = process.env } = {}) {
   const branch = branchNow;
   const dirty = git(root, ['status', '--porcelain', '--untracked-files=no']).stdout.split('\n').filter(Boolean);
   const head = git(root, ['rev-parse', '--short', 'HEAD']);
-  const settings = readJson(paths(env).settings, {});
   return {
     ok: true,
     pluginRoot: ROOT,
@@ -419,7 +408,6 @@ export function projectState(dir, { write = false, env = process.env } = {}) {
     board: board(root),
     inFlight: inFlight(root),
     uncommittedTracked: dirty,
-    agentTeams: (env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS || (settings.env || {}).CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS) === '1',
     reviewTickets: truthy(env.CLAUDE_PLUGIN_OPTION_REVIEW_TICKETS),
     changed,
     codeGraph: codeGraph(dir, { env }),

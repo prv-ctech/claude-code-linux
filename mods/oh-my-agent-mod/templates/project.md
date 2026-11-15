@@ -31,7 +31,7 @@ The `oma` helper (on every session's PATH while the plugin is on) reads the json
 - **Codebase map:** {{where to start reading}}
 - **Read before writing code:** {{docs that override what a model knows, or "none"}}
 - **Fresh worktree setup:** {{what a brand-new copy needs before it runs, usually `oma run install`}}. A new worktree has none of the gitignored files and agents can't read `.env`. If the app needs one to start, list it in `.worktreeinclude` at the project root (`.gitignore` syntax); Claude Code copies matching gitignored files into every new worktree.
-- **Local data is per folder:** {{yes / no. No when every copy shares one database server: test account names must then be unique across tickets, and the team and reproducer accounts below change to `team` and `repro`.}}
+- **Local data is per folder:** {{yes / no. No when every copy shares one database server: test account names must then be unique across tickets, and the reproducer account below changes to `repro`.}}
 - **One dev server per folder:** {{yes / no. Yes for Next.js (it locks .next/dev/lock).}}
 - **Build and dev server can run together in one folder:** {{yes / no}}
 
@@ -39,7 +39,7 @@ The `oma` helper (on every session's PATH while the plugin is on) reads the json
 
 | Who | Port | Where |
 |---|---|---|
-| Main checkout (you, checker, team tickets) | mainPort (3000) | the project folder |
+| Main checkout (you, first-timer) | mainPort (3000) | the project folder |
 | Worker on ticket NNN | 3100 + NNN (004 → 3104) | its worktree |
 | Reproducer | 3090 | its worktree |
 
@@ -47,12 +47,12 @@ The `oma` helper (on every session's PATH while the plugin is on) reads the json
 
 - **How to create one:** {{exact steps with `<name>` for the account name and `<host>` for the agent's host, or "none"}}
 - **How to sign in to an existing one:** {{…}}
-- **Names:** worker on ticket NNN → `tNNN`; team → `t050`; reproducer → `t090`; checker → `t000`.
+- **Names:** worker on ticket NNN → `tNNN`; reproducer → `t090`.
 - **Extra URLs agents should know:** {{e.g. published sites, or "none"}}
 
 ## Core flows
 
-The flows a user can't live without. The checker walks them after every merge and when the router's watch says a walk is due. 3 to 6 flows, one line of real steps each.
+The flows a user can't live without. Tickets' regression checks cover them. 3 to 6 flows, one line of real steps each.
 
 1. {{e.g. Sign up, log out, log back in.}}
 2. {{…}}

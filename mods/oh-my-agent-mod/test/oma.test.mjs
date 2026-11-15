@@ -173,9 +173,6 @@ test('oma status writes the status file with correct step timing and validation'
   assert.strictEqual(oma(dir, 'status', 'blocked', 'ticket contradicts itself').status, 0);
   oma(dir, 'status', 'init', 'repro:save-button', '3090');
   assert.deepStrictEqual([readJson(file).ticket, readJson(file).slug], ['repro', 'save-button']);
-  oma(dir, 'status', 'init', 'specs/tickets/007-stats', '3000', '--name', 'storage');
-  assert.strictEqual(readJson(path.join(dir, '.oma', 'job', 'status-storage.json')).ticket, '007');
-  assert.strictEqual(oma(dir, 'status', 'init', 'specs/tickets/x', '3000', '--name', '../evil').status, 2);
 });
 
 test('oma run, cfg and the none commands', () => {
@@ -286,4 +283,13 @@ test('omaOnlyDiff: oma lines allowed, user lines, other files and removals block
   assert.deepStrictEqual(omaOnlyDiff(d), ['.worktreeinclude']);
   const cli = run('node', [path.join(ROOT, 'scripts', 'oma.mjs'), 'dirty', '--dir', d]);
   assert.strictEqual(cli.status, 1);
+});
+
+test('router.md names only phase files and agents that exist, and stays small', () => {
+  const core = fs.readFileSync(path.join(ROOT, 'router.md'), 'utf8');
+  const files = ['router-bug.md', 'router-interview.md', 'router-run.md'];
+  for (const f of files) assert.ok(core.includes(`\`${f}\``) && fs.existsSync(path.join(ROOT, f)), f);
+  const all = core + files.map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('');
+  for (const m of all.matchAll(/`oh-my-agent-mod:([a-z-]+)`/g)) assert.ok(fs.existsSync(path.join(ROOT, 'agents', `${m[1]}.md`)), m[1]);
+  assert.ok(Buffer.byteLength(core) < 16000, 'core router is read in every /oma session: keep it under 16 KB');
 });

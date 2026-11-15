@@ -1,6 +1,6 @@
 # Watchdog rules
 
-The rules the oh-my-agent router follows when it judges its watch. The router runs the plugin's `check.mjs --watch` under its Monitor tool; every round the script checks the workers' status files and the main app, and prints a line only when something looks wrong (or a browser walk is due). The router judges each line against this file. Edit it any time in plain English, or ask the router to change a rule. Changes apply from the next round.
+The rules the oh-my-agent router follows when it judges its watch. The router runs the plugin's `check.mjs --watch` under its Monitor tool; every round the script checks the workers' status files and the main app, and prints a line only when something looks wrong. The router judges each line against this file. Edit it any time in plain English, or ask the router to change a rule. Changes apply from the next round.
 
 ## Numbers you can change
 
@@ -16,7 +16,6 @@ The rules the oh-my-agent router follows when it judges its watch. The router ru
   "appUrl": "http://localhost:3000",
   "healthPaths": ["/"],
   "healthTimeoutSeconds": 30,
-  "browserWalkEveryNRounds": 3,
   "repeatReportAfterMinutes": 60,
   "driftIgnore": [".oma/job/"]
 }
@@ -28,7 +27,6 @@ The rules the oh-my-agent router follows when it judges its watch. The router ru
 - `slowStepMinutes`: a worker counts as slow when it has been on one step this long.
 - `evalRoundsWithoutProgress`: a worker counts as stuck when this many test rounds in a row end without fewer failing checks than its best round so far.
 - `appUrl`, `healthPaths`, `healthTimeoutSeconds`: where the main checkout's app runs and which pages must answer 200 (pages that work without signing in). `[]` for an app with no server.
-- `browserWalkEveryNRounds`: every round whose number divides by this, with the app answering and no team active, the watch prints a `walk-due` line and the router sends the checker to walk the core flows.
 - `repeatReportAfterMinutes`: how long before the same problem is acted on again.
 - `driftIgnore`: paths a worker may always change. Its own ticket folder always counts as allowed. Add the files tools rewrite on their own (project.md lists them).
 
@@ -50,13 +48,11 @@ Changing files its ticket doesn't list under `## Affected areas`. Use common sen
 ## App health
 
 - Every page in `healthPaths` must return 200 on the main checkout's app.
-- The app not running at all (`app-not-running`) is not a fault; skip health checks and the walk that round.
-- While a team ticket is in progress (`team-active`), the team edits and restarts the main app: no walk, and `app-down` counts only when the script says a teammate's status file is also stale.
-- A team status file whose ticket shows `done` on the board is a leftover; the script already skips it.
+- The app not running at all (`app-not-running`) is not a fault; skip health checks that round.
 
 ## What to act on and what to ignore
 
-Act on: any stuck or blocked worker, drift into shared pieces or another ticket's area, the main app erroring or failing a step of the walk, a `warning` line about this file (tell the user once).
+Act on: any stuck or blocked worker, drift into shared pieces or another ticket's area, the main app erroring, a `warning` line about this file (tell the user once).
 
 Ignore: anything that looks fine on a closer look, the same problem within `repeatReportAfterMinutes` unless it got worse, dev server warnings a user would never see, workers whose step is `done`.
 
