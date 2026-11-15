@@ -262,9 +262,13 @@ test('approval: only /oma approve records it; a worker starts only on an approve
   assert.deepStrictEqual(state(dir).approved, []);
 
   const p = paths({ CLAUDE_CONFIG_DIR: tmp('oma-home-') });
-  assert.match(onPrompt(p, { session_id: 'A', prompt: '/oma approve' }, dir), /Recorded as approved.*004-seo/);
+  // A bare approve, or one naming another ticket, approves nothing: the user may not have seen 004.
+  assert.match(onPrompt(p, { session_id: 'A', prompt: '/oma approve' }, dir), /Nothing was approved.*Still waiting for approval: 004-seo/);
+  assert.match(onPrompt(p, { session_id: 'A', prompt: '/oma approve 005' }, dir), /Nothing was approved/);
+  assert.ok(start(P));
+  assert.match(onPrompt(p, { session_id: 'A', prompt: '/oma approve 4' }, dir), /Recorded as approved.*004-seo/);
   assert.strictEqual(start(P), null);
-  assert.match(onPrompt(p, { session_id: 'A', prompt: '/oma approve' }, dir), /No ticket was waiting/);
+  assert.doesNotMatch(onPrompt(p, { session_id: 'A', prompt: '/oma approve all' }, dir), /Still waiting/);
 
   // Status moves and added checks keep approval; an edited check or requirement loses it.
   const ev = fs.readFileSync(path.join(t, 'eval.md'), 'utf8');

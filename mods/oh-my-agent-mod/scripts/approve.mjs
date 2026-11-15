@@ -77,11 +77,14 @@ export function state(root, done = []) {
   return out;
 }
 
-// Records every ticket in `pending` as it is on disk now. Returns the folder names it approved.
-export function approve(root, done = []) {
+// Records the pending tickets whose numbers are in `ids` (or all of them for ['all']) as they are on
+// disk now. Returns the folder names it approved. A ticket the person did not name is never approved:
+// they may not have been shown it yet.
+export function approve(root, ids, done = []) {
   const m = manifest(root);
   const names = [];
   for (const { ticket } of state(root, done).pending) {
+    if (!ids.includes('all') && !ids.includes(ticket.slice(0, 3))) continue;
     const d = digest(root, ticket);
     if (!d) continue;
     m.tickets[ticket] = { approved: new Date().toISOString(), ...d };

@@ -112,13 +112,16 @@ export function onPrompt(p, input, dir = process.env.CLAUDE_PROJECT_DIR || input
     }
     if (['status', 'help', 'init'].includes(arg)) return null;
     setSession(p, sid, true);
-    if (arg === 'approve') {
+    if (/^approve\b/.test(arg)) {
       const top = git(dir, ['rev-parse', '--show-toplevel']);
       const root = top.status === 0 ? top.stdout.trim() : dir;
-      const names = approve(root, doneTickets(root));
-      return `${routerLine()}\noh-my-agent: the user typed /oma approve. ` + (names.length
+      const ids = arg.split(/[\s,]+/).slice(1).map(x => (/^\d+$/.test(x) ? x.padStart(3, '0') : x));
+      const names = approve(root, ids, doneTickets(root));
+      const left = approvalState(root, doneTickets(root)).pending.map(x => x.ticket);
+      return `${routerLine()}\noh-my-agent: the user typed /oma ${arg}. ` + (names.length
         ? `Recorded as approved, exactly as they are on disk now: ${names.join(', ')}. Mark them ready and route them (see "Approval" in router-interview.md).`
-        : 'No ticket was waiting for approval: every ticket on disk is already approved or done.');
+        : 'Nothing was approved: the command must name the ticket numbers shown to the user (/oma approve 010 011), or say all.')
+        + (left.length ? ` Still waiting for approval: ${left.join(', ')}.` : '');
     }
     // Headless runs (claude -p) don't resolve the short /oma name, so the command text may be missing.
     const lines = [`oh-my-agent: the user ran /oma, so you are the oh-my-agent router for this request, even if no /oma command text appears above (headless runs don't resolve the short name). `
