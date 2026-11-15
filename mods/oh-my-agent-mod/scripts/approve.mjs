@@ -1,6 +1,6 @@
 // oh-my-agent-mod: the approval manifest (.oma/approved.json).
 // Written only by the UserPromptSubmit hook when the person types /oma approve; read by the guard
-// before a worker starts. A ticket is approved while its rd.md and every approved part of its eval.md
+// before a worker starts. A ticket is approved while its rd.md, its mockup.html and every approved part of its eval.md
 // still hash to what the person saw. New checks may be added; approved ones may not change.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,7 +34,8 @@ export function digest(root, name) {
   const ev = read(path.join(ticketsDir(root), name, 'eval.md'));
   if (rd === null || ev === null) return null;
   // The Status line moves draft -> ready -> done after approval.
-  return { rd: hash(rd.replace(/^\*\*Status:\*\*.*$/m, '').trim()), eval: evalParts(ev) };
+  const mock = read(path.join(ticketsDir(root), name, 'mockup.html'));
+  return { rd: hash(rd.replace(/^\*\*Status:\*\*.*$/m, '').trim()), eval: evalParts(ev), ...(mock === null ? {} : { mockup: hash(mock) }) };
 }
 
 const manifest = root => {
@@ -54,6 +55,7 @@ export function problem(root, name, at = root) {
   const was = manifest(root).tickets[name];
   if (!was) return 'the user has not approved it';
   if (was.rd !== now.rd) return 'its rd.md changed after the user approved it';
+  if (was.mockup !== now.mockup) return 'its mockup.html changed after the user approved it';
   const changed = Object.keys(was.eval || {}).filter(k => now.eval[k] !== was.eval[k]);
   return changed.length ? `approved parts of its eval.md changed or were removed (${changed.join(', ')})` : null;
 }
