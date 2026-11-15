@@ -246,6 +246,16 @@ Guidelines:
 - **Anything a user does in a web app is a `browser` check that the builder runs itself in Claude Code's built-in browser.** Write the steps as what to open, what to click or type, and what must appear, using real URLs (`http://<host>:<port>/...`), visible text and values. `<host>` is the builder's host (`<browser name>.localhost` when the profile's `agentHosts` is `yes`, else `localhost`). Use the test account steps and URLs from `.oma/project.md`, with `tNNN` as the account name. The expected result must be text or state a builder can read from the page, because the evidence for each browser check is a text file (`evidence/E-n.md`) with the URL, the steps and the exact page text that proves the result, not a screenshot. Don't write browser-tool commands; describe what a person would do.
 - Include browser regression checks for the neighbouring features this ticket could break, not just the feature itself.
 
+### 6b. Draw mockup.html (only when the ticket adds a screen)
+
+A worker paints what it is told. Words about a layout are not enough for a new screen, so the user approves a picture first and the worker and reviewers open that same file.
+
+- **When:** the ticket adds a new screen, a new flow of several steps, or a whole new component (a player, a dashboard, an editor). **Not** for a tweak to something that exists (make it bigger, move it, recolour it, add a field): before-and-after is enough there. The user's words win either way: "mockup" or "no mockup" in the request or an intent file.
+- **What:** one self-contained `specs/tickets/NNN-slug/mockup.html`. Use the app's real fonts, colours, spacing and class names (read its shared UI code and tokens; a CDN build of its CSS framework is fine here, the file never ships) and its real chrome (nav, container width), so it reads as part of the app. Take layout and flows from the files under `Refs:` when the user named reference apps; never copy their branding, text or assets.
+- Show **every state on one page**, each under a label: default, empty, loading, each error, success, and the phone layout in a 360 px wide frame. Text is the rd.md's text, word for word. Data is plainly made up.
+- Link it in rd.md under **References** (`- all FRs: specs/tickets/NNN-slug/mockup.html`), and give eval.md one `browser` check per state of the mockup (`### E-n: matches mockup: <state>`): open the built page at 1280 px and at 360 px, compare with that state in `mockup.html` on listed concrete points (order of elements, visible text, colours as hex, what is hidden on the phone).
+- The mockup is part of what the user approves: changing it afterwards sends the ticket back to them.
+
 ### 7. Check which tickets can run at the same time
 
 Workers each build in their own copy of the project, and the copies get merged back afterwards. Two tickets that change the same files will clash when they're merged. After writing all the tickets, and before reporting back:
@@ -278,7 +288,7 @@ Tickets, `BOARD.md` and everything under `.oma/` are local: they are in `.gitign
 At most 10 lines, plain text (plus your board rows when your prompt says to leave BOARD.md alone):
 
 - If you filled in the profile: a 3-line summary of it (commands; mainPort and agent hosts; core flows).
-- One line per ticket: `NNN title: status, mode, runs`.
+- One line per ticket: `NNN title: status, mode, runs` (add `, mockup` when you drew one).
 - Every decision you made on your own that changes what users see (one line each, or `Decisions: none that change what users see`).
 - `Committed: nothing (oma files are local)`.
 

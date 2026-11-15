@@ -22,6 +22,9 @@
 //                                   the result, undoes the merge if one fails, marks the ticket done. Last line:
 //                                   MERGED | CONFLICT | FAILED ...; exit 0 only for MERGED
 //   oma log-fix <one line>          adds a done row to specs/tickets/BOARD.md for a fix that had no ticket
+//   oma stress <up|down>            up: a detached worktree of this checkout's HEAD under .claude/worktrees/oma-stress,
+//                                   installed and served on port 3080 for the blind visitors; prints SKIPPED: <why>
+//                                   when the app is not a web app or its data is shared. down: stops and removes it
 //   oma now                         ISO UTC time
 //
 // Exit codes: 0 ok, 1 failed (message on stderr), 2 bad usage.
@@ -440,8 +443,58 @@ async function cmdMerge(args) {
   end(`MERGED ${label}: merge ${short(merged)}, ${said.join(', ')}, ${done}`, 0);
 }
 
+// --- oma stress ------------------------------------------------------------------------------------
+// The stress stage's own copy of the app: a detached worktree of the base branch on its own port, so
+// blind visitors (one of them trying to break things) never touch the person's checkout or data.
+const STRESS_PORT = 3080;
+function cmdStress([what]) {
+  const root = top();
+  const dir = path.join(root, '.claude', 'worktrees', 'oma-stress');
+  const self = [path.join(__dirname, 'oma')];
+  if (what === 'down') {
+    if (fs.existsSync(dir)) {
+      spawnSync(process.execPath, [...self, 'stop', String(STRESS_PORT)], { cwd: dir, stdio: 'inherit' });
+      const r = gitIn(root, ['worktree', 'remove', '--force', dir]);
+      if (r.status !== 0) die(`could not remove ${dir}: ${r.stderr.trim()}`);
+    }
+    return console.log('stress app down');
+  }
+  if (what !== 'up') die('usage: oma stress <up|down>', 2);
+  let profile = '';
+  try {
+    profile = fs.readFileSync(path.join(root, '.oma', 'project.md'), 'utf8');
+  } catch {
+    die('.oma/project.md not found; run /oma in the main checkout first');
+  }
+  const c = cfg(root);
+  if (c.appType && c.appType !== 'web') return console.log(`SKIPPED: the stress stage is for web apps (appType: ${c.appType})`);
+  if (isNone(c.start)) return console.log('SKIPPED: the profile has no start command');
+  // A copy that shares one database with the person's app would let a visitor change their data.
+  if (/Local data is per folder:\*\*\s*no\b/i.test(profile)) return console.log('SKIPPED: local data is not per folder (every copy shares one database), so a stress run would touch your data');
+  if (fs.existsSync(dir)) die(`${dir} already exists: run "oma stress down" first`);
+  const add = gitIn(root, ['worktree', 'add', '--detach', dir, 'HEAD']);
+  if (add.status !== 0) die(`could not create the stress worktree: ${add.stderr.trim()}`);
+  // Ignored files the app needs (what .worktreeinclude lists): plain paths only, no patterns.
+  let include = '';
+  try {
+    include = fs.readFileSync(path.join(root, '.worktreeinclude'), 'utf8');
+  } catch {
+    /* none */
+  }
+  for (const line of include.split('\n').map(l => l.trim().replace(/^\/|\/$/g, ''))) {
+    if (!line || line.startsWith('#') || /[*?[\]!]/.test(line) || line.includes('..')) continue;
+    const from = path.join(root, line);
+    if (fs.existsSync(from) && !fs.existsSync(path.join(dir, line))) fs.cpSync(from, path.join(dir, line), { recursive: true });
+  }
+  for (const step of [['run', 'install'], ['serve', String(STRESS_PORT)]]) {
+    const r = spawnSync(process.execPath, [...self, ...step], { cwd: dir, stdio: ['ignore', 2, 2] });
+    if (r.status !== 0) die(`stress app did not start (oma ${step.join(' ')} failed in ${dir}); run "oma stress down" to clean up`);
+  }
+  console.log(`stress app up: http://localhost:${STRESS_PORT} (worktree ${dir})`);
+}
+
 const [cmd, ...rest] = process.argv.slice(2);
 const table = { cfg: () => console.log(JSON.stringify(cfg(), null, 2)), run: cmdRun, serve: cmdServe, up: cmdUp,
-  port: cmdPort, stop: cmdStop, status: cmdStatus, merge: cmdMerge, 'log-fix': cmdLogFix, now: () => console.log(now()) };
-if (!table[cmd]) die('usage: oma <cfg|run|serve|up|port|stop|status|merge|log-fix|now> ... (see the header of this file)', 2);
+  port: cmdPort, stop: cmdStop, status: cmdStatus, merge: cmdMerge, 'log-fix': cmdLogFix, stress: cmdStress, now: () => console.log(now()) };
+if (!table[cmd]) die('usage: oma <cfg|run|serve|up|port|stop|status|merge|log-fix|stress|now> ... (see the header of this file)', 2);
 Promise.resolve(table[cmd](rest)).catch(e => die(e.message));

@@ -311,3 +311,29 @@ test('plan-reviewer is read-only and every agent the router names exists', () =>
   assert.match(fm, /^name: plan-reviewer$/m);
   assert.match(fm, /^disallowedTools: Edit, Write, NotebookEdit, Agent$/m);
 });
+
+test('blind visitors: own folder each, only this app\'s ports, Haiku; reviewers are read-only', () => {
+  const dir = repo({ mainPort: 4000 });
+  const d = (tool_name, tool_input) => decide({ agent_type: 'oh-my-agent-mod:first-timer', tool_name, tool_input, cwd: dir });
+  assert.strictEqual(d('Write', { file_path: path.join(dir, '.oma/job/first-timer/v2/report.md') }), null);
+  assert.match(d('Write', { file_path: path.join(dir, '.oma/job/first-timer/v2/deep/x.md') }), /stays blind/);
+  assert.match(d('Write', { file_path: path.join(dir, '.oma/job/first-timer/../x.md') }), /stays blind/);
+  for (const url of ['http://localhost:4000/a', 'http://v1.localhost:3080', 'http://127.0.0.1:3080/x?y']) assert.strictEqual(d('mcp__Claude_Browser__navigate', { url }), null, url);
+  for (const url of ['http://localhost:5432', 'http://localhost:3000/', 'http://localhost/', 'http://v1.localhost:9000/admin']) assert.match(d('mcp__Claude_Browser__navigate', { url }) || '', /only this project's app/, url);
+  const fm = name => fs.readFileSync(path.join(ROOT, 'agents', `${name}.md`), 'utf8').split('---')[1];
+  assert.match(fm('first-timer'), /^model: haiku$/m);
+  assert.match(fm('final-reviewer'), /^disallowedTools: Edit, Write, NotebookEdit, Agent$/m);
+});
+
+test('approval covers the mockup', async () => {
+  const { approve, problem } = await import('../scripts/approve.mjs');
+  const dir = repo();
+  const t = path.join(dir, 'specs', 'tickets', '007-player');
+  write(path.join(t, 'rd.md'), '# 007\n\n**Status:** draft\n');
+  write(path.join(t, 'eval.md'), '# 007\n\n### E-1: plays\n- **Expected**: plays\n');
+  write(path.join(t, 'mockup.html'), '<h1>Player</h1>');
+  assert.deepStrictEqual(approve(dir, ['007']), ['007-player']);
+  assert.strictEqual(problem(dir, '007-player'), null);
+  write(path.join(t, 'mockup.html'), '<h1>Player v2</h1>');
+  assert.match(problem(dir, '007-player'), /mockup\.html changed/);
+});

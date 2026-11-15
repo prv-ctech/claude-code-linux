@@ -228,7 +228,9 @@ export function blindDecide(tool, ti, cwd = process.cwd()) {
   if (tool === 'Write') {
     const dir = resolve(cwd, '.oma', 'job', 'first-timer');
     const file = resolve(cwd, String(ti.file_path || ''));
-    return dirname(file) === dir && /^[\w.-]+\.md$/.test(basename(file)) ? null : `${no}; Write only creates <project>/.oma/job/first-timer/<name>.md.`;
+    // Its own folder, or one folder below it per visitor (first-timer/v2/report.md).
+    const inDir = dirname(file) === dir || (dirname(dirname(file)) === dir && /^[\w-]+$/.test(basename(dirname(file))));
+    return inDir && /^[\w.-]+\.md$/.test(basename(file)) ? null : `${no}; Write only creates <project>/.oma/job/first-timer/[<visitor>/]<name>.md.`;
   }
   // Allowlist: anything else (Read, Agent, Task, TeamCreate, CronCreate, ...) is off.
   if (!['ToolSearch', 'TodoWrite'].includes(tool) && !String(tool).startsWith('mcp__')) return `${no}; ${tool} is off.`;
@@ -240,7 +242,24 @@ export function blindDecide(tool, ti, cwd = process.cwd()) {
   if (String(tool).startsWith('mcp__Claude_Browser__') && ti.url !== undefined && !['back', 'forward'].includes(ti.url) && (typeof ti.url !== 'string' || !LOCAL_URL.test(ti.url))) {
     return `${no}; the browser opens only the local app (http://localhost...), never file: URLs or other sites.`;
   }
+  // Only this project's app: other local ports are other people's servers and admin tools.
+  if (String(tool).startsWith('mcp__Claude_Browser__') && typeof ti.url === 'string' && LOCAL_URL.test(ti.url)) {
+    const port = Number((ti.url.match(/^https?:\/\/[^/?#]*?:(\d{1,5})([/?#]|$)/) || [])[1] || (/^https:/i.test(ti.url) ? 443 : 80));
+    if (!appPorts(cwd).includes(port)) return `${no}; the browser opens only this project's app (port ${appPorts(cwd).join(' or ')}), not port ${port}.`;
+  }
   return null;
+}
+
+// The ports a blind visitor may open: the profile's mainPort (3000 when unreadable) and the stress app's.
+function appPorts(cwd) {
+  let main = 3000;
+  try {
+    const m = readFileSync(resolve(cwd, '.oma', 'project.md'), 'utf8').match(/```json[^\n]*\n([\s\S]*?)\n```/);
+    main = Number(JSON.parse(m[1]).mainPort) || 3000;
+  } catch {
+    /* default */
+  }
+  return [main, 3080];
 }
 
 // The approval manifest is written only by the /oma approve hook: nobody edits it, in any session.

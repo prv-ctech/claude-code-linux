@@ -346,3 +346,31 @@ test('oma merge: merges an approved ticket, runs the suite, undoes a failing mer
   assert.match(fs.readFileSync(path.join(dir, 'specs', 'tickets', 'BOARD.md'), 'utf8'), /\| 005 \| Fix: Add b\.txt \| done \| solo \| fix \|/);
   assert.match(oma(dir, 'log-fix', 'cover posters render again').stdout, /logged as 006/);
 });
+
+test('oma stress: skipped when a run could touch the person\'s data or there is nothing to serve; down is safe to repeat', () => {
+  const shared = repo({ start: 'node server.js' });
+  fs.appendFileSync(path.join(shared, '.oma', 'project.md'), '\n- **Local data is per folder:** no\n');
+  assert.match(oma(shared, 'stress', 'up').stdout, /^SKIPPED: local data is not per folder/);
+  assert.match(oma(repo({ appType: 'cli' }), 'stress', 'up').stdout, /^SKIPPED: the stress stage is for web apps/);
+  const none = repo();
+  assert.match(oma(none, 'stress', 'up').stdout, /^SKIPPED: the profile has no start command/);
+  assert.ok(!fs.existsSync(path.join(none, '.claude', 'worktrees', 'oma-stress')));
+  assert.match(oma(none, 'stress', 'down').stdout, /stress app down/);
+});
+
+test('oma stress up serves a separate worktree on 3080 and down removes it', async () => {
+  const busy = await new Promise(res => { const s = net.createServer().once('error', () => res(true)).once('listening', () => s.close(() => res(false))).listen(3080, '127.0.0.1'); });
+  if (busy) return; // something else on this machine holds 3080
+  const dir = repo({ start: 'node -e "require(\'http\').createServer((q,s)=>s.end(\'ok\')).listen(<port>)"' });
+  const up = oma(dir, 'stress', 'up');
+  try {
+    assert.match(up.stdout, /stress app up: http:\/\/localhost:3080/, up.stderr);
+    const wt = path.join(dir, '.claude', 'worktrees', 'oma-stress');
+    assert.ok(fs.existsSync(path.join(wt, 'README.md')));
+    assert.strictEqual(git(dir, 'status', '--porcelain', '--untracked-files=no'), '', 'main checkout untouched');
+    assert.match(oma(dir, 'stress', 'up').stderr, /already exists/);
+  } finally {
+    assert.match(oma(dir, 'stress', 'down').stdout, /stress app down/);
+  }
+  assert.ok(!fs.existsSync(path.join(dir, '.claude', 'worktrees', 'oma-stress')));
+});

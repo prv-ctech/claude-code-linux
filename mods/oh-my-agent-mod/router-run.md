@@ -72,7 +72,7 @@ Otherwise, on `CONFLICT` or `FAILED` (lint, build, test, install), don't resolve
 
 ## Bugs
 
-- **The user mentions a bug in passing, or the first-timer reports a Blocker:** quietly start a `reproducer`: the bug as reported, any repro steps, `Port: 3090`, `Test account: t090` (or `repro`, see the note under the ports table in `router.md`), `Browser name: repro`, `Base branch: <branch>`, and `Tickets being built right now: <from your job list>`. One at a time; queue the next.
+- **The user mentions a bug in passing, or a visitor or the final review reports a defect:** quietly start a `reproducer`: the bug as reported, any repro steps, `Port: 3090`, `Test account: t090` (or `repro`, see the note under the ports table in `router.md`), `Browser name: repro`, `Base branch: <branch>`, and `Tickets being built right now: <from your job list>`. One at a time; queue the next.
 - **`CONFIRMED + FIXED`:** tell the user in one line what was wrong and that a fix is landing, then merge it: `oma merge <fix branch>` (no ticket folder). The command gives the fix its own `done` row on the board.
 - **`CONFIRMED, NO SIMPLE FIX`:** a real regression. Start a `ticket-writer` to make it a ticket (`Write one ticket for this confirmed regression: <the reproducer's line>.` plus the ticket-writer lines), and tell the user in one plain line what's broken for users.
 - **`NOT A BUG`:** the report asked for something that was never built. Never make a ticket for it on your own: tell the user in one line what was expected and what exists, and that you can brainstorm it as a feature if they want it.
@@ -99,20 +99,60 @@ Instead of a separate watchdog agent, you watch through the Monitor tool:
 
 ## First-timer
 
-A blind usability walk: an agent that has never seen the app, can't read its code, and uses it in the built-in browser as a brand-new visitor would. It finds what the evals can't: confusing pages, dead ends, unclear errors.
+A blind usability walk: an agent (Haiku) that has never seen the app, can't read its code, and uses it in the built-in browser as a brand-new visitor would. It finds what the evals can't: confusing pages, dead ends, unclear errors.
 
-- **When:** when the user asks (`/oma explore`, "walk it like a new user"), and once at the end of a run in which at least one ticket that changed what users see landed in a `web` app. Only for `web` apps; for `api` and `cli` say it doesn't apply.
-- It uses the main checkout's app, so it takes the main-checkout slot (not while a merge runs).
-- **Prompt:** `subagent_type: oh-my-agent-mod:first-timer`, exactly:
+- **On request** (`/oma explore`, "walk it like a new user"): one visitor on the main checkout's app. Only for `web` apps; for `api` and `cli` say it doesn't apply. It takes the main-checkout slot (not while a merge runs). Prompt, exactly:
   ```
   App: http://localhost:<mainPort>
   Port: <mainPort>
   Project root: <projectRoot>
   ```
   Never add anything about the app, the tickets or what to look for: its value is that it knows nothing.
-- **`NOT RUN: <reason>`:** the walk didn't happen. Tell the user in one line why (no built-in browser in this session, or the app didn't start), and never report it as done.
-- **Its report:** goals tried (completed / struggled / gave up) and friction lines `Blocker | Major | Minor | Polish`. Blockers: start a `reproducer` for each, with the first-timer's line as the bug report. A first-timer can't tell a broken feature from one that was never built, so expect `NOT A BUG` for some. Major: tell the user in one line each and offer a ticket. A goal it `gave up` on with no Blocker line explaining it: tell the user in one line. Minor and Polish: one summary line ("6 smaller usability notes in .oma/job/first-timer/report.md"). Never start fixes for Minor or Polish on your own.
+- **At the end of a run:** see "Stress stage".
+- **`NOT RUN: <reason>`:** the walk didn't happen. Tell the user in one line why, and never report it as done.
+
+## Final review
+
+Once per run, when no job is running or queued and nothing on the board can start, and at least one ticket was merged in this run. Skip it for a run that only fixed bugs.
+
+1. Start the `oh-my-agent-mod:final-reviewer` agents in one turn, side by side: `Lens: code`, `Lens: lean`, and, when a merged ticket changed what users see in a `web` app, `Lens: gui`. Each prompt, and nothing else:
+   ```
+   Lens: <code | lean | gui>
+   Run base: <the `Run base:` sha from the decision ledger>
+   Tickets: specs/tickets/NNN-slug, ...   (the ones merged in this run)
+   Intent files: .oma/intent/<slug>.md, ...
+   Project root: <projectRoot>
+   App: http://localhost:<mainPort>       (gui only)
+   Port: <mainPort>                        (gui only)
+   ```
+   The gui reviewer needs the app up on mainPort: check with `oma up <mainPort>`; if it isn't, the user's server is not running, so say in the final summary that the gui review did not run, and why.
+2. **Triage every finding yourself**, as in "Plan review": they advise, you decide. A **B or M defect with a repro**, in something an approved ticket promised → a bug for the reproducer (see "Bugs"), counted against the run's fix limit below. Everything else (a mismatch with a mockup that needs a design call, waste to remove, an intent item that was not built, any N) → the final summary, each with your recommendation in one line. Never start a ticket-writer or a worker for these on your own: new work needs the user's approval.
+
+## Stress stage
+
+After the final review, for a `web` app in which at least one merged ticket changed what users see. Blind visitors with different personas use a separate copy of the app, so they find what reading code can't, and nothing they do touches the user's checkout or data.
+
+1. **Start the copy:** `oma stress up` (in the background; it installs and starts the app in its own worktree on port 3080). `SKIPPED: <why>` → no stress stage: say why in the final summary. An error → run `oma stress down`, and say in the summary that the stage did not run.
+2. **Send the visitors**, all in one turn, at most 5 (`agentHosts: no` → one at a time). One `new`, one `goal` per feature of this run (most important first) with the goal in the user's own words from its intent file, one `phone`, one `breaker`; drop `goal` visitors first to stay at 5. `subagent_type: oh-my-agent-mod:first-timer`, each prompt exactly:
+   ```
+   App: http://<visitor name>.localhost:3080     (http://localhost:3080 when agentHosts is no)
+   Port: 3080
+   Project root: <projectRoot>
+   Visitor: v1                                   (v2, v3, ...)
+   Started: yes
+   Persona: <new | goal | phone | breaker>
+   Goal: <the user's words, goal visitors only>
+   Account: <the profile's "How to create one" steps, with <name> = the visitor name>
+   ```
+   Nothing else: not what was built, not what to look for.
+3. **Stop the copy** when all have reported: `oma stress down`. Always, also after a failure.
+4. **Findings.** No finding changes code directly. Merge duplicates across visitors, then for each **Blocker** and **Major**, one at a time: start a `reproducer` with the visitor's line as the bug report (see "Bugs"). A blind visitor can't tell a broken feature from one that was never built, so expect `NOT A BUG` and `NOT REPRODUCED` for some.
+   - `CONFIRMED + FIXED`, and the fix restores something an approved ticket's rd.md promised → merge it (`oma merge <fix branch>`).
+   - Anything else (`NO SIMPLE FIX`, `NOT A BUG`, a fix for something no ticket promised) → the final summary, never a ticket on your own.
+   - **Fix limit:** at most 3 fixes merged without asking per run, counting the final review's too. Log each in the decision ledger as `stress fix n of 3`. Past the limit, the rest go to the summary.
+   - Minor and Polish: one summary line with the report paths (`.oma/job/first-timer/<visitor>/report.md`).
+5. **Rerun once** if a fix was merged in this stage: steps 1 to 3 again with the same visitors, then only report what is still there. Never a third time.
 
 ## When everything is done
 
-When no job is running or queued and nothing on the board can start, run the first-timer if "First-timer" says it's due (and report it when it's back), then stop the watch (TaskStop), and give the user a short summary: what landed (one line per ticket or fix), decisions logged in `.oma/decisions.md` this run (a count), anything still draft or blocked and why, and that nothing was pushed (`git log <branch>` shows it all). The desktop app may be read later from a phone: keep it plain.
+When no job is running or queued and nothing on the board can start: run "Final review", then "Stress stage" (each says when it applies), then stop the watch (TaskStop) and give the user a short summary: what landed (one line per ticket or fix), every ticket that ended `blocked` and why, what the final review and the visitors found that you did not fix, each with your recommendation (the user decides; new work goes through tickets and `/oma approve`), stages that did not run and why, decisions logged in `.oma/decisions.md` this run (a count), flaky tests, and that nothing was pushed (`git log <branch>` shows it all). The desktop app may be read later from a phone: keep it plain.

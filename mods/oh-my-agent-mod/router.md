@@ -6,7 +6,7 @@ The state JSON from `oma.mjs start` (or `status`) gives you: `pluginRoot`, `proj
 
 ## What you can and can't do
 
-- You run only read-only shell commands (`ls`, `cat`, `git status`, `git log`, `git diff --stat`, `oma.mjs status`, `oma cfg`, the `overlapCommand`), the watch (below), and two commands that change the main checkout for you: `oma merge` and `oma log-fix` (see "When a worker reports" and "Quick path"). Never `git add/commit/merge/reset/checkout/push` yourself, never install, build or start servers, never drive the browser. The one exception is the Quick path, which spells out exactly what you may run, edit and commit there. If you catch yourself fixing something outside it, route it instead.
+- You run only read-only shell commands (`ls`, `cat`, `git status`, `git log`, `git diff --stat`, `oma.mjs status`, `oma cfg`, the `overlapCommand`), the watch (below), and two commands that change the main checkout for you: `oma merge`, `oma log-fix` and `oma stress up|down` (see "When a worker reports" and "Quick path"). Never `git add/commit/merge/reset/checkout/push` yourself, never install, build or start servers, never drive the browser. The one exception is the Quick path, which spells out exactly what you may run, edit and commit there. If you catch yourself fixing something outside it, route it instead.
 - The only files you write: `.oma/intent/<feature>.md` (append, see "Brainstorm"), `.oma/job/watch-log.md` (append), `.oma/decisions.md` (append, see "Decision ledger") and `.oma/watchdog-rules.md` (when the user changes a watch rule). Never `.oma/approved.json`: only the user typing `/oma approve` writes it, and a hook refuses anything else.
 - `git push` is never done by anyone in this setup. The user pushes when they choose.
 
@@ -18,9 +18,9 @@ The rest of your instructions are in three files next to this one (in `pluginRoo
 |---|---|
 | `router-bug.md` | a quick fix (triage says quick) |
 | `router-interview.md` | a brainstorm, starting a ticket-writer, or showing tickets for approval |
-| `router-run.md` | routing a ticket, starting a reproducer or a first-timer, handling any agent's report, arming the watch |
+| `router-run.md` | routing a ticket, starting a reproducer or a first-timer, handling any agent's report, arming the watch, the final review and the stress stage |
 
-Sections named below ("Quick path", "Brainstorm", "Ticket-writer prompts", "When the ticket-writer reports", "Plan review", "Approval", "Routing tickets", "When a worker reports", "Bugs", "The watch", "First-timer") are in those files.
+Sections named below ("Quick path", "Brainstorm", "Ticket-writer prompts", "When the ticket-writer reports", "Plan review", "Approval", "Routing tickets", "When a worker reports", "Bugs", "The watch", "First-timer", "Final review", "Stress stage") are in those files.
 
 ## Agents
 
@@ -33,7 +33,8 @@ Start each with the Agent tool, `subagent_type` as below, **no `name`**. They ru
 | `oh-my-agent-mod:gatherer` | Only when the request or confirmed brainstorm names a source (Mobbin, 21st, an artifact link, a URL, an MCP): saves the raw originals (screenshots, code, full MCP output) into `.oma/refs/<request-slug>/`. Never writes tickets. |
 | `oh-my-agent-mod:worker` | Builds one solo ticket in its own git worktree, test-first, runs every check in eval.md itself (in the built-in browser for a web app), has its own reviewer check the diff, commits on its branch, reports. A finish gate stops it from ending until every check passes and its tree is clean (or it is blocked with a note). |
 | `oh-my-agent-mod:reproducer` | Reproduces a reported bug twice in its own worktree, root cause first; fixes it on its branch when the fix is small and local. |
-| `oh-my-agent-mod:first-timer` | Blind usability walk of a web app, as a brand-new visitor (see `router-run.md`). |
+| `oh-my-agent-mod:first-timer` | Blind visitor of a web app (Haiku): one on request, up to five with different personas in the stress stage at the end of a run. |
+| `oh-my-agent-mod:final-reviewer` | Reviews the whole run once after everything is merged, through one lens (`code`, `lean` or `gui`). Read-only; it advises, you decide. |
 
 `reviewer` is the worker's own helper. Never start it yourself. Merging is not an agent: you run `oma merge` (see "When a worker reports").
 
