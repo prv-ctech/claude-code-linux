@@ -22,6 +22,7 @@ In any project (a git repository), in a normal Claude Code chat:
 /oma 004                  start one ticket
 /oma fix <bug>            quick fix here: repro, root cause, test, fix, commit
 /oma build <feature>      force the full ticket pipeline
+/oma approve 010 011      approve those tickets as written; nothing is built before this
 /oma explore              blind first-time-user walk of a web app
 /oma status               board and running jobs, changes nothing
 /oma off                  end router mode in this session
@@ -32,8 +33,8 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 ## What happens
 
 1. **First `/oma` in a project** sets it up (idempotent): `.oma/project.md` (the profile every agent reads) and `.oma/watchdog-rules.md` from templates, `/.oma/`, `/specs/tickets/` and `/.claude/worktrees/` in `.gitignore` and `.dockerignore`, `/.oma/` and `/specs/tickets/` in `.worktreeinclude`, and `worktree.baseRef: "head"` in the session folder's `.claude/settings.local.json` (git-ignored) so workers branch from your checked-out commit. Everything lands on the branch checked out in the session (a desktop session running in its own worktree uses that worktree's branch); a detached HEAD or a repository with no commits is refused with a one-line reason.
-2. **Triage and brainstorm.** The router sizes each request: a single small bug is fixed right in the session (repro, root cause, failing test, fix, verify, commit). Anything bigger goes to the pipeline, and a vague feature first gets a short brainstorm with you: facts it can read itself are never asked, decisions come one question at a time with a recommended answer, then 2-3 approaches and a summary you confirm. After that it runs without you.
-3. The **ticket-writer** (Opus) fills the profile in (checks the start command really serves on a spare port), reads the code, and writes `specs/tickets/NNN-slug/rd.md` + `eval.md` and `BOARD.md`. Questions only for choices that change what users see, batched (at most 4), asked by the router. Tickets stay local files (git-ignored, never committed) and are built straight away (set *Review tickets* to keep them draft until you approve).
+2. **Triage and brainstorm.** The router sizes each request: a single small bug is fixed right in the session (repro, root cause, failing test, fix, verify, commit). Anything bigger goes to the pipeline, and each feature first gets an interview with you, one feature at a time: facts it can read itself are never asked, decisions come one question at a time with a recommended answer, and it stops only when no decision is left open. Every answer is written at once to `.oma/intent/<feature>.md`, so a compaction loses nothing and the ticket-writer reads your own words.
+3. The **ticket-writer** (Opus) fills the profile in (checks the start command really serves on a spare port), reads the code, and writes `specs/tickets/NNN-slug/rd.md` + `eval.md` and `BOARD.md`. Questions only for choices that change what users see, batched (at most 4), asked by the router. Tickets stay local files (git-ignored, never committed) and start as drafts. The router shows you each one; **nothing is built until you type `/oma approve` with the ticket numbers it showed you** (`/oma approve 010 011`; `all` approves every draft on disk). That command, and nothing else, writes `.oma/approved.json` (a hash of each ticket's `rd.md` and of every part of its `eval.md`). A hook refuses to start a worker on a ticket that is not in it or that changed since: checks may be added later, approved ones may not be edited or removed. After approval the run goes on without asking you.
 4. **Solo ticket** → a **worker** (Sonnet) in its own worktree on port 3100 + NNN builds it test-first, has the **tester** run every eval check and the **reviewer** check the diff (findings rated P0-P3, each with the rule it breaks, a repro and file:line; the worker fixes, rejects with evidence or escalates each one, and stops early when it's stuck), fixes up to 3 rounds, writes `results.md` and evidence (local files), commits its code on its branch. A finish gate (SubagentStop hook) won't let it end until every check passes and its tree is clean, or it reports blocked with a note.
 5. The router checks `results.md` against `eval.md` itself; follow-ups go to the same worker. On a pass the **merger** merges (`--no-ff`), runs lint and build, undoes the merge if either fails, marks the ticket done.
 6. Every ticket is built by one worker. Tickets that must agree on a shared shape are ordered with `waits for`.
@@ -71,14 +72,9 @@ Removed in 0.10.0: agent teams (`teammate`), the `checker`'s browser walk after 
 
 When a request names a source (Mobbin, 21st, an artifact link, a URL, an MCP), the router starts the `gatherer` agent. It saves the raw originals into `.oma/refs/<request-slug>/` (`index.md`, `images/`, `code/`, `raw/`), git-ignored like the rest of `.oma/`. Tickets link the files in a References section; workers open them, the tester compares against them and the reviewer flags contradictions.
 
-## Settings
-
-| Setting | Blank (default) | Set to `true` |
-|---|---|---|
-| Review tickets before building | tickets are built straight away | new tickets stay draft until you approve them |
-
 ## Safety
 
+- Nothing is built without your approval: see `/oma approve` above. Upgrading from 0.10: tickets already on your board need one `/oma approve` before workers start on them.
 - Nothing is pushed: `git push` is denied for every oma agent. Review with `git log <branch>` and push yourself.
 - oma agents never read `.env` files; list a file the app needs in `.worktreeinclude`.
 - Only the merger commits to your branch (code only), staging by path, one at a time. The merger undoes its own merge with `git reset --keep` when lint or build fails, which refuses rather than touch a file you edited meanwhile.

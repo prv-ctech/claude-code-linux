@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, repo, git, write, run } from './helpers.mjs';
+import { ROOT, tmp, repo, git, write, run } from './helpers.mjs';
 import { decide } from '../scripts/guard.mjs';
 
 const GATE = path.join(ROOT, 'scripts', 'finish-gate.mjs');
@@ -246,4 +246,47 @@ test('guard catches git push behind shell keywords and eval, and untyped Agent c
   assert.ok(decide({ agent_type: 'oh-my-agent-mod:first-timer', tool_name: 'mcp__Claude_Browser__javascript_tool', tool_input: { text: '1' }, cwd: '/p' }));
   assert.ok(decide({ agent_type: W, tool_name: 'Agent', tool_input: { prompt: 'x' } }), 'no subagent_type means the default agent');
   assert.strictEqual(decide({ agent_type: W, tool_name: 'Agent', tool_input: { subagent_type: 'oh-my-agent-mod:tester' } }), null);
+});
+
+test('approval: only /oma approve records it; a worker starts only on an approved, unchanged ticket', async () => {
+  const { onPrompt, paths } = await import('../scripts/oma.mjs');
+  const { state } = await import('../scripts/approve.mjs');
+  const dir = repo();
+  const t = path.join(dir, 'specs', 'tickets', '004-seo');
+  write(path.join(t, 'rd.md'), '# 004\n\n**Status:** draft\n\n## Summary\nSEO panel\n');
+  write(path.join(t, 'eval.md'), '# 004\n\n## Setup\nstart\n\n## Acceptance checks\n\n### E-1: title saves (covers FR-1)\n- **Expected**: saved\n\n## Traceability\n| FR-1 | E-1 |\n');
+  write(path.join(dir, 'specs', 'tickets', 'BOARD.md'), '| # | Title | Status | Mode | Runs |\n|---|---|---|---|---|\n| 004 | SEO | draft | solo | alongside |\n');
+  const start = prompt => decide({ tool_name: 'Agent', cwd: dir, tool_input: { subagent_type: 'oh-my-agent-mod:worker', prompt } });
+  const P = 'Ticket: specs/tickets/004-seo\nPort: 3104';
+  assert.match(start(P), /has not approved it.*\/oma approve/);
+  assert.deepStrictEqual(state(dir).approved, []);
+
+  const p = paths({ CLAUDE_CONFIG_DIR: tmp('oma-home-') });
+  // A bare approve, or one naming another ticket, approves nothing: the user may not have seen 004.
+  assert.match(onPrompt(p, { session_id: 'A', prompt: '/oma approve' }, dir), /Nothing was approved.*Still waiting for approval: 004-seo/);
+  assert.match(onPrompt(p, { session_id: 'A', prompt: '/oma approve 005' }, dir), /Nothing was approved/);
+  assert.ok(start(P));
+  assert.match(onPrompt(p, { session_id: 'A', prompt: '/oma approve 4' }, dir), /Recorded as approved.*004-seo/);
+  assert.strictEqual(start(P), null);
+  assert.doesNotMatch(onPrompt(p, { session_id: 'A', prompt: '/oma approve all' }, dir), /Still waiting/);
+
+  // Status moves and added checks keep approval; an edited check or requirement loses it.
+  const ev = fs.readFileSync(path.join(t, 'eval.md'), 'utf8');
+  write(path.join(t, 'rd.md'), '# 004\n\n**Status:** ready\n\n## Summary\nSEO panel\n');
+  write(path.join(t, 'eval.md'), ev.replace('## Traceability', '### E-2: empty title (covers FR-1)\n- **Expected**: page name\n\n## Traceability').replace('| E-1 |', '| E-1, E-2 |'));
+  assert.strictEqual(start(P), null);
+  write(path.join(t, 'eval.md'), ev.replace('saved', 'anything'));
+  assert.match(start(P), /approved parts of its eval\.md changed.*E-1/);
+  write(path.join(t, 'eval.md'), ev);
+  write(path.join(t, 'rd.md'), '# 004\n\n**Status:** ready\n\n## Summary\nSEO panel and sitemap\n');
+  assert.match(start(P), /rd\.md changed/);
+
+  // Nobody edits the manifest, in any session; other agents and other tickets are untouched.
+  const f = path.join(dir, '.oma', 'approved.json');
+  assert.ok(decide({ tool_name: 'Write', tool_input: { file_path: f } }));
+  assert.ok(decide({ agent_type: 'oh-my-agent-mod:ticket-writer', tool_name: 'Edit', tool_input: { file_path: f } }));
+  assert.ok(decide({ tool_name: 'Bash', tool_input: { command: 'echo {} > .oma/approved.json' } }));
+  assert.strictEqual(decide({ tool_name: 'Bash', tool_input: { command: 'cat .oma/approved.json' } }), null);
+  assert.strictEqual(decide({ tool_name: 'Agent', cwd: dir, tool_input: { subagent_type: 'general-purpose', prompt: P } }), null);
+  assert.strictEqual(decide({ tool_name: 'Write', tool_input: { file_path: path.join(dir, 'src', 'a.js') } }), null);
 });

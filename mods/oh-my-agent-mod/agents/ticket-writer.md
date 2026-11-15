@@ -28,11 +28,11 @@ It gives you:
 - What to do: fill in the profile, and/or write tickets for "<the user's words, exactly>" (or a confirmed regression from the reproducer, which becomes one ticket).
 - The existing ticket numbers.
 - `Base branch: <name>`: the branch everything merges into. You commit there (step 9).
-- `Review tickets: true | false`: whether the user reviews tickets before they are handed out (step 8).
+- `Intent: .oma/intent/<feature>.md` (one line per feature, when the router interviewed the user): read each file in full before anything else.
 - `In flight: <ticket numbers being built right now, or none>`: never change those tickets' rd.md or eval.md (their workers build from the copy they started with). A change to one of them becomes a new ticket that `waits for` it.
 - `Project root: <path>`: the checkout you work and commit in.
 
-If a line is missing (the router's profile and regression prompts may leave some out): Base branch is the branch the main checkout is on now (`git branch --show-current`), Review tickets is `false`, and the existing numbers are whatever `specs/tickets/` holds.
+If a line is missing (the router's profile and regression prompts may leave some out): Base branch is the branch the main checkout is on now (`git branch --show-current`), and the existing numbers are whatever `specs/tickets/` holds.
 
 Work in the checkout your prompt's `Project root` names (else the directory you start in): `cd` there once and check `git rev-parse --show-toplevel` prints it. Never read `.env` files (a hook blocks it), never `git push`.
 
@@ -93,7 +93,7 @@ Workers can't ask questions later, so settle everything now. For each feature, g
 
   At most 4 questions, each with 2 or 3 options, your recommendation first. Prefer fewer questions. The router asks the user and resumes you with the answers; then write the tickets, recording each answer under **Agreed with the user**.
 
-If your prompt has a `Brainstorm (confirmed by the user):` block, the user already settled everything in it: record each point under **Agreed with the user** and don't ask about it again. Ask only about what it left open.
+If your prompt has `Intent:` lines, those files hold the user's own answers, word for word, and the router's notes on what it decided. The user already settled everything in them: record each answer under **Agreed with the user**, never contradict one, and don't ask about it again. Ask only about what they left open.
 
 Keep going until a worker could build the feature without making any decision that changes what the user sees or gets.
 
@@ -124,7 +124,7 @@ Use this template. Leave out a section only if it really has nothing to say. Wri
 ```markdown
 # NNN: <Feature title>
 
-**Status:** ready | draft
+**Status:** draft | ready
 
 ## Summary
 One or two sentences: what this feature is and who it is for.
@@ -264,8 +264,7 @@ Workers each build in their own copy of the project, and the copies get merged b
 
 Only **ready** tickets get handed to workers. Status is the same in rd.md and in BOARD.md.
 
-- `Review tickets: false`: write every new ticket as **Status: ready**.
-- `Review tickets: true`: write every new ticket as **Status: draft**. The router walks the user through each draft (its summary, the **Decisions made** list and the board) and resumes you with `mark NNN ready` or with changes. Apply changes and re-run step 7 if the affected areas changed (nothing is committed). Mark a ticket ready only when the router's message says so for that ticket. Never mark a draft ready on your own.
+- Write every new ticket as **Status: draft**. The router shows the user each draft (its summary, the **Decisions made** list and the board), the user approves with `/oma approve`, and the router resumes you with `mark NNN ready` or with changes. Apply changes and re-run step 7 if the affected areas changed (nothing is committed). Mark a ticket ready only when the router's message says so for that ticket. Never mark a draft ready on your own.
 - Never change the Status of a ticket that is ready, done or in flight unless the router's message asks for it.
 
 ### 9. Never commit oma files

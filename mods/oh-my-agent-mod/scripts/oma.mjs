@@ -3,7 +3,8 @@
 //
 //   oma.mjs session            SessionStart hook: router reminder after compaction
 //   oma.mjs prompt             UserPromptSubmit hook: /oma turns router mode on for this session, /oma off ends it;
-//                              while on, one reminder line per prompt
+//                              while on, one reminder line per prompt. /oma approve records the person's
+//                              approval of the tickets on disk (.oma/approved.json); nothing else writes it
 //   oma.mjs init [--dir <p>]   /oma init: same setup as start, no router; ignores oma files in git and Docker
 //   oma.mjs start [--dir <p>]  /oma bootstrap: sets the project up (idempotent) and prints its state for the router
 //   oma.mjs status [--dir <p>] the same state, changing nothing
@@ -16,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { approve, state as approvalState } from './approve.mjs';
 
 export const ME = 'oh-my-agent-mod';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -77,8 +79,6 @@ function readSettings(file) {
   return JSON.parse(text);
 }
 
-const truthy = v => ['1', 'true', 'yes', 'on'].includes(String(v ?? '').trim().toLowerCase());
-
 // --- router mode per session -----------------------------------------------------------------------
 
 const routerLine = () => `oh-my-agent router mode is on in this session: you are the router. Follow ${path.join(ROOT, 'router.md')} `
@@ -100,7 +100,7 @@ function setSession(p, sid, on) {
 }
 
 // What the UserPromptSubmit hook adds, or null. `/oma` (any arguments but off/stop) turns router mode on.
-export function onPrompt(p, input) {
+export function onPrompt(p, input, dir = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd()) {
   const prompt = String(input.prompt || '').trim();
   const sid = String(input.session_id || '');
   const m = prompt.match(/^\/(?:oh-my-agent-mod:)?oma(?:\s+([\s\S]*))?$/);
@@ -112,6 +112,17 @@ export function onPrompt(p, input) {
     }
     if (['status', 'help', 'init'].includes(arg)) return null;
     setSession(p, sid, true);
+    if (/^approve\b/.test(arg)) {
+      const top = git(dir, ['rev-parse', '--show-toplevel']);
+      const root = top.status === 0 ? top.stdout.trim() : dir;
+      const ids = arg.split(/[\s,]+/).slice(1).map(x => (/^\d+$/.test(x) ? x.padStart(3, '0') : x));
+      const names = approve(root, ids, doneTickets(root));
+      const left = approvalState(root, doneTickets(root)).pending.map(x => x.ticket);
+      return `${routerLine()}\noh-my-agent: the user typed /oma ${arg}. ` + (names.length
+        ? `Recorded as approved, exactly as they are on disk now: ${names.join(', ')}. Mark them ready and route them (see "Approval" in router-interview.md).`
+        : 'Nothing was approved: the command must name the ticket numbers shown to the user (/oma approve 010 011), or say all.')
+        + (left.length ? ` Still waiting for approval: ${left.join(', ')}.` : '');
+    }
     // Headless runs (claude -p) don't resolve the short /oma name, so the command text may be missing.
     const lines = [`oh-my-agent: the user ran /oma, so you are the oh-my-agent router for this request, even if no /oma command text appears above (headless runs don't resolve the short name). `
       + `Unless you already did for this prompt, first run node "${path.join(ROOT, 'scripts', 'oma.mjs')}" start in the project root, then read ${path.join(ROOT, 'router.md')} in full and follow it.`];
@@ -319,6 +330,8 @@ function board(root) {
   return rows;
 }
 
+const doneTickets = root => (board(root) || []).filter(r => /^done$/i.test(r.status)).map(r => r.id);
+
 function inFlight(root) {
   const out = [];
   const wt = git(root, ['worktree', 'list', '--porcelain']);
@@ -408,7 +421,7 @@ export function projectState(dir, { write = false, env = process.env } = {}) {
     board: board(root),
     inFlight: inFlight(root),
     uncommittedTracked: dirty,
-    reviewTickets: truthy(env.CLAUDE_PLUGIN_OPTION_REVIEW_TICKETS),
+    approval: approvalState(root, doneTickets(root)),
     changed,
     codeGraph: codeGraph(dir, { env }),
   };
