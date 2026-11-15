@@ -80,7 +80,7 @@ When a request names a source (Mobbin, 21st, an artifact link, a URL, an MCP), t
 - Nothing is built without your approval: see `/oma approve` above. Upgrading from 0.10: tickets already on your board need one `/oma approve` before workers start on them.
 - Nothing is pushed: `git push` is denied for every oma agent. Review with `git log <branch>` and push yourself.
 - oma agents never read `.env` files; list a file the app needs in `.worktreeinclude`.
-- Only `oma merge` (and a quick fix) commits to your branch, one at a time. It undoes its own merge with `git reset --keep` when lint, build or a test fails, which refuses rather than touch a file you edited meanwhile, and it refuses to start on a dirty tree.
+- Only `oma merge` (and a quick fix) commits to your branch, one at a time. It undoes its own merge with `git reset --keep` when lint, build or a test fails, which refuses rather than touch a file you edited meanwhile, and it refuses to start on a dirty tree. The ignore lines oma adds itself (to `.gitignore`, `.dockerignore`, `.worktreeinclude`) don't count as dirty: the merge drops them, merges, and adds them back, so a branch that edits the same file still merges.
 - Agents never stop a dev server they didn't start (`oma stop` refuses).
 - The only settings it edits: the project's git-ignored `.claude/settings.local.json`.
 - oma agents can start only oma subagents, so the guard covers everything they run.
