@@ -1,7 +1,7 @@
 {
   "name": "oh-my-agent-mod",
   "version": "0.14.1",
-  "description": "oh-my-agent (/oma): one router session that never builds. It writes tickets with you, hands each to a worker in its own git worktree, has a tester and reviewer check it, merges it, walks the app blind in Claude Code's built-in browser at the end of a run and fixes small bugs, coming to you only for decisions. Sets each project up on first /oma and works alongside oh-my-context (omc).",
+  "description": "oh-my-agent (/oma): one router session that never builds. It writes tickets with you, hands each to a worker in its own git worktree, has a reviewer check it, merges it with `oma merge`, reviews the whole run, sends blind first-time visitors through the app at the end and fixes small bugs, coming to you only for decisions. Sets each project up on first /oma and works alongside oh-my-context (omc).",
   "author": { "name": "prv-ctech" },
   "license": "MIT",
   "repository": "https://github.com/prv-ctech/claude-code-linux"

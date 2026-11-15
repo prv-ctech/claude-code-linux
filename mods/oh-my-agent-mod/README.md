@@ -73,7 +73,7 @@ Removed in 0.13.0: the `tester` (the worker runs its own checks and sees its own
 
 ## References (gatherer)
 
-When a request names a source (Mobbin, 21st, an artifact link, a URL, an MCP), the router starts the `gatherer` agent. It saves the raw originals into `.oma/refs/<request-slug>/` (`index.md`, `images/`, `code/`, `raw/`), git-ignored like the rest of `.oma/`. Tickets link the files in a References section; workers open them, the tester compares against them and the reviewer flags contradictions.
+When a request names a source (Mobbin, 21st, an artifact link, a URL, an MCP), the router starts the `gatherer` agent. It saves the raw originals into `.oma/refs/<request-slug>/` (`index.md`, `images/`, `code/`, `raw/`), git-ignored like the rest of `.oma/`. Tickets link the files in a References section; workers and the gui final reviewer compare against them and the reviewer flags contradictions.
 
 ## Safety
 
