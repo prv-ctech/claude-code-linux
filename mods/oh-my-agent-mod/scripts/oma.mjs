@@ -163,7 +163,7 @@ export function onSession(p, input) {
   else if (on && (input.source === 'compact' || input.source === 'resume')) {
     lines.push(`${routerLine()} After this ${input.source}: Read router.md now (and router-run.md next to it if any job is running or queued), rebuild your job list from the status files (oma.mjs status), and re-arm your watch if it is not running.`);
   }
-  if (!lines.length && input.source === 'startup') lines.push('oh-my-agent: /oma <what to build> runs the superagent (router, workers in worktrees, tester, reviewer, merger).');
+  if (!lines.length && input.source === 'startup') lines.push('oh-my-agent: /oma <what to build> runs the superagent (interview, tickets you approve, workers in worktrees, reviewers).');
   return lines.join('\n') || null;
 }
 

@@ -23,7 +23,7 @@ The rules the oh-my-agent router follows when it judges its watch. The router ru
 
 - `roundIntervalMinutes`: minutes between rounds, 1 to 25. Takes effect when the router next re-arms its watch (within 30 minutes).
 - `staleMinutes`: a worker counts as silent when its status file hasn't been updated for this long, for every step not in `staleMinutesByStep`.
-- `staleMinutesByStep`: longer limits per step. A worker can't update its status while it waits on its tester and reviewer, so `testing` and `reviewing` get 30.
+- `staleMinutesByStep`: longer limits per step. A worker can't update its status while it runs a long check or waits on its reviewer, so `testing` and `reviewing` get 30.
 - `slowStepMinutes`: a worker counts as slow when it has been on one step this long.
 - `evalRoundsWithoutProgress`: a worker counts as stuck when this many test rounds in a row end without fewer failing checks than its best round so far.
 - `appUrl`, `healthPaths`, `healthTimeoutSeconds`: where the main checkout's app runs and which pages must answer 200 (pages that work without signing in). `[]` for an app with no server.

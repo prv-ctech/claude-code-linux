@@ -42,7 +42,7 @@ test('guard denies git push and env files for oma agents only, however git is sp
   assert.strictEqual(decide({ agent_type: W, tool_name: 'Grep', tool_input: { pattern: 'KEY', path: 'src' } }), null);
   const spawn = t => decide({ agent_type: W, tool_name: 'Agent', tool_input: { subagent_type: t, prompt: 'x' } });
   assert.match(spawn('general-purpose'), /only oh-my-agent-mod/);
-  assert.strictEqual(spawn('oh-my-agent-mod:tester'), null);
+  assert.strictEqual(spawn('oh-my-agent-mod:reviewer'), null);
 });
 
 test('guard covers env files in codebase-memory graph tools and leaves code search alone', () => {
@@ -103,7 +103,7 @@ test('finish gate blocks an unfinished worker, passes a finished one, and gives 
   assert.match(out.reason, /block 1 of 3/);
   assert.match(out.reason, /step is "building"/);
   // Not a worker: never gated.
-  assert.strictEqual(gate({ agent_type: 'oh-my-agent-mod:tester', cwd: wt }), null);
+  assert.strictEqual(gate({ agent_type: 'oh-my-agent-mod:reviewer', cwd: wt }), null);
   // Uncommitted change blocks even when the status says done.
   status({ step: 'done', evals: { passed: 3, failed: 0, total: 3, round: 1 } });
   write(path.join(wt, 'feature.txt'), 'x');
@@ -245,7 +245,7 @@ test('guard catches git push behind shell keywords and eval, and untyped Agent c
   assert.ok(decide({ agent_type: W, tool_name: 'Task', tool_input: { subagent_type: 'general-purpose' } }));
   assert.ok(decide({ agent_type: 'oh-my-agent-mod:first-timer', tool_name: 'mcp__Claude_Browser__javascript_tool', tool_input: { text: '1' }, cwd: '/p' }));
   assert.ok(decide({ agent_type: W, tool_name: 'Agent', tool_input: { prompt: 'x' } }), 'no subagent_type means the default agent');
-  assert.strictEqual(decide({ agent_type: W, tool_name: 'Agent', tool_input: { subagent_type: 'oh-my-agent-mod:tester' } }), null);
+  assert.strictEqual(decide({ agent_type: W, tool_name: 'Agent', tool_input: { subagent_type: 'oh-my-agent-mod:reviewer' } }), null);
 });
 
 test('approval: only /oma approve records it; a worker starts only on an approved, unchanged ticket', async () => {
