@@ -347,6 +347,24 @@ test('oma merge: merges an approved ticket, runs the suite, undoes a failing mer
   assert.match(oma(dir, 'log-fix', 'cover posters render again').stdout, /logged as 006/);
 });
 
+test('oma merge: oma\'s own uncommitted .gitignore lines do not block a branch that also edits .gitignore', () => {
+  const dir = repo();
+  git(dir, 'checkout', '-q', '-b', 'ig', 'main');
+  fs.appendFileSync(path.join(dir, '.gitignore'), '/data/\n');
+  git(dir, 'commit', '-q', '-am', 'Ignore data');
+  git(dir, 'checkout', '-q', 'main');
+  // Both sides append at the end of the file: the case a stash-and-pop turns into conflict markers.
+  fs.mkdirSync(path.join(dir, '.codebase-memory'));
+  fs.appendFileSync(path.join(dir, '.gitignore'), '\n# oh-my-agent: code graph\n/.codebase-memory/\n');
+  const r = oma(dir, 'merge', 'ig');
+  assert.match(r.stdout.trim().split('\n').pop(), /^MERGED fix \(ig\): /, r.stdout + r.stderr);
+  const ignore = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+  assert.doesNotMatch(ignore, /<<<<<<<|>>>>>>>/);
+  assert.strictEqual(git(dir, 'stash', 'list'), '');
+  assert.match(ignore, /^\/data\/$/m);
+  assert.match(ignore, /^\/\.codebase-memory\/$/m, 'oma line kept uncommitted');
+});
+
 test('oma stress: skipped when a run could touch the person\'s data or there is nothing to serve; down is safe to repeat', () => {
   const shared = repo({ start: 'node server.js' });
   fs.appendFileSync(path.join(shared, '.oma', 'project.md'), '\n- **Local data is per folder:** no\n');

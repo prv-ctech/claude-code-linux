@@ -19,11 +19,11 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { approve, state as approvalState } from './approve.mjs';
 
-export const ME = 'oh-my-agent-mod';
+const ME = 'oh-my-agent-mod';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP_SESSIONS = 50;
 // Everything oma writes in a project. Never committed, never sent into a Docker build context.
-export const IGNORE_LINES = ['/.oma/', '/specs/tickets/', '/.claude/worktrees/'];
+const IGNORE_LINES = ['/.oma/', '/specs/tickets/', '/.claude/worktrees/'];
 // Ignored files that every new worktree still needs (Claude Code copies what .worktreeinclude lists).
 const GRAPH_DIR = '.codebase-memory';
 const WORKTREE_LINES = ['/.oma/', '/specs/tickets/'];
@@ -84,7 +84,7 @@ function readSettings(file) {
 const routerLine = () => `oh-my-agent router mode is on in this session: you are the router. Follow ${path.join(ROOT, 'router.md')} `
   + '(Read it again if it is not in your context): route work to oh-my-agent-mod agents, never build, edit or run git yourself, except a quick fix as the Quick path in router-bug.md allows. /oma off ends router mode.';
 
-export function sessionsOn(p) {
+function sessionsOn(p) {
   const s = readJson(p.sessions, {});
   return s && typeof s === 'object' && !Array.isArray(s) ? s : {};
 }

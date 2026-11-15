@@ -343,7 +343,9 @@ async function cmdMerge(args) {
   const root = top();
   const slug = ticketArg ? path.basename(ticketArg.replace(/\/+$/, '')) : '';
   const label = slug || `fix (${branch})`;
+  let restoreIgnores = null;
   const end = (line, code = 1) => {
+    if (restoreIgnores) restoreIgnores();
     console.log(line);
     process.exit(code);
   };
@@ -382,6 +384,14 @@ async function cmdMerge(args) {
 
   // 4. Merge. A conflict is never resolved here.
   const pre = head();
+  // oma's own uncommitted ignore lines (the only edits `oma dirty` allows) would block a branch that edits the same file:
+  // drop them for the merge and add them back after, on every exit.
+  const omaEdited = g(['diff', '--name-only']).stdout.split('\n').filter(f => ['.gitignore', '.dockerignore', '.worktreeinclude'].includes(f));
+  if (omaEdited.length) {
+    const { ensureOmaIgnores } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'scripts', 'oma.mjs')).href);
+    g(['checkout', '--', ...omaEdited]);
+    restoreIgnores = () => ensureOmaIgnores(root);
+  }
   const m = g(['merge', '--no-ff', '--no-edit', '-m', `Merge ${label}${slug ? ` (${branch})` : ''}`, branch]);
   if (m.status !== 0) {
     const files = g(['diff', '--name-only', '--diff-filter=U']).stdout.trim().split('\n').filter(Boolean);

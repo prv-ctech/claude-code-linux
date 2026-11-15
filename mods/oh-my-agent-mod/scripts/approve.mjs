@@ -14,7 +14,7 @@ const read = f => {
     return null;
   }
 };
-export const manifestFile = root => path.join(root, '.oma', 'approved.json');
+const manifestFile = root => path.join(root, '.oma', 'approved.json');
 const ticketsDir = root => path.join(root, 'specs', 'tickets');
 
 // eval.md split at its ## and ### headings: { "Setup": hash, "E-1": hash, ... }. Traceability and
@@ -29,7 +29,7 @@ function evalParts(text) {
 }
 
 // What approval covers for one ticket folder, or null when rd.md or eval.md is missing.
-export function digest(root, name) {
+function digest(root, name) {
   const rd = read(path.join(ticketsDir(root), name, 'rd.md'));
   const ev = read(path.join(ticketsDir(root), name, 'eval.md'));
   if (rd === null || ev === null) return null;

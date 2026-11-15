@@ -20,7 +20,7 @@ import { problem } from './approve.mjs';
 
 const PREFIX = 'oh-my-agent-mod:';
 const ENV_OK = /^\.env\.(example|sample|template|dist|defaults|md)$/i;
-export const isEnvName = name => {
+const isEnvName = name => {
   const b = basename(String(name || ''));
   if (ENV_OK.test(b)) return false;
   if (/\.(d\.ts|ts|tsx|js|jsx|mjs|cjs|py|go|rs|rb)$/i.test(b)) return false; // code files like .env.d.ts
@@ -73,7 +73,7 @@ function segments(cmd) {
 }
 
 // Bash brace expansion: git {pu,x}sh, cat .e{nv,x}. Capped so a hostile word can't blow up.
-export function expandBraces(w, out = []) {
+function expandBraces(w, out = []) {
   const m = /\{([^{}]*,[^{}]*)\}/.exec(w);
   if (!m || out.length > 64) { out.push(w); return out; }
   for (const alt of m[1].split(',')) expandBraces(w.slice(0, m.index) + alt + w.slice(m.index + m[0].length), out);
@@ -84,7 +84,7 @@ const WRAPPERS = new Set(['setsid', 'flock', 'coproc', 'doas', 'chrt', 'taskset'
 const GIT_OPTS_WITH_VALUE = new Set(['--attr-source', '--super-prefix', '-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env']);
 
 // True when a shell command runs `git push`, at any depth of bash -c / sh -c.
-export function runsGitPush(cmd, depth = 0) {
+function runsGitPush(cmd, depth = 0) {
   if (depth > 3) return true; // nested past reason: refuse
   for (const seg of segments(cmd)) {
     // {git,} push: expand braces in every word, the command name included.
@@ -178,7 +178,7 @@ function fileWords(seg) {
   }
   return out;
 }
-export function namesEnvFile(cmd, depth = 0) {
+function namesEnvFile(cmd, depth = 0) {
   // echo .env | xargs cat, cat $(echo .env): any word may become a file name.
   if (/\bxargs\b|\$\(|`/.test(cmd) && segments(cmd).some(seg => words(seg).some(x => isEnvName(x)))) return true;
   return segments(cmd).some(seg => {
@@ -209,7 +209,7 @@ function gitSub(seg) {
 const OTHER_PUSHERS = new Set(['docker', 'podman', 'buildah', 'skopeo', 'helm', 'oras']);
 const READ_ONLY_GIT = new Set(['log', 'grep', 'show', 'diff', 'blame', 'status', 'shortlog', 'rev-list', 'ls-files', 'merge-base', 'rev-parse', 'branch', 'remote', 'tag']);
 
-export function stagesOmaFiles(cmd) {
+function stagesOmaFiles(cmd) {
   return segments(dropMessages(cmd)).some(seg => ['add', 'commit', 'stage'].includes(gitSub(seg)) && /(^|[\s"'=\/])\.?\/?(\.oma|specs\/tickets)(\/|\s|$|"|')/.test(seg));
 }
 
@@ -221,7 +221,7 @@ const BLIND_OMA = /(node [^\s;&|<>`$()"']*oh-my-agent-mod[^\s;&|<>`$()"']*\/bin\
 const BLIND_BASH = new RegExp(`^(${BLIND_CD}|${BLIND_OMA}|${BLIND_CD} && ${BLIND_OMA})$`);
 // Only the app on this machine: http(s) to localhost, 127.0.0.1, [::1] or a *.localhost name. No file:, no other hosts.
 const LOCAL_URL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|[a-z0-9-]+\.localhost)(:\d{1,5})?([\/?#]|$)/i;
-export function blindDecide(tool, ti, cwd = process.cwd()) {
+function blindDecide(tool, ti, cwd = process.cwd()) {
   const no = 'the first-timer stays blind: it uses the app only through the browser';
   // No `..` segments: the node path to oma must stay inside oh-my-agent-mod.
   if (tool === 'Bash') return BLIND_BASH.test(String(ti.command || '').trim()) && !/oh-my-agent-mod\S*\/\.\.(\/|\s|$)/.test(String(ti.command)) ? null : `${no}; Bash runs only plain "oma up|serve|stop|port <port>" or "cd <dir>".`;
