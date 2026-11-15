@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// oh-my-agent-mod: PreToolUse guard for the mod's own agents only (agent_type "oh-my-agent-mod:*").
+// oh-my-agent-mod: PreToolUse guard, mostly for the mod's own agents (agent_type "oh-my-agent-mod:*").
 // Plugins cannot ship permission rules, so this does what the deepseek-superagent pack's
 // settings.json deny list did, without touching the person's own sessions:
 //   - no `git push` from any oma agent (nothing leaves the machine until the person pushes), however
@@ -9,10 +9,14 @@
 //   - no subagents other than oh-my-agent ones, which this guard would not cover;
 //   - the first-timer stays blind: no reading files or code, Bash only for oma up/serve/stop/port,
 //     Write only under .oma/job/first-timer/.
+// For every session: .oma/approved.json is never edited (only /oma approve writes it), and a worker
+// starts only on a ticket the person approved, unchanged since.
 // Prints a deny decision or nothing. Any error prints nothing and exits 0.
 import { readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { problem } from './approve.mjs';
 
 const PREFIX = 'oh-my-agent-mod:';
 const ENV_OK = /^\.env\.(example|sample|template|dist|defaults|md)$/i;
@@ -239,10 +243,35 @@ export function blindDecide(tool, ti, cwd = process.cwd()) {
   return null;
 }
 
+// The approval manifest is written only by the /oma approve hook: nobody edits it, in any session.
+// shortcut: a pattern on the command text, not a sandbox; it stops a router that forgets, not an attacker.
+function touchesApproval(tool, ti) {
+  if (['Write', 'Edit', 'NotebookEdit'].includes(tool)) return /(^|\/)\.oma\/approved\.json$/.test(String(ti.file_path || ti.notebook_path || ''));
+  if (tool !== 'Bash' && tool !== 'Monitor') return false;
+  const cmd = String(ti.command || '');
+  return /approved\.json/.test(cmd) && />|\b(tee|rm|mv|cp|sed|dd|touch|truncate|ln|install|node|python3?|perl|ruby)\b/.test(cmd);
+}
+
+// A worker may start only on a ticket the person approved, unchanged since.
+function unapproved(ti, cwd) {
+  if (String(ti.subagent_type || '') !== `${PREFIX}worker`) return null;
+  const m = String(ti.prompt || '').match(/^Ticket:\s*specs\/tickets\/(\d{3}-[\w.-]+)/m);
+  if (!m) return null; // the worker itself blocks on a prompt without a ticket
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' });
+  const why = problem(top.status === 0 ? top.stdout.trim() : cwd, m[1]);
+  return why && `Ticket ${m[1]} may not be built: ${why}. Show the user the ticket as it is now and ask them to type /oma approve; only that records approval.`;
+}
+
 export function decide(input) {
-  if (!input || typeof input.agent_type !== 'string' || !input.agent_type.startsWith(PREFIX)) return null;
+  if (!input) return null;
   const ti = input.tool_input || {};
   const tool = input.tool_name;
+  if (touchesApproval(tool, ti)) return '.oma/approved.json is written only when the user types /oma approve. Ask them to; never edit it.';
+  if (tool === 'Agent' || tool === 'Task') {
+    const no = unapproved(ti, input.cwd || process.cwd());
+    if (no) return no;
+  }
+  if (typeof input.agent_type !== 'string' || !input.agent_type.startsWith(PREFIX)) return null;
   if (input.agent_type === `${PREFIX}first-timer`) {
     const blind = blindDecide(tool, ti, input.cwd || process.cwd());
     if (blind) return blind;
