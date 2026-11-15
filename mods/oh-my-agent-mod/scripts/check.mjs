@@ -5,6 +5,10 @@
 //   node check.mjs [--root <project>] --watch   rounds every roundIntervalMinutes for ~28 min, then exits;
 //                                               prints only problem lines (quiet rounds print nothing).
 //                                               The router runs this under its Monitor tool.
+//   node check.mjs [--root <project>] --overlap ticket pairs (not done) whose Affected areas share a path, one
+//                                               JSON line each: {"kind":"overlap","tickets":["004","007"],
+//                                               "paths":[...],"ordered":true|false}. ordered: the board already
+//                                               makes one wait for the other. Changes nothing, decides nothing.
 //
 // With --tick, the first line is {"kind":"tick","round":n}. n goes up by one on
 // every --tick run and is kept as "round" in .oma/job/watchdog-state.json. Runs
@@ -46,6 +50,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ARGS = process.argv.slice(2);
 const TICK = ARGS.includes("--tick");
 const WATCH = ARGS.includes("--watch");
+const OVERLAP = ARGS.includes("--overlap");
 const rootArg = ARGS.indexOf("--root");
 if (rootArg >= 0 && ARGS[rootArg + 1]) process.chdir(ARGS[rootArg + 1]);
 const JOB = path.join(".oma", "job");
@@ -380,6 +385,50 @@ function checkDrift({ key, label, root, status, ticket, base, cfg, report }) {
   report("drift", ticket, key, `${label} changed ${outside.length} file(s) outside its Affected areas: ${shown}${more}`);
 }
 
+// ---------- overlap ----------
+
+function overlap() {
+  const root = (listWorktrees() || [])[0]?.dir || process.cwd();
+  const rows = {};
+  try {
+    for (const line of fs.readFileSync(path.join(root, "specs", "tickets", "BOARD.md"), "utf8").split("\n")) {
+      const cells = line.split("|").map((c) => c.trim());
+      if (cells.length > 5 && /^\d+$/.test(cells[1])) rows[cells[1].padStart(3, "0")] = { status: cells[3], runs: cells[5] };
+    }
+  } catch {
+    // no board yet: every ticket folder counts
+  }
+  let names = [];
+  try {
+    names = fs.readdirSync(path.join(root, "specs", "tickets")).filter((n) => /^\d{3}-/.test(n)).sort();
+  } catch {
+    // no tickets
+  }
+  const tickets = [];
+  for (const name of names) {
+    const id = name.slice(0, 3);
+    if (/^done$/i.test(rows[id]?.status || "")) continue;
+    let text;
+    try {
+      text = fs.readFileSync(path.join(root, "specs", "tickets", name, "rd.md"), "utf8");
+    } catch {
+      continue;
+    }
+    tickets.push({ id, areas: parseAffectedAreas(text) });
+  }
+  // A glob stands for some path under it: compare with its stars filled in.
+  const hits = (a, b) => areaMatcher(a).test(b.replace(/\*+/g, "x").replace(/\/+$/, ""));
+  for (let i = 0; i < tickets.length; i++) {
+    for (let j = i + 1; j < tickets.length; j++) {
+      const [a, b] = [tickets[i], tickets[j]];
+      const paths = [...new Set(a.areas.flatMap((x) => b.areas.filter((y) => hits(x, y) || hits(y, x)).map((y) => (hits(x, y) ? y : x))))];
+      if (!paths.length) continue;
+      const waits = (t, other) => new RegExp(`waits for[^|]*\\b${other}\\b`, "i").test(rows[t]?.runs || "");
+      console.log(JSON.stringify({ kind: "overlap", tickets: [a.id, b.id], paths, ordered: waits(a.id, b.id) || waits(b.id, a.id) }));
+    }
+  }
+}
+
 // ---------- app health ----------
 
 async function checkApp(cfg, report) {
@@ -520,7 +569,8 @@ function watch() {
   }
 }
 
-if (WATCH) watch();
+if (OVERLAP) overlap();
+else if (WATCH) watch();
 else main()
   .catch((err) => {
     warn(`unexpected error: ${err?.stack || err}`);

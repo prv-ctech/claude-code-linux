@@ -17,7 +17,9 @@ Workers can't ask anything once they start, and after the user approves the tick
 3. **Approaches.** When there's more than one sensible way to build it, give 2-3, each with one line of trade-offs, and recommend one with a one-line reason. The user picks, or says "you choose". One sensible way: say so and skip this.
 4. **Next feature.** When a feature has no open decision, say so in one line and start the next one. There is no summary to confirm here: the user confirms everything once, on the written tickets (see "Approval").
 5. **Gather.** Only if the request or an answer names a source (Mobbin, 21st, an artifact link, a URL, or an MCP), start `oh-my-agent-mod:gatherer` with `Gather these sources exactly: <list as named>. Refs folder: .oma/refs/<request-slug>/. Project root: <projectRoot>.` and wait for it. If it reports `NOT GATHERED` lines, tell the user in one line and continue with what was gathered. No source named: no gatherer runs.
-6. **Hand over.** Start the ticket-writer with `Write tickets for: <their words, exactly>.`, one `Intent: .oma/intent/<feature-slug>.md` line per feature, then the ticket-writer lines. Log your own calls in the decision ledger (`By: router`).
+6. **Hand over.** Log your own calls in the decision ledger (`By: router`), then:
+   - **One or two features:** one ticket-writer: `Write tickets for: <their words, exactly>.`, one `Intent: .oma/intent/<feature-slug>.md` line per feature, then the ticket-writer lines.
+   - **Three or more:** one ticket-writer per feature, all started in one turn so they run side by side. Each gets `Write tickets for: <that feature, in their words>.`, its own `Intent:` line, the ticket-writer lines, and two more lines: `Numbers: <first>-<last>` (a block of ten that no other writer has: 010-019, 020-029, ...; start above the board's highest number) and `Board: leave BOARD.md alone; put your rows in your reply.` When all have reported, resume one of them with every writer's rows and `Write BOARD.md with these rows, then run step 7 across all tickets.`
 
 Example: "rework the theme so we can add more themes" asks which palettes ship first (Catppuccin flavours, Nord, light/dark), whether users switch themes in the app or it follows the system, and offers CSS variables with a theme registry vs. a Tailwind theme plugin vs. design tokens.
 
@@ -38,13 +40,34 @@ Base branch: <branch>
 
 - **A profile summary** (3 lines): show it to the user in plain words; they correct it if needed.
 - **A `QUESTIONS` block** (its last lines, `n. question | option A (recommended) | option B ...`): handle it as in "Questions", append the answers to the feature's intent file, and resume it with them.
-- **Draft tickets:** every new ticket is a draft. Go to "Approval".
+- **Draft tickets:** every new ticket is a draft. Go to "Plan review".
+
+## Plan review
+
+A second opinion on the drafts before the user reads them. Skip it for a single regression ticket (go to "Approval").
+
+1. **Overlap.** Run the state's `overlapCommand`. Each line is two tickets whose Affected areas share a path. `"ordered": true` is fine. For `false`, resume the ticket-writer: `Tickets NNN and MMM both change <paths>: make one wait for the other, or move the shared change into one ticket and list it under Do not touch in the other.` The script only reports; the order is your call.
+2. **Two reviewers, one turn.** Start two `oh-my-agent-mod:plan-reviewer` agents side by side, the prompts identical but for the first line:
+   ```
+   Lens: critic        (the other: Lens: lean)
+   Tickets: specs/tickets/NNN-slug, specs/tickets/MMM-slug, ...
+   Intent files: .oma/intent/<slug>.md, ...
+   Project root: <projectRoot>
+   ```
+   Add nothing else: no summary, no hint at what you think is weak. A reviewer that knows the backstory can't catch what the backstory hides.
+3. **Triage every finding yourself.** They advise; you decide, and you don't have to agree. Check each finding against the tickets, the intent files and the code, then give it one action:
+   - **FIX:** it is right and the fix is a technical matter. Collect these.
+   - **REJECT:** it is wrong, out of scope, or contradicts what the user said. Note the evidence (an intent line, a ticket line, a repo `path:line`). A `lean` finding that would drop something the user asked for is always rejected.
+   - **ESCALATE:** `needs_user: yes`, or a product choice with no clear winner. It becomes a question at approval.
+   Nits are fixed only when they are factual errors.
+4. **Apply.** Resume the ticket-writer once with every FIX, verbatim (`Apply these review findings: ...`). Log each finding and its action in the decision ledger (`By: router`). One round: don't send the changed tickets back to a reviewer.
+5. Go to "Approval", and carry the findings with you.
 
 ## Approval
 
 Nothing is built before the user approves it. A hook enforces this: a worker starts only on a ticket in the state's `approval.approved` list, and only the user typing `/oma approve` puts one there.
 
-1. **Show the drafts.** For each ticket in `approval.pending`: its number and title, a summary in two or three plain lines of what users get, every line of its **Decisions made** that the user did not settle themselves, and its row on the board (what it waits for). Give the paths (`specs/tickets/NNN-slug/rd.md` and `eval.md`) so they can read the full text. Then say exactly, with the numbers of the tickets you just showed and no others: `Type /oma approve 010 011 to approve these as written, or tell me what to change.` (The command approves only the numbers it names, so a draft the user has not seen is never approved; `/oma approve all` exists, but never suggest it.) End your turn. Never ask this with AskUserQuestion and never treat "yes", "ok" or "go" as approval: only the `/oma approve <numbers>` command records it. If they answer some other way, say in one line that the command is what records it.
+1. **Show the drafts.** For each ticket in `approval.pending`: its number and title, a summary in two or three plain lines of what users get, every line of its **Decisions made** that the user did not settle themselves, and its row on the board (what it waits for). After the tickets, the plan review in a few lines: how many findings were fixed, each one you rejected with its reason in one line (the user is the check on your rejections), and each escalated one as a question with your recommended answer. Give the paths (`specs/tickets/NNN-slug/rd.md` and `eval.md`) so they can read the full text. Then say exactly, with the numbers of the tickets you just showed and no others: `Type /oma approve 010 011 to approve these as written, or tell me what to change.` (The command approves only the numbers it names, so a draft the user has not seen is never approved; `/oma approve all` exists, but never suggest it.) End your turn. Never ask this with AskUserQuestion and never treat "yes", "ok" or "go" as approval: only the `/oma approve <numbers>` command records it. If they answer some other way, say in one line that the command is what records it.
 2. **Changes.** Resume the same ticket-writer with the user's changes verbatim, append them to the intent file, and show the changed tickets again (step 1).
 3. **After `/oma approve`** (the prompt's context names the approved folders): resume the ticket-writer with `mark NNN ready` for each, then route them (see "Routing tickets" in `router-run.md`). From here on, ask the user nothing: decide, and log each decision in the ledger.
 4. **A ticket that left the approved list** (its `why` says its rd.md or an approved check changed): never build it and never try to restore approval yourself. Show the user what changed and go back to step 1 for that ticket. Adding a check to eval.md keeps a ticket approved; editing or removing an approved one does not.

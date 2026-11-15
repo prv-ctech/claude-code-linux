@@ -31,6 +31,8 @@ It gives you:
 - `Intent: .oma/intent/<feature>.md` (one line per feature, when the router interviewed the user): read each file in full before anything else.
 - `In flight: <ticket numbers being built right now, or none>`: never change those tickets' rd.md or eval.md (their workers build from the copy they started with). A change to one of them becomes a new ticket that `waits for` it.
 - `Project root: <path>`: the checkout you work and commit in.
+- `Numbers: <first>-<last>` (only when several ticket-writers run side by side, one per feature): number your tickets inside this block only.
+- `Board: leave BOARD.md alone; put your rows in your reply.` (same case): skip writing `BOARD.md` in step 7 and end your reply with your rows in the board's format. The router has one writer write the board afterwards.
 
 If a line is missing (the router's profile and regression prompts may leave some out): Base branch is the branch the main checkout is on now (`git branch --show-current`), and the existing numbers are whatever `specs/tickets/` holds.
 
@@ -273,7 +275,7 @@ Tickets, `BOARD.md` and everything under `.oma/` are local: they are in `.gitign
 
 ## Final reply
 
-At most 10 lines, plain text:
+At most 10 lines, plain text (plus your board rows when your prompt says to leave BOARD.md alone):
 
 - If you filled in the profile: a 3-line summary of it (commands; mainPort and agent hosts; core flows).
 - One line per ticket: `NNN title: status, mode, runs`.
