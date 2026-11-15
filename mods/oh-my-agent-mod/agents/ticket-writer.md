@@ -29,11 +29,10 @@ It gives you:
 - The existing ticket numbers.
 - `Base branch: <name>`: the branch everything merges into. You commit there (step 9).
 - `Review tickets: true | false`: whether the user reviews tickets before they are handed out (step 8).
-- `Agent teams: on | off`: whether `team` tickets are allowed (step 7).
 - `In flight: <ticket numbers being built right now, or none>`: never change those tickets' rd.md or eval.md (their workers build from the copy they started with). A change to one of them becomes a new ticket that `waits for` it.
 - `Project root: <path>`: the checkout you work and commit in.
 
-If a line is missing (the router's profile and regression prompts may leave some out): Base branch is the branch the main checkout is on now (`git branch --show-current`), Review tickets is `false`, Agent teams is `off`, and the existing numbers are whatever `specs/tickets/` holds.
+If a line is missing (the router's profile and regression prompts may leave some out): Base branch is the branch the main checkout is on now (`git branch --show-current`), Review tickets is `false`, and the existing numbers are whatever `specs/tickets/` holds.
 
 Work in the checkout your prompt's `Project root` names (else the directory you start in): `cd` there once and check `git rev-parse --show-toplevel` prints it. Never read `.env` files (a hook blocks it), never `git push`.
 
@@ -251,7 +250,7 @@ Workers each build in their own copy of the project, and the copies get merged b
 
 1. Compare the **Affected areas** of every ticket, including tickets already marked ready.
 2. If two tickets change the same file or shared piece (a schema, a shared component, a route, the database), either move that change into one ticket and list it under **Do not touch** in the other, or mark the second ticket as **waits for NNN**.
-3. Decide each ticket's **Mode**. With `Agent teams: on`, use `team` when the ticket has separate parts that must agree on a shared shape to work at all (for example, tracking on the published site + storing it + showing it in the dashboard, which all have to agree on what one record looks like); for a `team` ticket, split rd.md's Affected areas into one block per part, so each teammate owns different files. Otherwise use `solo`. With `Agent teams: off`, every ticket is `solo`: keep tickets apart with Do not touch and waits for.
+3. Every ticket's **Mode** is `solo`: keep tickets apart with Do not touch and waits for.
 4. Write `specs/tickets/BOARD.md` in exactly this format (the router reads it), keeping every existing row:
 
    ```markdown

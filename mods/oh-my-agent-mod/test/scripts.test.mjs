@@ -148,7 +148,7 @@ const check = (dir, ...args) => {
 
 test('check flags stale, blocked and drifting workers from .oma/job status files', () => {
   const dir = repo();
-  write(path.join(dir, '.oma', 'watchdog-rules.md'), '```json\n{"healthPaths": [], "browserWalkEveryNRounds": 2}\n```\n');
+  write(path.join(dir, '.oma', 'watchdog-rules.md'), '```json\n{"healthPaths": []}\n```\n');
   write(path.join(dir, 'specs', 'tickets', '004-seo', 'rd.md'), '# 004\n\n## Affected areas\n- `src/seo/`: the panel\n\n## Do not touch\n- none\n');
   git(dir, 'add', '.');
   git(dir, 'commit', '-q', '-m', 'ticket');
@@ -171,30 +171,8 @@ test('check flags stale, blocked and drifting workers from .oma/job status files
   assert.match(drift.detail, /src\/auth\.ts/);
   assert.doesNotMatch(drift.detail, /panel\.ts/);
   assert.ok(fs.existsSync(path.join(dir, '.oma', 'job', 'watchdog-state.json')));
-  // healthPaths [] means no server: never a walk.
   r = check(dir, '--tick');
-  assert.ok(!r.lines.some(l => l.kind === 'walk-due'));
   assert.match(r.lines.find(l => l.kind === 'stale').detail, /first flagged/);
-});
-
-test('check prints walk-due on every Nth tick when the app answers', async () => {
-  const http = await import('node:http');
-  const server = http.createServer((q, s) => s.end('ok')).listen(0);
-  await new Promise(r => server.once('listening', r));
-  const port = server.address().port;
-  try {
-    const dir = repo();
-    write(path.join(dir, '.oma', 'watchdog-rules.md'), `\`\`\`json\n{"appUrl": "http://127.0.0.1:${port}", "healthPaths": ["/"], "browserWalkEveryNRounds": 2}\n\`\`\`\n`);
-    const runAsync = args => new Promise((res, rej) => {
-      import('node:child_process').then(({ execFile }) => execFile('node', [CHECK, '--root', dir, ...args], (e, out) => (e ? rej(e) : res(out))));
-    });
-    const first = await runAsync(['--tick']);
-    assert.ok(!first.includes('walk-due'));
-    const second = await runAsync(['--tick']);
-    assert.match(second, /"kind":"walk-due","round":2/);
-  } finally {
-    server.close();
-  }
 });
 
 test('check warns on a broken rules file and falls back to defaults', () => {
@@ -204,17 +182,16 @@ test('check warns on a broken rules file and falls back to defaults', () => {
   assert.match(r.stderr, /not valid JSON/);
 });
 
-test('check says app-not-running once per streak and still calls walks', async () => {
+test('check says app-not-running once per streak', async () => {
   const net = await import('node:net');
   const srv = net.createServer().listen(0);
   await new Promise(r => srv.once('listening', r));
   const port = srv.address().port;
   await new Promise(r => srv.close(r)); // free again: nothing answers there
   const dir = repo();
-  write(path.join(dir, '.oma', 'watchdog-rules.md'), '```json\n{"appUrl": "http://127.0.0.1:' + port + '", "healthPaths": ["/"], "browserWalkEveryNRounds": 2}\n```\n');
+  write(path.join(dir, '.oma', 'watchdog-rules.md'), '```json\n{"appUrl": "http://127.0.0.1:' + port + '", "healthPaths": ["/"]}\n```\n');
   const kinds = () => check(dir, '--tick').lines.map(l => l.kind);
   assert.deepStrictEqual(kinds(), ['tick', 'app-not-running']);
-  assert.deepStrictEqual(kinds(), ['tick', 'walk-due']);
   assert.deepStrictEqual(kinds(), ['tick']);
 });
 

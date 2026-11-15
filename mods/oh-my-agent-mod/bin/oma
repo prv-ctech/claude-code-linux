@@ -12,9 +12,9 @@
 //                                   process); nothing printed when free
 //   oma stop <port>                 stops what listens on <port>, only if `oma serve` started it in this
 //                                   repository (this folder or another of its worktrees), unless --force
-//   oma status init <ticket-folder|repro:<slug>> <port> [--name <teammate>]
-//   oma status <step> [note] [--evals p/f/t] [--round next|<n>] [--name <teammate>]
-//                                   writes .oma/job/status.json (status-<name>.json for a teammate) at the
+//   oma status init <ticket-folder|repro:<slug>> <port>
+//   oma status <step> [note] [--evals p/f/t] [--round next|<n>]
+//                                   writes .oma/job/status.json at the
 //                                   git top level, keeping `stepStarted` right and `updated` current
 //   oma now                         ISO UTC time
 //
@@ -202,16 +202,13 @@ function flags(args) {
   const out = { rest: [] };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === '--name' || a === '--evals' || a === '--round') out[a.slice(2)] = args[++i];
+    if (a === '--evals' || a === '--round') out[a.slice(2)] = args[++i];
     else out.rest.push(a);
   }
   return out;
 }
 
-function statusFile(root, name) {
-  if (name && !/^[A-Za-z0-9_-]+$/.test(name)) die('--name must be letters, digits, - or _', 2);
-  return path.join(jobDir(root), name ? `status-${name}.json` : 'status.json');
-}
+const statusFile = root => path.join(jobDir(root), 'status.json');
 
 function writeStatus(file, s) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -223,11 +220,11 @@ function writeStatus(file, s) {
 function cmdStatus(args) {
   const f = flags(args);
   const root = top();
-  const file = statusFile(root, f.name);
+  const file = statusFile(root);
   const t = now();
   if (f.rest[0] === 'init') {
     const [, target, port] = f.rest;
-    if (!target || !/^\d+$/.test(port || '')) die('usage: oma status init <ticket-folder|repro:<slug>> <port> [--name <teammate>]', 2);
+    if (!target || !/^\d+$/.test(port || '')) die('usage: oma status init <ticket-folder|repro:<slug>> <port>', 2);
     let ticket;
     let slug;
     if (target.startsWith('repro:')) {
