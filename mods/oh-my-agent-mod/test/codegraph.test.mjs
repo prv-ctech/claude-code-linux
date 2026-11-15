@@ -88,7 +88,7 @@ test('subagent hook text for oma agents, silence otherwise', () => {
   assert.ok(o.additionalContext.endsWith(`and use the project name it returns, not "${name}".`));
 
   fs.rmSync(path.join(proj, '.codebase-memory', 'graph.db.zst'));
-  const ng = JSON.parse(sub({ agent_type: 'oh-my-agent-mod:merger', cwd: proj }).stdout).hookSpecificOutput.additionalContext;
+  const ng = JSON.parse(sub({ agent_type: 'oh-my-agent-mod:reviewer', cwd: proj }).stdout).hookSpecificOutput.additionalContext;
   assert.ok(ng.endsWith(`oh-my-agent code search: the code graph is on but no graph applies in ${proj} (no graph), so Grep, Glob and grep work as usual here.`));
   write(path.join(proj, '.codebase-memory', 'graph.db.zst'), '');
 

@@ -250,7 +250,7 @@ function main() {
   if (input.hook_event_name === 'PreToolUse') EVENT = 'PreToolUse';
 
   // Only gate the worker itself. If this hook ever sees another agent's stop
-  // (tester, reviewer, an internal agent), let it through.
+  // (reviewer, an internal agent), let it through.
   if (input.agent_type && !WORKER_TYPES.has(input.agent_type)) allow();
 
   const root = findWorktree(input);

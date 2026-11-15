@@ -293,3 +293,56 @@ test('router.md names only phase files and agents that exist, and stays small', 
   for (const m of all.matchAll(/`oh-my-agent-mod:([a-z-]+)`/g)) assert.ok(fs.existsSync(path.join(ROOT, 'agents', `${m[1]}.md`)), m[1]);
   assert.ok(Buffer.byteLength(core) < 16000, 'core router is read in every /oma session: keep it under 16 KB');
 });
+
+test('oma merge: merges an approved ticket, runs the suite, undoes a failing merge, never resolves a conflict, logs a fix', async () => {
+  const { approve } = await import('../scripts/approve.mjs');
+  const dir = repo({ test: 'test ! -f FAIL' });
+  const ticket = (id, slug) => {
+    write(path.join(dir, 'specs', 'tickets', `${id}-${slug}`, 'rd.md'), `# ${id}\n\n**Status:** ready\n\n## Summary\n${slug}\n`);
+    write(path.join(dir, 'specs', 'tickets', `${id}-${slug}`, 'eval.md'), `# ${id}\n\n### E-1: works\n- **Expected**: ok\n`);
+  };
+  ticket('001', 'good'); ticket('002', 'bad'); ticket('003', 'clash'); ticket('004', 'unseen');
+  write(path.join(dir, 'specs', 'tickets', 'BOARD.md'), '| # | Title | Status | Mode | Runs |\n|---|---|---|---|---|\n| 001 | Good | ready | solo | alongside |\n| 002 | Bad | ready | solo | waits for 001: same file |\n| 003 | Clash | ready | solo | alongside |\n');
+  approve(dir, ['001', '002', '003']);
+  const branch = (name, file, text) => {
+    git(dir, 'checkout', '-q', '-b', name, 'main');
+    write(path.join(dir, file), text);
+    git(dir, 'add', file);
+    git(dir, 'commit', '-q', '-m', `Add ${file}`);
+    git(dir, 'checkout', '-q', 'main');
+  };
+  const merge = (...a) => {
+    const r = oma(dir, 'merge', ...a);
+    return { status: r.status, last: r.stdout.trim().split('\n').pop() };
+  };
+  const head = () => git(dir, 'rev-parse', 'HEAD');
+  branch('t1', 'a.txt', 'one\n'); branch('t2', 'FAIL', 'x\n'); branch('t3', 'a.txt', 'other\n'); branch('fix1', 'b.txt', 'fix\n');
+
+  let r = merge('t1', 'specs/tickets/001-good');
+  assert.strictEqual(r.status, 0, r.last);
+  assert.match(r.last, /^MERGED 001-good: merge \w{7}, lint none \(skipped\), build none \(skipped\), test ok, marked done; waited for 001: 002$/);
+  assert.match(fs.readFileSync(path.join(dir, 'specs', 'tickets', '001-good', 'rd.md'), 'utf8'), /\*\*Status:\*\* done/);
+  assert.match(fs.readFileSync(path.join(dir, 'specs', 'tickets', 'BOARD.md'), 'utf8'), /\| 001 \| Good \| done \|/);
+
+  const before = head();
+  r = merge('t2', 'specs/tickets/002-bad');
+  assert.match(r.last, /^FAILED 002-bad: test: exit 1/);
+  assert.strictEqual(head(), before, 'failing merge undone');
+
+  r = merge('t3', 'specs/tickets/003-clash');
+  assert.match(r.last, /^CONFLICT 003-clash: a\.txt/);
+  assert.strictEqual(head(), before, 'conflict aborted');
+  assert.strictEqual(git(dir, 'status', '--porcelain', '--untracked-files=no'), '');
+
+  assert.match(merge('fix1', 'specs/tickets/004-unseen').last, /^FAILED 004-unseen: not approved: the user has not approved it/);
+  // The worker's own copy of the ticket was weakened: refused.
+  const wt = tmp('oma-wt-');
+  write(path.join(wt, 'specs', 'tickets', '003-clash', 'rd.md'), fs.readFileSync(path.join(dir, 'specs', 'tickets', '003-clash', 'rd.md'), 'utf8'));
+  write(path.join(wt, 'specs', 'tickets', '003-clash', 'eval.md'), '# 003\n\n### E-1: works\n- **Expected**: anything\n');
+  assert.match(merge('t3', 'specs/tickets/003-clash', '--worktree', wt).last, /not approved: approved parts of its eval\.md changed.*worker's copy/);
+
+  r = merge('fix1');
+  assert.match(r.last, /^MERGED fix \(fix1\): merge \w{7}, .*logged as 005$/);
+  assert.match(fs.readFileSync(path.join(dir, 'specs', 'tickets', 'BOARD.md'), 'utf8'), /\| 005 \| Fix: Add b\.txt \| done \| solo \| fix \|/);
+  assert.match(oma(dir, 'log-fix', 'cover posters render again').stdout, /logged as 006/);
+});

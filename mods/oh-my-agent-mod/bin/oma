@@ -16,6 +16,12 @@
 //   oma status <step> [note] [--evals p/f/t] [--round next|<n>]
 //                                   writes .oma/job/status.json at the
 //                                   git top level, keeping `stepStarted` right and `updated` current
+//   oma merge <branch> [specs/tickets/NNN-slug] [--worktree <path>]
+//                                   main checkout only: merges <branch> into the branch checked out here
+//                                   (--no-ff), runs install (when a manifest changed), lint, build and test on
+//                                   the result, undoes the merge if one fails, marks the ticket done. Last line:
+//                                   MERGED | CONFLICT | FAILED ...; exit 0 only for MERGED
+//   oma log-fix <one line>          adds a done row to specs/tickets/BOARD.md for a fix that had no ticket
 //   oma now                         ISO UTC time
 //
 // Exit codes: 0 ok, 1 failed (message on stderr), 2 bad usage.
@@ -267,8 +273,175 @@ function cmdStatus(args) {
   console.log(JSON.stringify(s));
 }
 
+// --- oma merge / oma log-fix ------------------------------------------------------------------------
+// Merging, as one command the router runs in the main checkout. Its last line
+// is the result (MERGED | CONFLICT | FAILED ...); exit 0 only for MERGED. It never resolves a conflict
+// and never pushes: a conflict or a failing branch goes back to the worker.
+
+const gitIn = (cwd, args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+const MANIFESTS = /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|pyproject\.toml|poetry\.lock|uv\.lock|requirements[^/]*\.txt|Cargo\.(toml|lock)|go\.(mod|sum)|Gemfile(\.lock)?|composer\.(json|lock))$/;
+
+// Runs one profile command in `root`. { skipped } when the profile says none, else { code }.
+function runIn(root, what) {
+  const c = cfg(root)[what];
+  if (isNone(c)) return { skipped: true, code: 0 };
+  const r = spawnSync('bash', ['-c', c], { cwd: root, stdio: ['ignore', 2, 2] });
+  return { code: r.status === null ? 1 : r.status };
+}
+
+const boardFile = root => path.join(root, 'specs', 'tickets', 'BOARD.md');
+const BOARD_HEAD = '| # | Title | Status | Mode | Runs |\n|---|---|---|---|---|\n';
+function boardRows(root) {
+  let text = '';
+  try {
+    text = fs.readFileSync(boardFile(root), 'utf8');
+  } catch {
+    /* no board yet */
+  }
+  const rows = [];
+  for (const line of text.split('\n')) {
+    const c = line.split('|').map(x => x.trim());
+    if (c.length > 5 && /^\d+$/.test(c[1])) rows.push({ id: c[1].padStart(3, '0'), status: c[3], runs: c[5], line });
+  }
+  return { text, rows };
+}
+
+// A fix that had no ticket gets a done row, so the board lists everything that landed. Returns its number.
+function logFix(root, title, how) {
+  const { text, rows } = boardRows(root);
+  let max = rows.reduce((m, r) => Math.max(m, Number(r.id)), 0);
+  try {
+    for (const n of fs.readdirSync(path.dirname(boardFile(root)))) if (/^\d{3}-/.test(n)) max = Math.max(max, Number(n.slice(0, 3)));
+  } catch {
+    /* no tickets folder yet */
+  }
+  const id = String(max + 1).padStart(3, '0');
+  fs.mkdirSync(path.dirname(boardFile(root)), { recursive: true });
+  const clean = String(title).replace(/[|\r\n]+/g, ' ').trim();
+  fs.writeFileSync(boardFile(root), `${text || BOARD_HEAD}${text && !text.endsWith('\n') ? '\n' : ''}| ${id} | Fix: ${clean} | done | solo | ${how} |\n`);
+  return id;
+}
+
+function cmdLogFix(args) {
+  const title = args.join(' ').trim();
+  if (!title) die('usage: oma log-fix <one line saying what was fixed>', 2);
+  console.log(`logged as ${logFix(top(), title, 'quick fix')} on specs/tickets/BOARD.md`);
+}
+
+async function cmdMerge(args) {
+  let worktree = '';
+  const rest = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--worktree') worktree = args[++i] || '';
+    else rest.push(args[i]);
+  }
+  const [branch, ticketArg] = rest;
+  if (!branch) die('usage: oma merge <branch> [specs/tickets/NNN-slug] [--worktree <path>]', 2);
+  const root = top();
+  const slug = ticketArg ? path.basename(ticketArg.replace(/\/+$/, '')) : '';
+  const label = slug || `fix (${branch})`;
+  const end = (line, code = 1) => {
+    console.log(line);
+    process.exit(code);
+  };
+  const g = a => gitIn(root, a);
+  const head = () => g(['rev-parse', 'HEAD']).stdout.trim();
+  const short = sha => sha.slice(0, 7);
+
+  // 1. Is this checkout ready?
+  const base = g(['branch', '--show-current']).stdout.trim();
+  if (!base) end(`FAILED ${label}: not on a branch: check out the base branch in ${root} first`);
+  if (g(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status === 0) end(`FAILED ${label}: a merge is already in progress in ${root}`);
+  const dirty = spawnSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'oma.mjs'), 'dirty', '--dir', root], { encoding: 'utf8' });
+  if (dirty.status === 1) end(`FAILED ${label}: dirty tree: ${dirty.stdout.trim().split('\n').join(', ')}`);
+  if (dirty.status !== 0) end(`FAILED ${label}: could not check the tree: ${dirty.stderr.trim()}`);
+  if (g(['rev-parse', '-q', '--verify', `${branch}^{commit}`]).status !== 0) end(`FAILED ${label}: branch ${branch} does not exist`);
+  if (!g(['log', '--oneline', `${base}..${branch}`]).stdout.trim()) end(`FAILED ${label}: nothing to merge: ${branch} has no commits beyond ${base}`);
+
+  // 2. The ticket must still be what the person approved, here and in the worker's own copy.
+  if (slug) {
+    const { problem } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'scripts', 'approve.mjs')).href);
+    const why = problem(root, slug) || (worktree && problem(root, slug, worktree));
+    if (why) end(`FAILED ${label}: not approved: ${why}${worktree && !problem(root, slug) ? ` (in the worker's copy under ${worktree})` : ''}`);
+  }
+
+  // 3. A build that can't run next to a dev server: say so before touching anything.
+  const c = cfg(root);
+  let profile = '';
+  try {
+    profile = fs.readFileSync(path.join(root, '.oma', 'project.md'), 'utf8');
+  } catch {
+    /* cfg() already required it */
+  }
+  if (!isNone(c.build) && /can run together in one folder:\*\*\s*no\b/i.test(profile) && c.mainPort && probe(c.mainPort).busy) {
+    end(`FAILED ${label}: dev server on ${c.mainPort} blocks the build`);
+  }
+
+  // 4. Merge. A conflict is never resolved here.
+  const pre = head();
+  const m = g(['merge', '--no-ff', '--no-edit', '-m', `Merge ${label}${slug ? ` (${branch})` : ''}`, branch]);
+  if (m.status !== 0) {
+    const files = g(['diff', '--name-only', '--diff-filter=U']).stdout.trim().split('\n').filter(Boolean);
+    g(['merge', '--abort']);
+    if (head() !== pre) end(`FAILED ${label}: merge failed and could not be aborted cleanly: ${m.stderr.trim().split('\n')[0]}`);
+    end(files.length ? `CONFLICT ${label}: ${files.join(', ')} (${base} unchanged at ${short(pre)})` : `FAILED ${label}: merge refused: ${(m.stderr || m.stdout).trim().split('\n')[0]}`);
+  }
+  const merged = head();
+
+  // 5. Install when a manifest changed, then lint, build and the full test suite on the merged result.
+  const undo = why => {
+    if (head() !== merged) end(`FAILED ${label}: ${why}, and ${base} moved meanwhile: merge left in place at ${short(merged)}`);
+    const r = g(['reset', '--keep', pre]);
+    if (r.status !== 0 || head() !== pre) end(`FAILED ${label}: ${why}, and main has local edits, merge left in place at ${short(merged)}: ${r.stderr.trim().split('\n')[0]}`);
+  };
+  const said = [];
+  const changed = g(['diff', '--name-only', pre, merged]).stdout.split('\n');
+  const steps = [...(changed.some(f => MANIFESTS.test(f)) ? ['install'] : []), 'lint', 'build', 'test'];
+  for (const what of steps) {
+    let r = runIn(root, what);
+    // A test that fails once and passes on a second run is flaky, not this branch's fault.
+    if (what === 'test' && r.code !== 0) {
+      r = runIn(root, what);
+      if (r.code === 0) said.push('test flaky (failed once, passed on rerun)');
+    }
+    if (r.code !== 0) {
+      undo(`${what} failed`);
+      // Did the tests already fail before this branch? Then it is not the worker's to fix.
+      if (what === 'test' && runIn(root, 'test').code !== 0) end(`FAILED ${label}: base tests failing: the test command also fails on ${base} without this branch (${base} reset to ${short(pre)})`);
+      end(`FAILED ${label}: ${what}: exit ${r.code}, output above (${base} reset to ${short(pre)})`);
+    }
+    if (!said.some(s => s.startsWith(what))) said.push(r.skipped ? `${what} none (skipped)` : `${what} ok`);
+  }
+
+  // 6. Mark it done (local files, never committed) and say what can start now.
+  let done = 'no ticket';
+  if (slug) {
+    const id = slug.slice(0, 3);
+    const rd = path.join(root, 'specs', 'tickets', slug, 'rd.md');
+    const missing = [];
+    try {
+      fs.writeFileSync(rd, fs.readFileSync(rd, 'utf8').replace(/^\*\*Status:\*\*.*$/m, '**Status:** done'));
+    } catch {
+      missing.push('rd.md');
+    }
+    const { text, rows } = boardRows(root);
+    const row = rows.find(r => r.id === id);
+    if (row) {
+      const cells = row.line.split('|');
+      cells[3] = ' done ';
+      fs.writeFileSync(boardFile(root), text.replace(row.line, cells.join('|')));
+    } else missing.push('its BOARD.md row');
+    const waiting = rows.filter(r => new RegExp(`waits for[^|]*\\b${id}\\b`, 'i').test(r.runs) && !/^done$/i.test(r.status)).map(r => r.id);
+    done = `marked done${missing.length ? ` (missing: ${missing.join(', ')})` : ''}${waiting.length ? `; waited for ${id}: ${waiting.join(', ')}` : ''}`;
+  } else {
+    const title = g(['log', '-1', '--format=%s', branch]).stdout.trim() || branch;
+    done = `logged as ${logFix(root, title, 'fix')}`;
+  }
+  end(`MERGED ${label}: merge ${short(merged)}, ${said.join(', ')}, ${done}`, 0);
+}
+
 const [cmd, ...rest] = process.argv.slice(2);
 const table = { cfg: () => console.log(JSON.stringify(cfg(), null, 2)), run: cmdRun, serve: cmdServe, up: cmdUp,
-  port: cmdPort, stop: cmdStop, status: cmdStatus, now: () => console.log(now()) };
-if (!table[cmd]) die('usage: oma <cfg|run|serve|up|port|stop|status|now> ... (see the header of this file)', 2);
-table[cmd](rest);
+  port: cmdPort, stop: cmdStop, status: cmdStatus, merge: cmdMerge, 'log-fix': cmdLogFix, now: () => console.log(now()) };
+if (!table[cmd]) die('usage: oma <cfg|run|serve|up|port|stop|status|merge|log-fix|now> ... (see the header of this file)', 2);
+Promise.resolve(table[cmd](rest)).catch(e => die(e.message));

@@ -46,9 +46,10 @@ const manifest = root => {
   }
 };
 
-// Why this ticket folder may not be built, or null when it is approved as it stands.
-export function problem(root, name) {
-  const now = digest(root, name);
+// Why this ticket folder may not be built, or null when it is approved as it stands. `at` is the
+// checkout whose copy of the ticket is compared (a worker's worktree); the manifest is always root's.
+export function problem(root, name, at = root) {
+  const now = digest(at, name);
   if (!now) return 'its rd.md or eval.md is missing';
   const was = manifest(root).tickets[name];
   if (!was) return 'the user has not approved it';
