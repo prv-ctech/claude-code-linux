@@ -290,3 +290,24 @@ test('approval: only /oma approve records it; a worker starts only on an approve
   assert.strictEqual(decide({ tool_name: 'Agent', cwd: dir, tool_input: { subagent_type: 'general-purpose', prompt: P } }), null);
   assert.strictEqual(decide({ tool_name: 'Write', tool_input: { file_path: path.join(dir, 'src', 'a.js') } }), null);
 });
+
+test('check --overlap lists ticket pairs that share a path and says whether the board orders them', () => {
+  const dir = repo();
+  const rd = areas => `# t\n\n## Affected areas\n${areas.map(a => `- \`${a}\`: x`).join('\n')}\n\n## Do not touch\n- none\n`;
+  write(path.join(dir, 'specs', 'tickets', '010-music', 'rd.md'), rd(['src/music/', 'src/db/schema.ts']));
+  write(path.join(dir, 'specs', 'tickets', '020-iptv', 'rd.md'), rd(['src/iptv/**', 'src/db/schema.ts']));
+  write(path.join(dir, 'specs', 'tickets', '030-anime', 'rd.md'), rd(['src/anime/', 'src/music/player.ts']));
+  write(path.join(dir, 'specs', 'tickets', '040-old', 'rd.md'), rd(['src/music/']));
+  write(path.join(dir, 'specs', 'tickets', 'BOARD.md'), '| # | Title | Status | Mode | Runs |\n|---|---|---|---|---|\n| 010 | Music | draft | solo | alongside |\n| 020 | IPTV | draft | solo | waits for 010: schema |\n| 030 | Anime | draft | solo | alongside |\n| 040 | Old | done | solo | alongside |\n');
+  const lines = check(dir, '--overlap').lines;
+  assert.deepStrictEqual(lines, [
+    { kind: 'overlap', tickets: ['010', '020'], paths: ['src/db/schema.ts'], ordered: true },
+    { kind: 'overlap', tickets: ['010', '030'], paths: ['src/music/player.ts'], ordered: false },
+  ]);
+});
+
+test('plan-reviewer is read-only and every agent the router names exists', () => {
+  const fm = fs.readFileSync(path.join(ROOT, 'agents', 'plan-reviewer.md'), 'utf8').split('---')[1];
+  assert.match(fm, /^name: plan-reviewer$/m);
+  assert.match(fm, /^disallowedTools: Edit, Write, NotebookEdit, Agent$/m);
+});

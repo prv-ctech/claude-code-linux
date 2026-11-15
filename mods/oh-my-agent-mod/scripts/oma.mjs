@@ -413,6 +413,7 @@ export function projectState(dir, { write = false, env = process.env } = {}) {
     pluginRoot: ROOT,
     router: path.join(ROOT, 'router.md'),
     watchCommand: `node ${JSON.stringify(path.join(ROOT, 'scripts', 'check.mjs'))} --watch --root ${JSON.stringify(root)}`,
+    overlapCommand: `node ${JSON.stringify(path.join(ROOT, 'scripts', 'check.mjs'))} --overlap --root ${JSON.stringify(root)}`,
     projectRoot: root,
     branch,
     head: head.stdout.trim(),
