@@ -179,3 +179,11 @@ test('hooks.json wires SubagentStart and no Skill gate', () => {
   assert.ok(cmds.some(c => /prompt\.js" subagent$/.test(c)));
   assert.ok(!h.PreToolUse.some(g => g.matcher === 'Skill'));
 });
+
+test('permit: graph read tools need no rule, other routed tools still ask', () => {
+  const { decide } = require('../hooks/permit.js');
+  const ask = t => decide({ tool_input: { tool: t }, permission_mode: 'default' }, { files: [], servers: {} });
+  assert.strictEqual(ask('mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_graph'), null);
+  assert.strictEqual(ask('mcp__plugin_codebase-memory-mod_codebase-memory-mcp__delete_project').decision, 'ask');
+  assert.strictEqual(ask('mcp__shardx__click').decision, 'ask');
+});

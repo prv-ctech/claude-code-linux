@@ -21,6 +21,8 @@ function readJson(file) {
   }
 }
 
+const GRAPH_READ = /^mcp__plugin_codebase-memory-mod_codebase-memory-mcp__(search_graph|search_code|trace_path|get_code_snippet|get_file_outline|query_graph|get_architecture|list_projects|index_status|check_index_coverage|detect_changes)$/;
+
 const norm = s => String(s).replace(/[^A-Za-z0-9_-]/g, '_');
 
 const FORMS = 'The gateway\'s call tool: pass `tool` as the original tool name (mcp__<server>__<tool>), or `server` plus `tool`, '
@@ -70,6 +72,9 @@ function decide(input, { files, servers }) {
     if (rule) return { decision: d, reason: `routed call to ${name}: your ${d} rule "${rule}" applies` };
   }
   if (NO_ASK.has(input.permission_mode)) return null;
+  // The graph gate denies grep and points here, so the graph's read-only tools must not stall on a prompt
+  // (in `claude -p` an ask is a deny, leaving the agent with no code search at all).
+  if (GRAPH_READ.test(name)) return null;
   const server = name.slice(0, name.indexOf('__', 5));
   return { decision: 'ask', reason: `routed call to ${name}: no permission rule matches it; allow "${server}" or "${name}" to skip this prompt` };
 }

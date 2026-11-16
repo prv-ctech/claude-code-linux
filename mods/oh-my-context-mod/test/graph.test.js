@@ -153,3 +153,38 @@ test('the gate hook works only while the mod runs the graph server itself', () =
   assert.strictEqual(graphOn(p), false);
   assert.strictEqual(gate().stdout, '', '/omc off lifts the gate too');
 });
+
+test('a git worktree without its own index uses the main checkout graph', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cbm-repo-'));
+  const git = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
+  git('init', '-q');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'x');
+  const wt = path.join(repo, 'wt');
+  git('worktree', 'add', '-q', '--detach', wt);
+  try {
+    assert.strictEqual(decide(call('Grep', { pattern: 'x' }, wt), home), null);
+    fs.mkdirSync(path.join(repo, '.codebase-memory'));
+    fs.writeFileSync(path.join(repo, '.codebase-memory', 'graph.db.zst'), '');
+    assert.ok(decide(call('Grep', { pattern: 'x' }, wt), home));
+    assert.match(line(wt), /main checkout's/);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('a session opened in a subfolder uses the checkout graph, with no worktree note', () => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cbm-sub-')));
+  spawnSync('git', ['-C', repo, 'init', '-q']);
+  fs.mkdirSync(path.join(repo, '.codebase-memory'));
+  fs.writeFileSync(path.join(repo, '.codebase-memory', 'graph.db.zst'), '');
+  const sub = path.join(repo, 'a', 'b');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.mkdirSync(path.join(repo, 'c'));
+  try {
+    assert.match(line(sub), /this workspace is indexed/);
+    assert.doesNotMatch(line(sub), /git worktree/);
+    assert.ok(decide(call('Grep', { pattern: 'x', path: path.join(repo, 'c') }, sub), home));
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
