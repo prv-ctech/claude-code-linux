@@ -85,7 +85,12 @@ test('subagent hook text for oma agents, silence otherwise', () => {
   assert.ok(o.additionalContext.startsWith('oh-my-agent local files:'), 'every oma agent learns the local-files rule');
   assert.ok(o.additionalContext.includes(`oh-my-agent code search: the code graph is on and ${proj} has a graph`));
   assert.ok(o.additionalContext.includes(`with project "${name}"`));
-  assert.ok(o.additionalContext.endsWith(`and use the project name it returns, not "${name}".`));
+  assert.ok(o.additionalContext.endsWith('persistence: true after large edits.'));
+  // A worktree holding the main checkout's copied graph: its own project name does not exist yet.
+  write(path.join(proj, '.codebase-memory', 'artifact.json'), JSON.stringify({ project: 'main-proj' }));
+  const cp = JSON.parse(sub({ agent_type: W, cwd: proj }).stdout).hookSpecificOutput.additionalContext;
+  assert.ok(cp.includes(`"${name}" does not exist yet: use project "main-proj"`));
+  fs.rmSync(path.join(proj, '.codebase-memory', 'artifact.json'));
 
   fs.rmSync(path.join(proj, '.codebase-memory', 'graph.db.zst'));
   const ng = JSON.parse(sub({ agent_type: 'oh-my-agent-mod:reviewer', cwd: proj }).stdout).hookSpecificOutput.additionalContext;

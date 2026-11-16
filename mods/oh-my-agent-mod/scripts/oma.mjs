@@ -233,13 +233,17 @@ export function onSubagent(input, opts) {
   const warn = copyErr ? `\noma: graph copy failed: ${copyErr}` : '';
   if (g.reason === 'plugin not enabled') return local + warn;
   if (!g.active) return `${local}${warn}\noh-my-agent code search: the code graph is on but no graph applies in ${cwd} (${g.reason}), so Grep, Glob and grep work as usual here.`;
+  let copied = '';
+  try { copied = JSON.parse(fs.readFileSync(path.join(cwd, '.codebase-memory', 'artifact.json'), 'utf8')).project || ''; } catch {}
   const how = g.routed
     ? 'run them with the oh-my-context call tool, tool: mcp__plugin_codebase-memory-mod_codebase-memory-mcp__<name>, for search_graph, search_code, get_code_snippet, trace_path, get_file_outline'
     : 'load them with ToolSearch: mcp__plugin_codebase-memory-mod_codebase-memory-mcp__search_graph, search_code, get_code_snippet, trace_path, get_file_outline';
   return `${local}${warn}\noh-my-agent code search: the code graph is on and ${cwd} has a graph, so Grep, Glob and shell grep/rg/ag/ack/find/git grep on code are blocked here. `
     + `Use the codebase-memory tools (${how}) `
     + `with project "${g.project}". Piping command output into grep stays allowed. `
-    + `A worktree under .claude/worktrees/ gets its own copy of the graph and is its own project once indexed: call index_repository there with repo_path set to the worktree path and persistence: true, and use the project name it returns, not "${g.project}".`;
+    + (copied && copied !== g.project
+      ? `This worktree holds a copy of the main checkout's graph, so "${g.project}" does not exist yet: use project "${copied}" (the main checkout's code, without this branch's edits) until you call index_repository with repo_path ${cwd} and persistence: true; from then on use "${g.project}".`
+      : `A worktree under .claude/worktrees/ is its own project once indexed: call index_repository there with repo_path set to the worktree path and persistence: true after large edits.`);
 }
 
 // --- project bootstrap -------------------------------------------------------------------------------

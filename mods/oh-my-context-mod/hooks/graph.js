@@ -25,7 +25,7 @@ const REASON = [
   'Code search is blocked here: this workspace has a codebase-memory graph (.codebase-memory/graph.db.zst).',
   `Use the codebase-memory tools instead, through ${VIA}:`,
   'search_graph for a symbol by name; trace_path for callers and callees; get_code_snippet for a symbol\'s source;',
-  'get_file_outline for one file; search_code for literal text; query_graph for multi-hop questions.',
+  'get_file_outline for one file; search_code for literal text (file_pattern matches file names only; use path_filter, a regex, for a folder or path); query_graph for multi-hop questions.',
   'Read opens a file whose path is already known, and grep on named files (grep -n x src/a.js) is allowed.',
   'Without MCP tools, the same tools run in Bash: codebase-memory-mcp cli <tool> \'<json arguments>\'.',
   'If a codebase-memory tool returns an error, report that error to the user and stop; do not retry the search with grep.',
@@ -36,7 +36,24 @@ const REASON = [
 const CODE_SEARCH = /(^|[;&(`]|\$\()[\s;&(`]*(grep|egrep|fgrep|rg|ag|ack|find|git\s+grep)(\s|$)/;
 
 const cacheDir = (home = os.homedir()) => path.join(process.env.XDG_CACHE_HOME || path.join(home, '.cache'), 'codebase-memory-mcp');
-const indexed = cwd => fs.existsSync(path.join(cwd, '.codebase-memory', 'graph.db.zst'));
+const own = dir => fs.existsSync(path.join(dir, '.codebase-memory', 'graph.db.zst'));
+
+// The git checkout `dir` sits in: { top, main } (main: the main checkout of a worktree), or {} outside git.
+function checkout(dir) {
+  const r = spawnSync('git', ['-C', dir, 'rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'], { encoding: 'utf8', timeout: 3000 });
+  const [top, common] = r.status === 0 ? r.stdout.trim().split('\n') : [];
+  return top && common ? { top, main: path.dirname(common) } : {};
+}
+
+// The folder whose graph serves `dir`: its own, its checkout root's (a session opened in a subfolder),
+// else, for a git worktree (.codebase-memory/ is untracked, so a new worktree has none), the main
+// checkout's. '' when none is indexed.
+function graphDir(dir) {
+  if (own(dir)) return path.resolve(dir);
+  const { top, main } = checkout(dir);
+  return [top, main].find(d => d && own(d)) || '';
+}
+const indexed = dir => !!graphDir(dir);
 
 // The project a hook call belongs to. Claude Code gives hooks the project root; `cwd` moves with a
 // `cd` in the shell, which must not switch the gate off or change which card a subagent gets.
@@ -119,8 +136,10 @@ function codeSearches(command, root, home = os.homedir(), cwd = root) {
 
 function decide(payload, home = os.homedir(), env = process.env) {
   const cwd = path.resolve(payload.cwd || process.cwd());
-  const root = path.resolve(projectDir(payload, env));
-  if (!indexed(root)) return null;
+  const proj = path.resolve(projectDir(payload, env));
+  if (!indexed(proj)) return null;
+  // The whole checkout is the graph's code, also when the session opened in a subfolder.
+  const root = checkout(proj).top || proj;
   if (fs.existsSync(path.join(cacheDir(home), 'gate-off'))) return null;
 
   const input = payload.tool_input || {};
@@ -170,14 +189,18 @@ function projectName(cwd) {
 
 // What a new context is told about the graph in `cwd`, or '' when there is nothing to act on.
 function line(cwd, started = false) {
-  if (!indexed(cwd)) {
+  const gdir = graphDir(cwd);
+  const top = checkout(cwd).top || path.resolve(cwd);
+  if (!gdir) {
     return started ? 'Code graph: no index for this workspace yet. A first index was started in the background; it appears at .codebase-memory/graph.db.zst when done.' : '';
   }
   return `Code graph: this workspace is indexed (.codebase-memory/graph.db.zst). Code discovery goes through ${VIA}: `
     + 'search_graph (symbol by name; resolve exact names here first), trace_path (callers, callees), get_code_snippet (source of a symbol), '
-    + 'get_file_outline, search_code (literal text), query_graph (multi-hop), get_architecture, detect_changes; '
-    + (projectName(cwd) ? `\`project\` here is ${projectName(cwd)} (list_projects for others). ` : '`project` comes from list_projects. ')
+    + 'get_file_outline, search_code (literal text; file_pattern matches file names only, like *.js, so narrow to a folder or path with path_filter, a regex), query_graph (multi-hop), get_architecture, detect_changes; '
+    + (projectName(gdir) ? `\`project\` here is ${projectName(gdir)} (list_projects for others). ` : '`project` comes from list_projects. ')
+    + (gdir !== path.resolve(cwd) && gdir !== top ? `This is a git worktree without its own index yet: the graph above is the main checkout's (${gdir}), so this branch's own edits are missing from it until index_repository runs on ${top}. ` : '')
     + 'Grep, Glob and shell grep, rg or find on code are blocked by a hook; Read opens a path already known. '
+    + 'An agent without that `call` tool runs the same tools in Bash: codebase-memory-mcp cli <name> \'<json arguments>\'. '
     + 'Before deleting, renaming or changing the signature of a function: trace_path inbound and search_code for its name (the graph can miss dynamic callers). '
     + 'Before a claim that nothing uses a symbol, run check_index_coverage. A tool error is reported to the user, not worked around with grep. '
     + 'After a large pull, branch switch or rebase: index_repository (repo_path absolute, persistence: true). .codebase-memory/ is not committed unless asked.';
@@ -207,4 +230,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { decide, CODE_SEARCH, codeSearches, projectDir, cardFile, graphOn, startIndex, line, PREFIX };
+module.exports = { decide, graphDir, CODE_SEARCH, codeSearches, projectDir, cardFile, graphOn, startIndex, line, PREFIX };
