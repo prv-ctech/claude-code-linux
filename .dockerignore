@@ -48,3 +48,6 @@ claude-code-state
 /.oma/
 /specs/tickets/
 /.claude/worktrees/
+
+# oh-my-agent: local plans, tickets and job files (never commit)
+/.oma-archive/
