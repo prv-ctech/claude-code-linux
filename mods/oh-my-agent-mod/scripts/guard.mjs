@@ -311,12 +311,12 @@ function verifierBash(cmd) {
   const ok = !/[<>`]|\$\(/.test(cmd) && segments(cmd).every(seg => {
     const w = words(seg);
     if (w[0] === 'git') {
-      const sub = gitSub(seg);
-      const at = w.indexOf(sub);
-      // Before the subcommand only -C <dir> and --no-pager: -c, --config-env and --exec-path can make git run a program.
-      const global = w.slice(1, at).filter((x, j, all) => x !== '-C' && all[j - 1] !== '-C' && x !== '--no-pager');
+      // Walk to the subcommand ourselves: before it only -C <dir> and --no-pager, since -c, --config-env and
+      // --exec-path can make git run a program. Finding it by name would take a -C value for it.
+      let at = 1;
+      while (w[at] === '-C' || w[at] === '--no-pager') at += w[at] === '-C' ? 2 : 1;
       const long = w.slice(at + 1).filter(x => x.startsWith('--') && x !== '--').map(x => x.split('=')[0]);
-      return VERIFIER_GIT.has(sub) && !global.length && !long.some(x => VERIFIER_GIT_NO.some(d => d.startsWith(x)));
+      return VERIFIER_GIT.has(w[at]) && !long.some(x => VERIFIER_GIT_NO.some(d => d.startsWith(x)));
     }
     if (w[0] === 'codebase-memory-mcp') return w[1] === 'cli' && VERIFIER_GRAPH.has(w[2]);
     return VERIFIER_CMDS.has(w[0]);
