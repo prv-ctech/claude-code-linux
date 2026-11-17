@@ -105,7 +105,7 @@ test('bootstrap sets a project up once and reports its state', () => {
   assert.strictEqual(s.board, null);
   assert.ok(fs.existsSync(path.join(dir, '.oma', 'project.md')));
   assert.ok(fs.existsSync(path.join(dir, '.oma', 'watchdog-rules.md')));
-  assert.match(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), /node_modules\/\n\n# oh-my-agent[^\n]*\n\/\.oma\/\n\/specs\/tickets\/\n\/\.claude\/worktrees\/\n$/);
+  assert.match(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), /node_modules\/\n\n# oh-my-agent[^\n]*\n\/\.oma\/\n\/specs\/tickets\/\n\/\.claude\/worktrees\/\n\/\.oma-archive\/\n$/);
   assert.match(fs.readFileSync(path.join(dir, '.dockerignore'), 'utf8'), /^# oh-my-agent[^\n]*\n\/\.oma\/\n\/specs\/tickets\//);
   assert.strictEqual(fs.readFileSync(path.join(dir, '.worktreeinclude'), 'utf8').split('\n').filter(l => l && l[0] !== '#').join(), '/.oma/,/specs/tickets/');
   assert.deepStrictEqual(readJson(path.join(dir, '.claude', 'settings.local.json')), { worktree: { baseRef: 'head' } });
@@ -287,10 +287,12 @@ test('omaOnlyDiff: oma lines allowed, user lines, other files and removals block
 
 test('router.md names only phase files and agents that exist, and stays small', () => {
   const core = fs.readFileSync(path.join(ROOT, 'router.md'), 'utf8');
-  const files = ['router-bug.md', 'router-interview.md', 'router-run.md'];
+  const files = ['router-bug.md', 'router-interview.md', 'router-run.md', 'router-sweep.md'];
   for (const f of files) assert.ok(core.includes(`\`${f}\``) && fs.existsSync(path.join(ROOT, f)), f);
   const all = core + files.map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('');
   for (const m of all.matchAll(/`oh-my-agent-mod:([a-z-]+)`/g)) assert.ok(fs.existsSync(path.join(ROOT, 'agents', `${m[1]}.md`)), m[1]);
+  // The end of a run verifies the stale notes workers reported, through the sweep's `reported` scope.
+  for (const f of ['router-run.md', 'router-sweep.md']) assert.match(fs.readFileSync(path.join(ROOT, f), 'utf8'), /scope `reported`/, f);
   assert.ok(Buffer.byteLength(core) < 16000, 'core router is read in every /oma session: keep it under 16 KB');
 });
 

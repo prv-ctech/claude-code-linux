@@ -8,7 +8,9 @@
 //   - the same for codebase-memory graph tools' file_pattern / path_filter / file_path;
 //   - no subagents other than oh-my-agent ones, which this guard would not cover;
 //   - the first-timer stays blind: no reading files or code, Bash only for oma up/serve/stop/port,
-//     Write only under .oma/job/first-timer/.
+//     Write only under .oma/job/first-timer/;
+//   - no touching .oma-archive/ (notes shelved as outdated by /oma sweep) and no `oma shelve`;
+//   - the sweep-verifier's shell only reads.
 // For every session: .oma/approved.json is never edited (only /oma approve writes it), and a worker
 // starts only on a ticket the person approved, unchanged since.
 // Prints a deny decision or nothing. Any error prints nothing and exits 0.
@@ -281,6 +283,33 @@ function unapproved(ti, cwd) {
   return why && `Ticket ${m[1]} may not be built: ${why}. Show the user the ticket as it is now and ask them to type /oma approve; only that records approval.`;
 }
 
+// Notes shelved as outdated (oma shelve) are kept for people, not for agents. Paths are resolved, so
+// .//, ./ and relative spellings count; text that only mentions the folder (an edit's new text, a commit
+// message, a search pattern) does not.
+// shortcut: a glob (.oma-*) or a whole-tree walk (grep -r .) still reaches it; git ignores the folder, so
+// rg and the Grep tool skip it, and worktrees never get a copy. Upgrade if agents start walking into it.
+const ARCHIVE = /(^|\/)\.oma-archive(\/|$)/;
+function touchesArchive(tool, ti, cwd) {
+  if (tool === 'Bash' || tool === 'Monitor') {
+    return segments(dropMessages(String(ti.command || ''))).some(seg => fileWords(seg).some(w => ARCHIVE.test(w)));
+  }
+  return [ti.file_path, ti.notebook_path, ti.path].some(p => typeof p === 'string' && p && ARCHIVE.test(resolve(cwd, p)))
+    || [ti.glob, ti.pattern].some(p => tool === 'Glob' && typeof p === 'string' && ARCHIVE.test(p));
+}
+
+// The sweep-verifier reads untrusted note text, so its shell only reads: plain listing and search
+// commands and read-only git, no redirects, no substitution, nothing that writes a file.
+const VERIFIER_CMDS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'pwd', 'cd', 'grep', 'rg', 'codebase-memory-mcp']);
+const VERIFIER_GIT = new Set(['log', 'show', 'diff', 'blame', 'status', 'ls-files', 'rev-parse', 'grep', 'shortlog', 'rev-list', 'merge-base']);
+function verifierBash(cmd) {
+  const ok = !/[<>`]|\$\(/.test(cmd) && segments(cmd).every(seg => {
+    const w = words(seg);
+    if (w.some(x => /^--output/.test(x))) return false;
+    return basename(w[0]) === 'git' ? VERIFIER_GIT.has(gitSub(seg)) : VERIFIER_CMDS.has(w[0]);
+  });
+  return ok ? null : 'the sweep-verifier only reads: ls, cat, head, tail, wc, grep, rg and read-only git (log, show, diff, blame, status, ls-files), with no redirects.';
+}
+
 export function decide(input) {
   if (!input) return null;
   const ti = input.tool_input || {};
@@ -295,8 +324,15 @@ export function decide(input) {
     const blind = blindDecide(tool, ti, input.cwd || process.cwd());
     if (blind) return blind;
   }
+  if (touchesArchive(tool, ti, input.cwd || process.cwd())) return '.oma-archive/ holds notes shelved as outdated: oh-my-agent agents never read, search or change it.';
   if (tool === 'Bash' || tool === 'Monitor') {
     const cmd = String(ti.command || '').replace(/\\\r?\n/g, ''); // backslash-newline joins lines
+    // Shelving moves the person's memory notes: only the router does it, after they picked what to shelve.
+    if (/\boma["']?\s+shelve\b/.test(dropMessages(cmd))) return 'oma shelve is run only by the router, on notes the user chose in /oma sweep.';
+    if (input.agent_type === `${PREFIX}sweep-verifier`) {
+      const no = verifierBash(cmd);
+      if (no) return no;
+    }
     // Catch-all for what the parser can't follow (variables, here-strings, xargs, source <(...)): git and push in one command.
     // Leave out commit messages and read-only git segments (git log --grep push, git grep push "$DIR").
     const bare = segments(dropMessages(cmd)).filter(seg => !READ_ONLY_GIT.has(gitSub(seg)) && gitSub(seg) !== 'stash' && !OTHER_PUSHERS.has(basename(words(seg)[0] || ''))).join(' ; ');

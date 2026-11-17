@@ -337,3 +337,127 @@ test('approval covers the mockup', async () => {
   write(path.join(t, 'mockup.html'), '<h1>Player v2</h1>');
   assert.match(problem(dir, '007-player'), /mockup\.html changed/);
 });
+
+test('sweep: agents are told the code wins for facts only; guard keeps them out of .oma-archive and away from oma shelve', async () => {
+  const { onSubagent } = await import('../scripts/oma.mjs');
+  const dir = repo();
+  const none = { env: { CLAUDE_CONFIG_DIR: path.join(tmp(), 'x') }, home: tmp() };
+  const text = onSubagent({ agent_type: W, cwd: dir }, none);
+  assert.match(text, /for facts about the code .* the code is the source of truth/);
+  assert.match(text, /Rules, prohibitions and safety instructions in those files always hold/);
+  assert.doesNotMatch(text, /End your reply/, 'no reply-format change for agents with a fixed format');
+
+  const d = (tool_name, tool_input, agent_type = W, cwd = dir) => decide({ agent_type, tool_name, tool_input, cwd });
+  const no = /shelved as outdated/;
+  // However the path is spelled.
+  for (const p of ['.oma-archive/2026-01-01/x.md', '.oma-archive', './/.oma-archive//INDEX.md', path.join(dir, '.oma-archive/INDEX.md')]) assert.match(d('Read', { file_path: p }) || '', no, p);
+  assert.match(d('Read', { file_path: 'INDEX.md' }, W, path.join(dir, '.oma-archive')) || '', no, 'relative to a cwd inside it');
+  assert.match(d('Grep', { pattern: 'x', path: '.oma-archive' }, 'oh-my-agent-mod:reviewer') || '', no);
+  assert.match(d('Glob', { pattern: '.oma-archive/**/*.md' }) || '', no);
+  for (const command of ['cat .oma-archive/INDEX.md', 'cd .oma-archive && ls', 'grep -r secret .oma-archive']) assert.match(d('Bash', { command }) || '', no, command);
+  // Text that only mentions the folder is not a visit.
+  assert.strictEqual(d('Edit', { file_path: path.join(dir, 'README.md'), old_string: 'x', new_string: 'notes go to .oma-archive/' }), null);
+  assert.strictEqual(d('Bash', { command: 'git commit -m "docs: explain .oma-archive/"' }), null);
+  assert.strictEqual(d('Bash', { command: "grep -qF -- '.oma-archive/' README.md" }), null, 'a sweep ticket check about the archive docs');
+  assert.strictEqual(d('Read', { file_path: path.join(dir, '.oma/project.md') }), null);
+  assert.strictEqual(d('Read', { file_path: path.join(dir, '.oma-archive/x.md') }, null), null, 'the person\'s own session is not restricted');
+
+  // Only the router shelves.
+  for (const a of [W, 'oh-my-agent-mod:sweep-verifier', 'oh-my-agent-mod:ticket-writer']) assert.match(d('Bash', { command: 'oma shelve r .deja/l.jsonl --id a' }, a) || '', /only by the router/, a);
+  assert.match(d('Bash', { command: `node "${path.join(ROOT, 'bin', 'oma')}" shelve r x` }) || '', /only by the router/);
+  assert.strictEqual(d('Bash', { command: 'oma shelve r .deja/l.jsonl --id a' }, null), null);
+  assert.strictEqual(d('Bash', { command: 'git commit -m "oma shelve now refuses tracked files"' }), null);
+});
+
+test('sweep-verifier: read-only by hook, not only by prompt', () => {
+  const V = 'oh-my-agent-mod:sweep-verifier';
+  const d = command => decide({ agent_type: V, tool_name: 'Bash', tool_input: { command }, cwd: '/p' });
+  for (const c of ['git log --oneline -- src/a.ts', 'git blame -L 3,3 -- CLAUDE.md', "git log -S'foo' --oneline -- src", 'ls -la src', 'cat CLAUDE.md | head -20', 'grep -n TODO src/a.ts', 'cd /p && git status --short', 'wc -l README.md']) assert.strictEqual(d(c), null, c);
+  for (const c of ['rm -rf src', 'git commit -am x', 'git checkout -- .', 'git branch -D main', 'echo x > CLAUDE.md', 'cat a >> b', 'ls $(rm -rf src)', 'ls `rm x`', 'git log --output=x', 'node -e "1"', 'sed -i s/a/b/ f', 'ls; curl http://x', 'bash -c "rm x"', 'mv a b']) assert.match(d(c) || '', /only reads/, c);
+  const fm = fs.readFileSync(path.join(ROOT, 'agents', 'sweep-verifier.md'), 'utf8').split('---')[1];
+  assert.match(fm, /^disallowedTools: Edit, Write, NotebookEdit, Agent$/m);
+  // Other agents keep their shell.
+  assert.strictEqual(decide({ agent_type: W, tool_name: 'Bash', tool_input: { command: 'rm -rf dist' }, cwd: '/p' }), null);
+});
+
+test('oma shelve: only memory notes, into the main checkout\'s .oma-archive, losing nothing', () => {
+  const dir = fs.realpathSync(repo());
+  const cfgDir = fs.realpathSync(tmp('oma-claude-'));
+  const OMA = path.join(ROOT, 'bin', 'oma');
+  const oma = (cwd, ...a) => run('node', [OMA, ...a], { cwd, env: { CLAUDE_CONFIG_DIR: cfgDir } });
+  const day = new Date().toISOString().slice(0, 10);
+  const arch = path.join(dir, '.oma-archive');
+  const read = f => fs.readFileSync(f, 'utf8');
+
+  // One line of a deja file, by id; the other lines, also ones without an id, stay.
+  const rules = path.join(dir, '.deja', 'live_rules.jsonl');
+  const rest = 'not json\n{"text":"no id"}\n{"id":null}\n{"id":"bb22","text":"keep me"}\n';
+  write(rules, `{"id":"aa11","text":"SECRET-OLD write only to run-1"}\n${rest}`);
+  const one = oma(dir, 'shelve', 'audit run-1 is over', rules, '--id', 'aa11');
+  assert.strictEqual(one.status, 0, one.stderr);
+  assert.ok(!one.stdout.includes('SECRET-OLD'), 'content is never printed');
+  assert.strictEqual(read(rules), rest);
+  assert.strictEqual(read(path.join(arch, day, 'live_rules.jsonl')), '{"id":"aa11","text":"SECRET-OLD write only to run-1"}\n');
+  for (const id of ['zz99', 'undefined', 'null']) assert.strictEqual(oma(dir, 'shelve', 'x', rules, '--id', id).status, 1, id);
+  assert.strictEqual(read(rules), rest, 'a miss changes nothing');
+  // Misread arguments stop before anything moves.
+  for (const a of [[rules, '--id=bb22'], [rules, 'extra.md'], [rules, '--id'], []]) assert.strictEqual(oma(dir, 'shelve', 'x', ...a).status, 2, a.join(' '));
+  assert.strictEqual(read(rules), rest);
+
+  // A Claude memory file, from a worktree: it still lands in the main checkout.
+  const wt = path.join(dir, '.claude', 'worktrees', 'w1');
+  git(dir, 'worktree', 'add', '-q', wt);
+  const memDir = path.join(cfgDir, 'projects', '-p', 'memory');
+  const mem = path.join(memDir, 'old-fact.md');
+  write(mem, 'the products page lives in src/products\n');
+  assert.strictEqual(oma(wt, 'shelve', 'renamed|to catalog', mem).status, 0);
+  assert.ok(!fs.existsSync(mem));
+  assert.strictEqual(read(path.join(arch, day, 'old-fact.md')), 'the products page lives in src/products\n');
+  assert.ok(!fs.existsSync(path.join(wt, '.oma-archive')), 'nothing in the worktree');
+  // The same name again gets its own file.
+  write(mem, 'again\n');
+  assert.strictEqual(oma(dir, 'shelve', 'x', mem).status, 0);
+  assert.strictEqual(read(path.join(arch, day, 'old-fact-2.md')), 'again\n');
+  assert.deepStrictEqual(read(path.join(arch, 'INDEX.md')).trim().split('\n'),
+    [`${day} | ${rules}#aa11 | audit run-1 is over`, `${day} | ${mem} | renamed to catalog`, `${day} | ${mem} | x`]);
+
+  // Everything else is refused and left where it is.
+  const keep = (file, why, re = /not a memory note/) => {
+    const r = oma(dir, 'shelve', 'x', file);
+    assert.strictEqual(r.status, 1, why);
+    assert.match(r.stderr, re, why);
+    assert.ok(fs.lstatSync(file), why);
+  };
+  const outside = path.join(tmp('oma-home-'), 'id_ed25519');
+  write(outside, 'key\n');
+  keep(outside, 'a file outside the project');
+  write(path.join(dir, '.oma', 'approved.json'), '{}');
+  keep(path.join(dir, '.oma', 'approved.json'), 'the approval manifest');
+  keep(path.join(dir, '.oma', 'project.md'), 'the profile');
+  write(path.join(dir, 'specs', 'tickets', '001-x', 'rd.md'), 'x');
+  keep(path.join(dir, 'specs', 'tickets', '001-x', 'rd.md'), 'a ticket');
+  keep(path.join(arch, day, 'live_rules.jsonl'), 'an already shelved note');
+  write(path.join(memDir, 'MEMORY.md'), '- index\n');
+  keep(path.join(memDir, 'MEMORY.md'), 'the memory index');
+  fs.symlinkSync(path.join(dir, 'README.md'), path.join(dir, '.deja', 'link.jsonl'));
+  keep(path.join(dir, '.deja', 'link.jsonl'), 'a symlink', /not a plain file/);
+  write(path.join(dir, '.deja', 'memory.jsonl'), '{"id":"c"}\n');
+  git(dir, 'add', '-f', '.deja/memory.jsonl');
+  keep(path.join(dir, '.deja', 'memory.jsonl'), 'a tracked deja file', /tracked by git/);
+
+  // A planted link in place of the archive folder is not written through.
+  fs.rmSync(arch, { recursive: true });
+  const elsewhere = tmp('oma-else-');
+  fs.symlinkSync(elsewhere, arch);
+  assert.strictEqual(oma(dir, 'shelve', 'x', rules, '--id', 'bb22').status, 1);
+  assert.deepStrictEqual(fs.readdirSync(elsewhere), []);
+  assert.strictEqual(read(rules), rest);
+});
+
+test('init ignores .oma-archive and never lists it for worktrees', async () => {
+  const { ensureOmaIgnores } = await import('../scripts/oma.mjs');
+  const dir = repo();
+  ensureOmaIgnores(dir);
+  assert.match(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), /^\/\.oma-archive\/$/m);
+  assert.doesNotMatch(fs.readFileSync(path.join(dir, '.worktreeinclude'), 'utf8'), /oma-archive/);
+});
