@@ -379,7 +379,9 @@ function cmdShelve(args) {
     // Archive first, then rewrite from a fresh read through a rename: a crash or a line deja appends meanwhile loses nothing.
     fs.appendFileSync(dest, out.join('\n') + '\n');
     const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, fs.readFileSync(file, 'utf8').split('\n').filter(l => !hit(l)).join('\n'));
+    // Always end on a newline: deja appends to this file, and a missing one would glue two records together.
+    const kept = fs.readFileSync(file, 'utf8').split('\n').filter(l => !hit(l)).join('\n');
+    fs.writeFileSync(tmp, kept && !kept.endsWith('\n') ? `${kept}\n` : kept);
     fs.renameSync(tmp, file);
   } else {
     const ext = path.extname(dest);

@@ -404,6 +404,16 @@ test('oma shelve: only memory notes, into the main checkout\'s .oma-archive, los
   for (const a of [[rules, '--id=bb22'], [rules, 'extra.md'], [rules, '--id'], []]) assert.strictEqual(oma(dir, 'shelve', 'x', ...a).status, 2, a.join(' '));
   assert.strictEqual(read(rules), rest);
 
+  // A file without a final newline still ends on one, so the next appended record is not glued to the last.
+  const bare = path.join(dir, '.deja', 'notes.jsonl');
+  write(bare, '{"id":"n1"}\n{"id":"n2"}');
+  assert.strictEqual(oma(dir, 'shelve', 'x', bare, '--id', 'n2').status, 0);
+  assert.strictEqual(read(bare), '{"id":"n1"}\n');
+  // CRLF lines keep their endings.
+  write(bare, '{"id":"n1"}\r\n{"id":"n3"}\r\n');
+  assert.strictEqual(oma(dir, 'shelve', 'x', bare, '--id', 'n1').status, 0);
+  assert.strictEqual(read(bare), '{"id":"n3"}\r\n');
+
   // A Claude memory file, from a worktree: it still lands in the main checkout.
   const wt = path.join(dir, '.claude', 'worktrees', 'w1');
   git(dir, 'worktree', 'add', '-q', wt);
@@ -419,7 +429,7 @@ test('oma shelve: only memory notes, into the main checkout\'s .oma-archive, los
   assert.strictEqual(oma(dir, 'shelve', 'x', mem).status, 0);
   assert.strictEqual(read(path.join(arch, day, 'old-fact-2.md')), 'again\n');
   assert.deepStrictEqual(read(path.join(arch, 'INDEX.md')).trim().split('\n'),
-    [`${day} | ${rules}#aa11 | audit run-1 is over`, `${day} | ${mem} | renamed to catalog`, `${day} | ${mem} | x`]);
+    [`${day} | ${rules}#aa11 | audit run-1 is over`, `${day} | ${bare}#n2 | x`, `${day} | ${bare}#n1 | x`, `${day} | ${mem} | renamed to catalog`, `${day} | ${mem} | x`]);
 
   // Everything else is refused and left where it is.
   const keep = (file, why, re = /not a memory note/) => {
