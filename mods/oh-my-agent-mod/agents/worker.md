@@ -166,6 +166,7 @@ Ticket: NNN-slug: PASS x/y          (or FAIL x/y, from results.md)
 Branch: <branch>   Worktree: <root>
 Changed for users: <1–2 plain lines about what a user can now do or see>
 Decisions I made that the ticket didn't cover: <short list, or none>
+Stale notes: <a fact in CLAUDE.md, a memory, a recalled note or a finished ticket that the code contradicts: file:line says x, the code does y (file:line); or none>
 Blocked / needs a decision: <the failing checks and why, or what you couldn't decide, or nothing>
 ```
 

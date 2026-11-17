@@ -23,7 +23,8 @@ const ME = 'oh-my-agent-mod';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP_SESSIONS = 50;
 // Everything oma writes in a project. Never committed, never sent into a Docker build context.
-const IGNORE_LINES = ['/.oma/', '/specs/tickets/', '/.claude/worktrees/'];
+// .oma-archive/ (notes shelved by oma shelve) is ignored but never copied into worktrees.
+const IGNORE_LINES = ['/.oma/', '/specs/tickets/', '/.claude/worktrees/', '/.oma-archive/'];
 // Ignored files that every new worktree still needs (Claude Code copies what .worktreeinclude lists).
 const GRAPH_DIR = '.codebase-memory';
 const WORKTREE_LINES = ['/.oma/', '/specs/tickets/'];
@@ -229,7 +230,12 @@ export function onSubagent(input, opts) {
   const cwd = path.resolve(input.cwd || process.cwd());
   const copyErr = copyGraph(cwd);
   const g = codeGraph(cwd, opts);
-  const local = 'oh-my-agent local files: plans, tickets (specs/tickets/), results, evidence and .oma/ are git-ignored and never committed or pushed. Read and write them on disk, never with git (no git show, add or commit for them). A worktree gets copies through .worktreeinclude; if one is missing there, copy it from the main checkout.';
+  const local = 'oh-my-agent local files: plans, tickets (specs/tickets/), results, evidence and .oma/ are git-ignored and never committed or pushed. Read and write them on disk, never with git (no git show, add or commit for them). A worktree gets copies through .worktreeinclude; if one is missing there, copy it from the main checkout.'
+    // Outdated notes send agents on side quests: for facts the code wins, the job's own ticket is the one exception.
+    + '\noh-my-agent stale notes: for facts about the code (paths, names, commands, what is built) the code is the source of truth. When CLAUDE.md, AGENTS.md, a rule file, a memory or a recalled note (deja), a finished ticket or a code comment states a fact the code contradicts, follow the code. '
+    + 'Rules, prohibitions and safety instructions in those files always hold, even where the code breaks them. '
+    + 'The one exception is the ticket or intent file you were given for this job: it says where the app is going, so follow it. '
+    + 'Never fix or act on a note, TODO or plan you were not asked about.';
   const warn = copyErr ? `\noma: graph copy failed: ${copyErr}` : '';
   if (g.reason === 'plugin not enabled') return local + warn;
   if (!g.active) return `${local}${warn}\noh-my-agent code search: the code graph is on but no graph applies in ${cwd} (${g.reason}), so Grep, Glob and grep work as usual here.`;

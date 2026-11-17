@@ -24,6 +24,7 @@ In any project (a git repository), in a normal Claude Code chat:
 /oma build <feature>      force the full ticket pipeline
 /oma approve 010 011      approve those tickets as written; nothing is built before this
 /oma explore              blind first-time-user walk of a web app
+/oma sweep [scope]        find outdated notes (docs, memory, todos), prove each, fix what you approve
 /oma status               board and running jobs, changes nothing
 /oma off                  end router mode in this session
 ```
@@ -45,6 +46,7 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 10. **Stress stage**, for web apps: `oma stress up` starts a separate copy of the app (its own worktree, port 3080, its own data), and up to five blind **first-timer** agents on Haiku use it at once, each with a different persona: a new visitor, one per feature with your goal in your own words, a phone-only user, and a breaker (double submits, absurd input, back and reload mid-flow, two tabs, other people's ids). They cannot read code; a hook keeps them to the browser and to this app's ports. No finding changes code directly: each Blocker or Major goes to the reproducer, and only a confirmed, fixed bug in something an approved ticket promised is merged, at most 3 per run. The rest is listed for you with a recommendation. The stage is skipped, and says so, for an API or CLI or when every copy of the app shares one database. `/oma explore` still runs one blind walk on request.
 11. **Decision ledger.** Every call an agent made without asking you is one line in `.oma/decisions.md`, so you can audit them instead of being asked each one.
 12. **The watch.** The router runs `scripts/check.mjs --watch` under its Monitor tool: every 10 minutes it flags workers that went quiet, loop, are blocked or touch files outside their ticket, and checks the main app answers. Quiet rounds print nothing. The router answers "why did X fail" from the ticket's results and status files.
+13. **Stale notes and `/oma sweep`.** Outdated notes (a CLAUDE.md line, a memory, a deja rule left from a finished job, an old TODO) send agents on side quests. A hook tells every oma agent that for facts the code wins, with its own ticket as the one exception and safety rules always holding; workers report mismatches, the router collects them in `.oma/stale.md`, and at the end of a run it has them verified and lists the proven ones in its summary for you to pick. `/oma sweep [todos|docs|memory]` collects checkable claims, has up to three fresh **sweep-verifier** agents (given only the quotes and a neutral question, shell limited to reading) mark each CURRENT, OUTDATED or UNPROVEN with evidence, and proposes only the proven ones. You pick the numbers: files in git change through one ticket you approve with `/oma approve`; memory notes git does not track (`.deja/`, Claude's memory folder) are moved by `oma shelve` into `.oma-archive/<date>/` in the main checkout, logged in `.oma-archive/INDEX.md`, git-ignored, never copied into worktrees and off limits to oma agents; after a deja line is shelved the router runs `deja index`, since deja serves rules from its index. A recorded decision that disagrees with the code is listed as a conflict for you, never cut.
 
 ## Before a hands-off run
 
@@ -54,7 +56,7 @@ While router mode is on, just talk to it: `what's running?`, `why did 002 fail?`
 
 ## Agents
 
-`oh-my-agent-mod:` `ticket-writer`, `plan-reviewer`, `worker`, `reviewer`, `reproducer`, `final-reviewer`, `first-timer`, `gatherer`. The router is your own session, following `router.md` after `/oma`; it reads `router-bug.md`, `router-interview.md` and `router-run.md` only when their phase starts, so a quick fix or a brainstorm does not load the whole pipeline.
+`oh-my-agent-mod:` `ticket-writer`, `plan-reviewer`, `worker`, `reviewer`, `reproducer`, `final-reviewer`, `first-timer`, `gatherer`, `sweep-verifier`. The router is your own session, following `router.md` after `/oma`; it reads `router-bug.md`, `router-interview.md`, `router-run.md` and `router-sweep.md` only when their phase starts, so a quick fix or a brainstorm does not load the whole pipeline.
 
 Removed in 0.13.0: the `tester` (the worker runs its own checks and sees its own pages) and the `merger` agent (now the `oma merge` command). Removed in 0.10.0: agent teams (`teammate`), the `checker`'s browser walk after every merge, and the `inspector`. The blind first-timer walk at the end of a run stays.
 

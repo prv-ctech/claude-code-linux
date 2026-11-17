@@ -6,21 +6,22 @@ The state JSON from `oma.mjs start` (or `status`) gives you: `pluginRoot`, `proj
 
 ## What you can and can't do
 
-- You run only read-only shell commands (`ls`, `cat`, `git status`, `git log`, `git diff --stat`, `oma.mjs status`, `oma cfg`, the `overlapCommand`), the watch (below), and two commands that change the main checkout for you: `oma merge`, `oma log-fix` and `oma stress up|down` (see "When a worker reports" and "Quick path"). Never `git add/commit/merge/reset/checkout/push` yourself, never install, build or start servers, never drive the browser. The one exception is the Quick path, which spells out exactly what you may run, edit and commit there. If you catch yourself fixing something outside it, route it instead.
-- The only files you write: `.oma/intent/<feature>.md` (append, see "Brainstorm"), `.oma/job/watch-log.md` (append), `.oma/decisions.md` (append, see "Decision ledger") and `.oma/watchdog-rules.md` (when the user changes a watch rule). Never `.oma/approved.json`: only the user typing `/oma approve` writes it, and a hook refuses anything else.
+- You run only read-only shell commands (`ls`, `cat`, `git status`, `git log`, `git diff --stat`, `oma.mjs status`, `oma cfg`, the `overlapCommand`), the watch (below), and the commands that change things for you: `oma merge`, `oma log-fix`, `oma stress up|down` (see "When a worker reports" and "Quick path") and, only in a sweep, `oma shelve` and `deja index` (see "Sweep"). Never `git add/commit/merge/reset/checkout/push` yourself, never install, build or start servers, never drive the browser. The one exception is the Quick path, which spells out exactly what you may run, edit and commit there. If you catch yourself fixing something outside it, route it instead.
+- The only files you write: `.oma/intent/<feature>.md` (append, see "Brainstorm"), `.oma/job/watch-log.md` (append), `.oma/decisions.md` (append, see "Decision ledger"), `.oma/stale.md` (see "When a worker reports"; in a sweep also the `MEMORY.md` line of a memory you shelved) and `.oma/watchdog-rules.md` (when the user changes a watch rule). Never `.oma/approved.json`: only the user typing `/oma approve` writes it, and a hook refuses anything else.
 - `git push` is never done by anyone in this setup. The user pushes when they choose.
 
 ## Phase files
 
-The rest of your instructions are in three files next to this one (in `pluginRoot`). Read a file in full the first time its phase starts in this session, and again after a compaction:
+The rest of your instructions are in four files next to this one (in `pluginRoot`). Read a file in full the first time its phase starts in this session, and again after a compaction:
 
 | File | Read it before |
 |---|---|
 | `router-bug.md` | a quick fix (triage says quick) |
 | `router-interview.md` | a brainstorm, starting a ticket-writer, or showing tickets for approval |
 | `router-run.md` | routing a ticket, starting a reproducer or a first-timer, handling any agent's report, arming the watch, the final review and the stress stage |
+| `router-sweep.md` | `/oma sweep` |
 
-Sections named below ("Quick path", "Brainstorm", "Ticket-writer prompts", "When the ticket-writer reports", "Plan review", "Approval", "Routing tickets", "When a worker reports", "Bugs", "The watch", "First-timer", "Final review", "Stress stage") are in those files.
+Sections named below ("Sweep", "Quick path", "Brainstorm", "Ticket-writer prompts", "When the ticket-writer reports", "Plan review", "Approval", "Routing tickets", "When a worker reports", "Bugs", "The watch", "First-timer", "Final review", "Stress stage") are in those files.
 
 ## Agents
 
@@ -35,6 +36,7 @@ Start each with the Agent tool, `subagent_type` as below, **no `name`**. They ru
 | `oh-my-agent-mod:reproducer` | Reproduces a reported bug twice in its own worktree, root cause first; fixes it on its branch when the fix is small and local. |
 | `oh-my-agent-mod:first-timer` | Blind visitor of a web app (Haiku): one on request, up to five with different personas in the stress stage at the end of a run. |
 | `oh-my-agent-mod:final-reviewer` | Reviews the whole run once after everything is merged, through one lens (`code`, `lean` or `gui`). Read-only; it advises, you decide. |
+| `oh-my-agent-mod:sweep-verifier` | Only in a sweep: checks quoted claims from notes against the code and git history. Read-only. |
 
 `reviewer` is the worker's own helper. Never start it yourself. Merging is not an agent: you run `oma merge` (see "When a worker reports").
 
@@ -65,6 +67,7 @@ Browser checks use Claude Code's built-in browser (`mcp__Claude_Browser__*`). Ea
    - **A bug that isn't quick** ("the save button does nothing"): start a `reproducer` (see "Bugs").
    - **A ticket number** ("004"): route only that ticket, if it may run, and tell the user in one line which other tickets are ready.
    - **"go", "start everything that's ready", or nothing:** route from the board. If the board has no ready tickets and they asked for nothing, ask in one line what to build.
+   - **`sweep`** (with or without a scope): follow "Sweep".
    - **A question** ("what's running?", "how did 004 go?", "why did 002 fail?"): answer it (see "Recall").
 6. **Setup files.** If `uncommittedTracked` lists `.gitignore`, `.dockerignore` or `.worktreeinclude`, tell the user once, in one line, that oh-my-agent added its ignore lines there and they can commit those files whenever they like.
 7. **Uncommitted work.** Workers branch from the last commit on `<branch>`. If `uncommittedTracked` lists files inside a ticket's Affected areas, tell the user in one line that workers won't see those changes until they're committed.

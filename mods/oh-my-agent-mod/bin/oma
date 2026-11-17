@@ -22,6 +22,10 @@
 //                                   the result, undoes the merge if one fails, marks the ticket done. Last line:
 //                                   MERGED | CONFLICT | FAILED ...; exit 0 only for MERGED
 //   oma log-fix <one line>          adds a done row to specs/tickets/BOARD.md for a fix that had no ticket
+//   oma shelve "<reason>" <file> [--id <id>]
+//                                   moves an outdated memory note git does not track (a file in a Claude memory folder, or
+//                                   with --id one line of a .deja/*.jsonl file) into <main checkout>/.oma-archive/<date>/
+//                                   and logs it in .oma-archive/INDEX.md; refuses every other file
 //   oma stress <up|down>            up: a detached worktree of this checkout's HEAD under .claude/worktrees/oma-stress,
 //                                   installed and served on port 3080 for the blind visitors; prints SKIPPED: <why>
 //                                   when the app is not a web app or its data is shared. down: stops and removes it
@@ -331,6 +335,70 @@ function cmdLogFix(args) {
   console.log(`logged as ${logFix(top(), title, 'quick fix')} on specs/tickets/BOARD.md`);
 }
 
+// Moves an outdated memory note out of every agent's sight, into <main checkout>/.oma-archive/<date>/.
+// Only deja's project memory (<main>/.deja/) and Claude's memory folders; never prints the note's content.
+function cmdShelve(args) {
+  const i = args.indexOf('--id');
+  const id = i >= 0 ? args[i + 1] : null;
+  const pos = i >= 0 ? args.filter((_, j) => j !== i && j !== i + 1) : args;
+  if (pos.length !== 2 || pos.some(a => a.startsWith('--')) || (i >= 0 && !id)) die('usage: oma shelve "<reason>" <file> [--id <id of one .jsonl line>]', 2);
+  const [reason, fileArg] = pos;
+  const real = p => fs.realpathSync(p);
+  const inside = (p, dir) => p.startsWith(dir + path.sep);
+  const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' });
+  if (common.status !== 0) die('not in a git repository');
+  // The main checkout, also when run from a worktree: a worktree's own copy dies with it.
+  const root = real(path.dirname(common.stdout.trim()));
+  if (!fs.existsSync(fileArg) || fs.lstatSync(fileArg).isSymbolicLink() || !fs.statSync(fileArg).isFile()) die(`${fileArg} is not a plain file`);
+  const file = real(fileArg);
+  const claude = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(require('os').homedir(), '.claude'), 'projects');
+  const memory = fs.existsSync(claude) && inside(file, real(claude)) && file.split(path.sep).includes('memory') && path.basename(file) !== 'MEMORY.md';
+  if (!inside(file, path.join(root, '.deja')) && !memory) die(`${file} is not a memory note: oma shelve only moves files under ${path.join(root, '.deja')} or a Claude memory folder`);
+  // A file git tracks changes through a sweep ticket and a merge, where history keeps the old text.
+  if (spawnSync('git', ['ls-files', '--error-unmatch', '--', file], { cwd: path.dirname(file), stdio: 'ignore' }).status === 0) {
+    die(`${file} is tracked by git: change it through a sweep ticket, not oma shelve`);
+  }
+  const day = now().slice(0, 10);
+  const arch = path.join(root, '.oma-archive');
+  const dir = path.join(arch, day);
+  // A planted link in place of the archive (or of today's folder) would send notes somewhere else.
+  for (const d of [arch, dir]) {
+    if (fs.lstatSync(d, { throwIfNoEntry: false })?.isSymbolicLink()) die(`${d} is a symlink: refusing to write through it`);
+    fs.mkdirSync(d, { recursive: true });
+  }
+  let dest = path.join(dir, path.basename(file));
+  if (id) {
+    const hit = l => {
+      try {
+        const o = JSON.parse(l);
+        return o && o.id != null && String(o.id) === id;
+      } catch { return false; }
+    };
+    const out = fs.readFileSync(file, 'utf8').split('\n').filter(hit);
+    if (!out.length) die(`no line with id ${id} in ${file}`);
+    // Archive first, then rewrite from a fresh read through a rename: a crash or a line deja appends meanwhile loses nothing.
+    fs.appendFileSync(dest, out.join('\n') + '\n');
+    const tmp = `${file}.${process.pid}.tmp`;
+    // Always end on a newline: deja appends to this file, and a missing one would glue two records together.
+    const kept = fs.readFileSync(file, 'utf8').split('\n').filter(l => !hit(l)).join('\n');
+    fs.writeFileSync(tmp, kept && !kept.endsWith('\n') ? `${kept}\n` : kept);
+    fs.renameSync(tmp, file);
+  } else {
+    const ext = path.extname(dest);
+    for (let n = 2; fs.existsSync(dest); n++) dest = path.join(dir, `${path.basename(file, ext)}-${n}${ext}`);
+    fs.copyFileSync(file, dest); // copy then delete: the note may live on another filesystem (~/.claude)
+    try {
+      fs.unlinkSync(file);
+    } catch (e) {
+      fs.unlinkSync(dest);
+      die(`could not remove ${file} (${e.code}); nothing was shelved`);
+    }
+  }
+  const clean = s => String(s).replace(/[|\r\n]+/g, ' ').trim();
+  fs.appendFileSync(path.join(arch, 'INDEX.md'), `${day} | ${clean(file)}${id ? `#${clean(id)}` : ''} | ${clean(reason)}\n`);
+  console.log(`shelved ${file}${id ? `#${id}` : ''} -> ${path.relative(root, dest)}`);
+}
+
 async function cmdMerge(args) {
   let worktree = '';
   const rest = [];
@@ -505,6 +573,6 @@ function cmdStress([what]) {
 
 const [cmd, ...rest] = process.argv.slice(2);
 const table = { cfg: () => console.log(JSON.stringify(cfg(), null, 2)), run: cmdRun, serve: cmdServe, up: cmdUp,
-  port: cmdPort, stop: cmdStop, status: cmdStatus, merge: cmdMerge, 'log-fix': cmdLogFix, stress: cmdStress, now: () => console.log(now()) };
-if (!table[cmd]) die('usage: oma <cfg|run|serve|up|port|stop|status|merge|log-fix|stress|now> ... (see the header of this file)', 2);
+  port: cmdPort, stop: cmdStop, status: cmdStatus, merge: cmdMerge, 'log-fix': cmdLogFix, shelve: cmdShelve, stress: cmdStress, now: () => console.log(now()) };
+if (!table[cmd]) die('usage: oma <cfg|run|serve|up|port|stop|status|merge|log-fix|shelve|stress|now> ... (see the header of this file)', 2);
 Promise.resolve(table[cmd](rest)).catch(e => die(e.message));
