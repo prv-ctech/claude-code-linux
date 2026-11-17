@@ -33,3 +33,6 @@ claude-code-state/
 # deepseek-harnes external audit
 
 .deja/
+
+# oh-my-agent: local plans, tickets and job files (never commit)
+/.oma-archive/
