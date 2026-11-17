@@ -302,17 +302,21 @@ function touchesArchive(tool, ti, cwd) {
 // No rg (--pre runs a program per file); the code graph only through its read tools.
 const VERIFIER_CMDS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'pwd', 'cd', 'grep']);
 const VERIFIER_GRAPH = new Set(['search_graph', 'search_code', 'get_code_snippet', 'trace_path', 'get_file_outline', 'query_graph', 'get_architecture']);
-// git options that run a program or write a file: a pager for grep, external diff and textconv drivers, and, before the
-// subcommand, -c (core.pager, core.fsmonitor, alias). After it, -c and -p are plain log and diff flags.
-const VERIFIER_GIT_NO = /^(-O.*|--open-files-in-pager.*|--ext-diff|--textconv|--output.*)$/;
-const VERIFIER_GIT_GLOBAL_NO = /^(-c|--config-env.*|--exec-path.*)$/;
-const VERIFIER_GIT = new Set(['log', 'show', 'diff', 'blame', 'status', 'ls-files', 'rev-parse', 'grep', 'shortlog', 'rev-list', 'merge-base']);
+// No git grep: its -O / --open-files-in-pager runs a program, and bundled short flags (-nOcmd) hide it.
+const VERIFIER_GIT = new Set(['log', 'show', 'diff', 'blame', 'status', 'ls-files', 'rev-parse', 'shortlog', 'rev-list', 'merge-base']);
+// Long options that write a file or run an external driver. git accepts any unique abbreviation (--outp, --ext),
+// so a word counts when it is a prefix of one of them.
+const VERIFIER_GIT_NO = ['--output', '--ext-diff', '--textconv'];
 function verifierBash(cmd) {
   const ok = !/[<>`]|\$\(/.test(cmd) && segments(cmd).every(seg => {
     const w = words(seg);
     if (w[0] === 'git') {
       const sub = gitSub(seg);
-      return VERIFIER_GIT.has(sub) && !w.some(x => VERIFIER_GIT_NO.test(x)) && !w.slice(1, w.indexOf(sub)).some(x => VERIFIER_GIT_GLOBAL_NO.test(x));
+      const at = w.indexOf(sub);
+      // Before the subcommand only -C <dir> and --no-pager: -c, --config-env and --exec-path can make git run a program.
+      const global = w.slice(1, at).filter((x, j, all) => x !== '-C' && all[j - 1] !== '-C' && x !== '--no-pager');
+      const long = w.slice(at + 1).filter(x => x.startsWith('--') && x !== '--').map(x => x.split('=')[0]);
+      return VERIFIER_GIT.has(sub) && !global.length && !long.some(x => VERIFIER_GIT_NO.some(d => d.startsWith(x)));
     }
     if (w[0] === 'codebase-memory-mcp') return w[1] === 'cli' && VERIFIER_GRAPH.has(w[2]);
     return VERIFIER_CMDS.has(w[0]);
