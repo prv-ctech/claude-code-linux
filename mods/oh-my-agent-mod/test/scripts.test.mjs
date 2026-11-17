@@ -372,8 +372,11 @@ test('sweep: agents are told the code wins for facts only; guard keeps them out 
 test('sweep-verifier: read-only by hook, not only by prompt', () => {
   const V = 'oh-my-agent-mod:sweep-verifier';
   const d = command => decide({ agent_type: V, tool_name: 'Bash', tool_input: { command }, cwd: '/p' });
-  for (const c of ['git log --oneline -- src/a.ts', 'git blame -L 3,3 -- CLAUDE.md', "git log -S'foo' --oneline -- src", 'ls -la src', 'cat CLAUDE.md | head -20', 'grep -n TODO src/a.ts', 'cd /p && git status --short', 'wc -l README.md']) assert.strictEqual(d(c), null, c);
-  for (const c of ['rm -rf src', 'git commit -am x', 'git checkout -- .', 'git branch -D main', 'echo x > CLAUDE.md', 'cat a >> b', 'ls $(rm -rf src)', 'ls `rm x`', 'git log --output=x', 'node -e "1"', 'sed -i s/a/b/ f', 'ls; curl http://x', 'bash -c "rm x"', 'mv a b']) assert.match(d(c) || '', /only reads/, c);
+  for (const c of ['git log --oneline -- src/a.ts', 'git blame -L 3,3 -- CLAUDE.md', "git log -S'foo' --oneline -- src", 'ls -la src', 'cat CLAUDE.md | head -20', 'grep -n TODO src/a.ts', 'cd /p && git status --short', 'wc -l README.md', 'git -C /p log -3 --format=%s', 'git log -p -- src/a.ts', 'git show -c abc1234 -- src/a.ts', "codebase-memory-mcp cli search_code '{\"pattern\":\"TODO\"}'"]) assert.strictEqual(d(c), null, c);
+  for (const c of ['rm -rf src', 'git commit -am x', 'git checkout -- .', 'git branch -D main', 'echo x > CLAUDE.md', 'cat a >> b', 'ls $(rm -rf src)', 'ls `rm x`', 'git log --output=x', 'node -e "1"', 'sed -i s/a/b/ f', 'ls; curl http://x', 'bash -c "rm x"', 'mv a b',
+    // Options and tools that run a program.
+    'rg --pre ./x.sh TODO', 'rg TODO src', 'git grep -O./x.sh TODO', 'git grep --open-files-in-pager=./x.sh TODO', 'git -c core.pager=./x.sh log', 'git -c core.fsmonitor=./x.sh status',
+    'git --exec-path=/tmp log', 'git diff --ext-diff', 'git log --textconv -p', 'GIT_PAGER=./x.sh git log', '/tmp/git log', "codebase-memory-mcp cli index_repository '{}'", 'codebase-memory-mcp serve']) assert.match(d(c) || '', /only reads/, c);
   const fm = fs.readFileSync(path.join(ROOT, 'agents', 'sweep-verifier.md'), 'utf8').split('---')[1];
   assert.match(fm, /^disallowedTools: Edit, Write, NotebookEdit, Agent$/m);
   // Other agents keep their shell.

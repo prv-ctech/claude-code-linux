@@ -299,15 +299,25 @@ function touchesArchive(tool, ti, cwd) {
 
 // The sweep-verifier reads untrusted note text, so its shell only reads: plain listing and search
 // commands and read-only git, no redirects, no substitution, nothing that writes a file.
-const VERIFIER_CMDS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'pwd', 'cd', 'grep', 'rg', 'codebase-memory-mcp']);
+// No rg (--pre runs a program per file); the code graph only through its read tools.
+const VERIFIER_CMDS = new Set(['ls', 'cat', 'head', 'tail', 'wc', 'pwd', 'cd', 'grep']);
+const VERIFIER_GRAPH = new Set(['search_graph', 'search_code', 'get_code_snippet', 'trace_path', 'get_file_outline', 'query_graph', 'get_architecture']);
+// git options that run a program or write a file: a pager for grep, external diff and textconv drivers, and, before the
+// subcommand, -c (core.pager, core.fsmonitor, alias). After it, -c and -p are plain log and diff flags.
+const VERIFIER_GIT_NO = /^(-O.*|--open-files-in-pager.*|--ext-diff|--textconv|--output.*)$/;
+const VERIFIER_GIT_GLOBAL_NO = /^(-c|--config-env.*|--exec-path.*)$/;
 const VERIFIER_GIT = new Set(['log', 'show', 'diff', 'blame', 'status', 'ls-files', 'rev-parse', 'grep', 'shortlog', 'rev-list', 'merge-base']);
 function verifierBash(cmd) {
   const ok = !/[<>`]|\$\(/.test(cmd) && segments(cmd).every(seg => {
     const w = words(seg);
-    if (w.some(x => /^--output/.test(x))) return false;
-    return basename(w[0]) === 'git' ? VERIFIER_GIT.has(gitSub(seg)) : VERIFIER_CMDS.has(w[0]);
+    if (w[0] === 'git') {
+      const sub = gitSub(seg);
+      return VERIFIER_GIT.has(sub) && !w.some(x => VERIFIER_GIT_NO.test(x)) && !w.slice(1, w.indexOf(sub)).some(x => VERIFIER_GIT_GLOBAL_NO.test(x));
+    }
+    if (w[0] === 'codebase-memory-mcp') return w[1] === 'cli' && VERIFIER_GRAPH.has(w[2]);
+    return VERIFIER_CMDS.has(w[0]);
   });
-  return ok ? null : 'the sweep-verifier only reads: ls, cat, head, tail, wc, grep, rg and read-only git (log, show, diff, blame, status, ls-files), with no redirects.';
+  return ok ? null : 'the sweep-verifier only reads: ls, cat, head, tail, wc, grep, read-only git (log, show, diff, blame, status, ls-files) and the code graph search tools, with no redirects and no option that runs a program.';
 }
 
 export function decide(input) {
