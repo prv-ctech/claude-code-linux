@@ -313,7 +313,11 @@ function quotedSegments(cmd) {
   const out = [];
   let cur = '';
   let q = null;
-  for (const c of String(cmd)) {
+  const s = String(cmd);
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    // A backslash escapes the next char outside quotes and in double quotes, as bash does.
+    if (c === '\\' && q !== "'" && i + 1 < s.length) { cur += c + s[++i]; continue; }
     if (q) { if (c === q) q = null; cur += c; } else if (c === '"' || c === "'") { q = c; cur += c; } else if (/[;&|\n()]/.test(c)) { out.push(cur); cur = ''; } else cur += c;
   }
   out.push(cur);

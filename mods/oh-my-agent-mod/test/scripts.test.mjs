@@ -375,7 +375,7 @@ test('sweep-verifier: read-only by hook, not only by prompt', () => {
   for (const c of ['git log --oneline -- src/a.ts', 'git blame -L 3,3 -- CLAUDE.md', "git log -S'foo' --oneline -- src", 'ls -la src', 'cat CLAUDE.md | head -20', 'grep -n TODO src/a.ts', 'cd /p && git status --short', 'wc -l README.md', 'git -C /p log -3 --format=%s', 'git log -p -- src/a.ts', 'git show -c abc1234 -- src/a.ts', 'git --no-pager log --oneline --no-ext-diff -- src', 'git diff --stat HEAD~1', 'git -C diff diff --stat', 'git -C /p --no-pager -C src log -1', "codebase-memory-mcp cli search_code '{\"pattern\":\"TODO\"}'",
     // ( ; | inside quotes is pattern text, not shell.
     "cd /p; grep -n -e 'card(' -e '\"ready\"' a.ts | head -30; ls src | head", "grep -n 'a;rm x' f"]) assert.strictEqual(d(c), null, c);
-  for (const c of ["grep 'x' f | (rm y)", "grep 'x' f; rm y", "grep 'x(' f && touch g"]) assert.match(d(c) || '', /only reads/, c);
+  for (const c of ["grep 'x' f | (rm y)", "grep 'x' f; rm y", "grep 'x(' f && touch g", "grep \\'; rm y; echo \\'"]) assert.match(d(c) || '', /only reads/, c);
   for (const c of ['rm -rf src', 'git commit -am x', 'git checkout -- .', 'git branch -D main', 'echo x > CLAUDE.md', 'cat a >> b', 'ls $(rm -rf src)', 'ls `rm x`', 'git log --output=x', 'node -e "1"', 'sed -i s/a/b/ f', 'ls; curl http://x', 'bash -c "rm x"', 'mv a b',
     // Options and tools that run a program.
     'rg --pre ./x.sh TODO', 'rg TODO src', 'git grep -O./x.sh TODO', 'git grep --open-files-in-pager=./x.sh TODO', 'git -c core.pager=./x.sh log', 'git -c core.fsmonitor=./x.sh status',
