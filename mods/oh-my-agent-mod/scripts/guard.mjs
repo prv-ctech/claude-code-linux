@@ -307,8 +307,24 @@ const VERIFIER_GIT = new Set(['log', 'show', 'diff', 'blame', 'status', 'ls-file
 // Long options that write a file or run an external driver. git accepts any unique abbreviation (--outp, --ext),
 // so a word counts when it is a prefix of one of them.
 const VERIFIER_GIT_NO = ['--output', '--ext-diff', '--textconv'];
+// Like segments(), but a ; & | ( ) inside quotes stays in the word: grep -e 'card(' is one command.
+// Safe here because verifierBash already refuses $( and backticks anywhere.
+function quotedSegments(cmd) {
+  const out = [];
+  let cur = '';
+  let q = null;
+  const s = String(cmd);
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    // A backslash escapes the next char outside quotes and in double quotes, as bash does.
+    if (c === '\\' && q !== "'" && i + 1 < s.length) { cur += c + s[++i]; continue; }
+    if (q) { if (c === q) q = null; cur += c; } else if (c === '"' || c === "'") { q = c; cur += c; } else if (/[;&|\n()]/.test(c)) { out.push(cur); cur = ''; } else cur += c;
+  }
+  out.push(cur);
+  return out.map(s => s.trim()).filter(Boolean);
+}
 function verifierBash(cmd) {
-  const ok = !/[<>`]|\$\(/.test(cmd) && segments(cmd).every(seg => {
+  const ok = !/[<>`]|\$\(/.test(cmd) && quotedSegments(cmd).every(seg => {
     const w = words(seg);
     if (w[0] === 'git') {
       // Walk to the subcommand ourselves: before it only -C <dir> and --no-pager, since -c, --config-env and
